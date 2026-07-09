@@ -306,6 +306,67 @@ def multi_station_comparison(df):
     return fig
 
 
+def distribution_histogram(df):
+    """要素分布直方图（默认含降水量），支持多选要素叠加对比"""
+    fields = ["precipitation", "temperature", "humidity", "wind_speed",
+              "pressure", "visibility", "cloud_cover"]
+    available = [f for f in fields if f in df.columns and not df[f].dropna().empty]
+    if not available:
+        return None
+
+    labels = {
+        "precipitation": "降水量 (mm)",
+        "temperature": "气温 (℃)",
+        "humidity": "相对湿度 (%)",
+        "wind_speed": "风速 (m/s)",
+        "pressure": "气压 (hPa)",
+        "visibility": "能见度 (km)",
+        "cloud_cover": "总云量",
+    }
+    colors = {
+        "precipitation": COLORS["rain_color"],
+        "temperature": COLORS["temp_color"],
+        "humidity": COLORS["humid_color"],
+        "wind_speed": COLORS["wind_color"],
+        "pressure": COLORS["pres_color"],
+        "visibility": COLORS["vis_color"],
+        "cloud_cover": COLORS["purple"],
+    }
+
+    default = ["precipitation"] if "precipitation" in available else [available[0]]
+    selected = st.multiselect(
+        "选择要素（可多选，叠加对比）",
+        available,
+        default=default,
+        format_func=lambda f: labels.get(f, f),
+        key="hist_fields",
+    )
+    if not selected:
+        return None
+
+    fig = go.Figure()
+    for f in selected:
+        fig.add_trace(go.Histogram(
+            x=df[f].dropna(),
+            name=labels.get(f, f),
+            opacity=0.6,
+            nbinsx=30,
+            marker_color=colors.get(f, COLORS["primary"]),
+            hovertemplate=labels.get(f, f) + ": %{x:.2f}<br>频次 %{y}<extra></extra>",
+        ))
+
+    fig.update_layout(
+        barmode="overlay",
+        title="要素分布直方图",
+        xaxis_title="数值",
+        yaxis_title="频次",
+        height=420,
+        margin=dict(l=40, r=20, t=40, b=40),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+    )
+    return fig
+
+
 def render_visualization_tab(df):
     """渲染可视化 Tab 全部内容"""
     st.subheader("[图表] 可视化分析")
@@ -315,8 +376,8 @@ def render_visualization_tab(df):
         return
 
     # 子Tab
-    viz_tab1, viz_tab2, viz_tab3, viz_tab4 = st.tabs([
-        "[统计] 综合看板", "[风] 风场分析", "[实验] 要素关系", "[列表] 统计摘要"
+    viz_tab1, viz_tab2, viz_tab3, viz_tab4, viz_tab5 = st.tabs([
+        "[统计] 综合看板", "[风] 风场分析", "[实验] 要素关系", "[列表] 统计摘要", "[分布] 要素分布"
     ])
 
     with viz_tab1:
@@ -410,3 +471,12 @@ def render_visualization_tab(df):
 
         # 多站点对比
         multi_station_comparison(df)
+
+    with viz_tab5:
+        st.write("### [分布] 要素分布直方图")
+        st.caption("用于查看各气象要素的取值分布，默认展示降水量（可叠加其他要素对比）")
+        hist_fig = distribution_histogram(df)
+        if hist_fig:
+            st.plotly_chart(hist_fig, use_container_width=True, key="viz_hist")
+        else:
+            st.info("当前数据中缺少可用于分布统计的要素字段")

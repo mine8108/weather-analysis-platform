@@ -36,6 +36,7 @@ from modules.analyzer import (
 from modules.climate_ref import render_climate_ref_tab
 from modules.codec import render_codec_tab
 from modules.reporter import render_export_tab
+from modules.nwp_forecast import render_forecast_tab
 
 # 页面配置
 st.set_page_config(**PAGE_CONFIG)
@@ -66,7 +67,7 @@ st.markdown("""
 
 # 头部
 st.markdown('<div class="main-header">[天气] 气象数据交互分析平台</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">数据导入 · 可视化分析 · 国家预警标准检测 · 智能建议 · 报告导出</div>',
+st.markdown('<div class="sub-header">数据导入 · 可视化分析 · 国家预警标准检测 · 智能建议 · 数值预报 · 报告导出</div>',
             unsafe_allow_html=True)
 
 
@@ -144,6 +145,7 @@ tabs = st.tabs([
     "[日期] 气候态参照",
     "[雷达] 报文解码",
     "[导出] 报告导出",
+    "[预报] 数值预报",
 ])
 
 # ---- Tab 1: 数据导入 ----
@@ -230,3 +232,7 @@ with tabs[6]:
         st.session_state.get("quality_score", 0.0),
         st.session_state.get("source", ""),
     )
+
+# ---- Tab 8: 数值预报 ----
+with tabs[7]:
+    render_forecast_tab()
