@@ -272,11 +272,20 @@ def _forecast_time_series(fdf):
         tickformat="%m-%d %H:%M",
     )
     fig.update_layout(
-        title="GFS 温度 / 体感温度 / 降水 预报",
+        title=dict(
+            text="GFS 温度/体感/降水 预报",
+            y=0.01, x=0.5, xanchor="center", yanchor="bottom",
+            font=dict(size=14),
+        ),
         hovermode="x unified",
         height=480,
-        margin=dict(l=40, r=20, t=40, b=80),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+        margin=dict(l=40, r=20, t=20, b=80),
+        legend=dict(
+            x=0.01, y=0.98,
+            xanchor="left", yanchor="top",
+            bgcolor="rgba(255,255,255,0.85)",
+            bordercolor="#ddd", borderwidth=1,
+        ),
     )
     return fig
 
@@ -298,11 +307,20 @@ def _high_temp_72h_panel(hh):
         fig.add_hline(y=thr, line_dash="dash", line_color=color,
                       annotation_text=name, annotation_position="right")
     fig.update_layout(
-        title="未来 72 小时高温与体感温度",
-        xaxis_title="时间", yaxis_title="温度 (℃)",
+        title=dict(
+            text="未来 72 小时高温与体感温度",
+            y=0.01, x=0.5, xanchor="center", yanchor="bottom",
+            font=dict(size=14),
+        ),
+        xaxis_title="时间", yaxis_title="温度 (C)",
         hovermode="x unified", height=380,
-        margin=dict(l=40, r=20, t=40, b=40),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+        margin=dict(l=40, r=20, t=20, b=40),
+        legend=dict(
+            x=0.01, y=0.98,
+            xanchor="left", yanchor="top",
+            bgcolor="rgba(255,255,255,0.85)",
+            bordercolor="#ddd", borderwidth=1,
+        ),
     )
     return fig
 
