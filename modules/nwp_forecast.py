@@ -341,18 +341,92 @@ def _daily_precip_chart(fdf):
     return fig
 
 
-def _spatial_heatmap(lats, lons, times, field3d, lat, lon, hour_idx, variable):
-    """空间图：给定时次渲染经纬度热力图，并标记目标点
+# R3: 自适应色阶 — 变量类型 → 最适合的 colormap
+_COLORMAP_BY_VAR = {
+    "temperature_2m": "RdBu_r",
+    "precipitation": "Blues",
+    "surface_pressure": "Viridis",
+    "wind_speed_10m": "YlOrRd",
+}
 
-    S2: 增大轴标签字号
-    S4+S5: 优化 colorbar（加厚/更多tick/标题侧置）
-    S3 返回值扩展：同时返回 (fig, stats_dict) 供调用方展示统计量
+# 距平模式专用色阶（蓝=低于均值，白=均值，红=高于均值）
+_ANOMALY_COLORMAP = "RdBu_r"
+
+
+def _build_single_heatmap(field2d, lons, lats, vname, lon, lat,
+                           title, cmap, show_contour=True):
+    """构建单张热力图的 Figure（R1+R2+R3 核心）。"""
+    fig = go.Figure()
+
+    # R1: zsmooth 插值平滑
+    fig.add_trace(go.Heatmap(
+        z=field2d, x=lons, y=lats,
+        colorscale=cmap,
+        zsmooth="best",
+        colorbar=dict(
+            title=dict(text=vname, side="right", font=dict(size=13)),
+            thickness=15, len=0.95, tickfont=dict(size=11),
+        ),
+        hovertemplate="经度 %{x:.2f}E<br>纬度 %{y:.2f}N<br>" + vname + ": %{z:.1f}<extra></extra>",
+    ))
+
+    # R2: 等值线叠加（半透明黑线，间距根据数据范围自适应）
+    if show_contour:
+        valid = field2d[np.isfinite(field2d)]
+        if len(valid) >= 4:
+            vmin, vmax = float(np.min(valid)), float(np.max(valid))
+            span = vmax - vmin
+            if span > 0:
+                size = max(span / 8, 0.1)
+                fig.add_trace(go.Contour(
+                    z=field2d, x=lons, y=lats,
+                    contours=dict(
+                        start=vmin + size * 0.5,
+                        end=vmax - size * 0.5,
+                        size=size,
+                    ),
+                    line=dict(color="rgba(40,40,40,0.45)", width=0.8),
+                    showscale=False, showlegend=False,
+                    hovertemplate="",
+                ))
+
+    # 目标点标记
+    fig.add_trace(go.Scatter(
+        x=[lon], y=[lat], mode="markers+text", name="目标点",
+        marker=dict(color="black", size=16, symbol="x", line=dict(width=2)),
+        text=["目标"], textposition="middle right",
+        textfont=dict(size=11, color="#333"),
+        hovertemplate="目标点 (%.2fN, %.2fE)<extra></extra>" % (lat, lon),
+    ))
+    fig.update_layout(
+        title=dict(text=title, y=0.01, x=0.5, xanchor="center", yanchor="bottom",
+                   font=dict(size=13)),
+        xaxis_title=dict(text="经度 (E)", font=dict(size=12)),
+        yaxis_title=dict(text="纬度 (N)", font=dict(size=12)),
+        xaxis=dict(tickfont=dict(size=10), tickformat=".2f"),
+        yaxis=dict(scaleanchor="x", scaleratio=1, tickfont=dict(size=10), tickformat=".2f"),
+        height=400, margin=dict(l=50, r=50, t=25, b=50),
+    )
+    return fig
+
+
+def _spatial_heatmap(lats, lons, times, field3d, lat, lon, hour_idx, variable,
+                     mode="single"):
+    """空间图三种模式。
+
+    mode:
+      "single"  — R1+R2+R3: 单时次插值热力图 + 等值线 + 自适应色阶
+      "panel"   — R4: 2x2 多时次快照，自动取 4 个均匀间隔时次
+      "anomaly" — R5: 距平模式 (格点值 − 全场均值)，突出异常区域
+
+    返回: (fig, stats_dict) — panel 模式时 stats 为 None
     """
     field2d = field3d[:, :, hour_idx]
     vname = SPATIAL_VAR_LABELS.get(variable, variable)
+    cmap = _COLORMAP_BY_VAR.get(variable, "RdYlBu_r")
 
-    # S3: 预计算网格统计量
-    valid = field2d[~np.isnan(field2d)]
+    # 统计量
+    valid = field2d[np.isfinite(field2d)]
     stats = {
         "min": float(np.min(valid)) if len(valid) > 0 else float("nan"),
         "max": float(np.max(valid)) if len(valid) > 0 else float("nan"),
@@ -362,35 +436,112 @@ def _spatial_heatmap(lats, lons, times, field3d, lat, lon, hour_idx, variable):
         "time_str": str(times[hour_idx]),
     }
 
-    fig = go.Figure(go.Heatmap(
-        z=field2d,
-        x=lons, y=lats,
-        colorscale="RdYlBu_r",
-        # S5: 加厚 colorbar + 更多 tick + 标题侧置
-        colorbar=dict(
-            title=dict(text=vname, side="right", font=dict(size=13)),
-            thickness=15,
-            len=0.95,
-            tickfont=dict(size=11),
-        ),
-        hovertemplate="经度 %{x:.2f}E<br>纬度 %{y:.2f}N<br>" + vname + ": %{z:.1f}<extra></extra>",
-    ))
-    # 目标点标记（更大更醒目）
-    fig.add_trace(go.Scatter(
-        x=[lon], y=[lat], mode="markers+text", name="目标点",
-        marker=dict(color="black", size=16, symbol="x", line=dict(width=2)),
-        text=["目标"], textposition="middle right",
-        textfont=dict(size=11, color="#333"),
-        hovertemplate="目标点 (%.2fN, %.2fE)<extra></extra>" % (lat, lon),
-    ))
-    # S2: 轴标题字号增大 + 刻度格式
-    fig.update_layout(
-        title=f"{vname} 空间分布 @ {times[hour_idx]}",
-        xaxis_title=dict(text="经度 (E)", font=dict(size=13)),
-        yaxis_title=dict(text="纬度 (N)", font=dict(size=13)),
-        xaxis=dict(tickfont=dict(size=11), tickformat=".2f"),
-        yaxis=dict(scaleanchor="x", scaleratio=1, tickfont=dict(size=11), tickformat=".2f"),
-        height=520, margin=dict(l=50, r=50, t=45, b=50),
+    if mode == "panel":
+        # R4: 2x2 时次快照
+        n_times = len(times)
+        n_rows, n_cols = 2, 2
+        # 取 4 个均匀间隔时次
+        if n_times >= 4:
+            indices = [
+                int(n_times * 0.0),
+                int(n_times * 0.25),
+                int(n_times * 0.5),
+                int(n_times * 0.75),
+            ]
+            indices = sorted(set(max(0, min(i, n_times - 1)) for i in indices))
+            while len(indices) < 4:
+                indices.append(min(indices[-1] + 1, n_times - 1))
+            indices = sorted(set(indices))[:4]
+        else:
+            indices = list(range(n_times))
+            while len(indices) < 4:
+                indices.append(indices[-1])
+
+        from plotly.subplots import make_subplots
+        fig = make_subplots(
+            rows=n_rows, cols=n_cols,
+            subplot_titles=[str(times[i]) for i in indices],
+            horizontal_spacing=0.08, vertical_spacing=0.12,
+        )
+        for idx_pos, t_idx in enumerate(indices):
+            row = idx_pos // n_cols + 1
+            col = idx_pos % n_cols + 1
+            mono_fig = _build_single_heatmap(
+                field3d[:, :, t_idx], lons, lats, vname, lon, lat,
+                "", cmap, show_contour=True,
+            )
+            for trace in mono_fig.data:
+                if hasattr(trace, "colorbar"):
+                    trace.showscale = False if idx_pos < 3 else True
+                    if idx_pos < 3 and hasattr(trace, "colorbar"):
+                        del trace.colorbar
+                fig.add_trace(trace, row=row, col=col)
+        # 共享 x/y
+        for row in range(1, n_rows + 1):
+            for col in range(1, n_cols + 1):
+                fig.update_xaxes(
+                    title_text="经度 (E)" if row == n_rows else None,
+                    tickfont=dict(size=9), tickformat=".2f",
+                    row=row, col=col,
+                )
+                fig.update_yaxes(
+                    title_text="纬度 (N)" if col == 1 else None,
+                    scaleanchor="x", scaleratio=1,
+                    tickfont=dict(size=9), tickformat=".2f",
+                    row=row, col=col,
+                )
+        fig.update_layout(
+            title=dict(text=f"{vname} 多时次快照", y=0.01, x=0.5,
+                       xanchor="center", yanchor="bottom", font=dict(size=14)),
+            height=720, margin=dict(l=50, r=50, t=30, b=50),
+            showlegend=False,
+        )
+        return fig, None
+
+    if mode == "anomaly":
+        # R5: 距平模式
+        mean_val = stats["mean"]
+        anomaly = field2d - mean_val
+        fig = go.Figure(go.Heatmap(
+            z=anomaly, x=lons, y=lats,
+            colorscale=_ANOMALY_COLORMAP,
+            zsmooth="best",
+            zmid=0,
+            colorbar=dict(
+                title=dict(text=f"{vname} 距平", side="right", font=dict(size=13)),
+                thickness=15, len=0.95, tickfont=dict(size=11),
+            ),
+            hovertemplate="经度 %{x:.2f}E<br>纬度 %{y:.2f}N<br>距平: %{z:+.1f}<extra></extra>",
+        ))
+        fig.add_trace(go.Scatter(
+            x=[lon], y=[lat], mode="markers+text", name="目标点",
+            marker=dict(color="black", size=16, symbol="x", line=dict(width=2)),
+            text=["目标"], textposition="middle right",
+            textfont=dict(size=11, color="#333"),
+            hovertemplate="目标点 (%.2fN, %.2fE)<extra></extra>" % (lat, lon),
+        ))
+        fig.update_layout(
+            title=dict(text=f"{vname} 距平空间分布 (均值={mean_val:.1f})",
+                       y=0.01, x=0.5, xanchor="center", yanchor="bottom",
+                       font=dict(size=14)),
+            xaxis_title=dict(text="经度 (E)", font=dict(size=13)),
+            yaxis_title=dict(text="纬度 (N)", font=dict(size=13)),
+            xaxis=dict(tickfont=dict(size=11), tickformat=".2f"),
+            yaxis=dict(scaleanchor="x", scaleratio=1, tickfont=dict(size=11), tickformat=".2f"),
+            height=520, margin=dict(l=50, r=50, t=45, b=50),
+        )
+        # 距平统计
+        av = anomaly[np.isfinite(anomaly)]
+        stats["min"] = float(np.min(av)) if len(av) > 0 else float("nan")
+        stats["max"] = float(np.max(av)) if len(av) > 0 else float("nan")
+        stats["mean"] = float(np.mean(av)) if len(av) > 0 else float("nan")
+        return fig, stats
+
+    # mode == "single" (default) — R1+R2+R3
+    fig = _build_single_heatmap(
+        field2d, lons, lats, vname, lon, lat,
+        f"{vname} 空间分布 @ {times[hour_idx]}",
+        cmap, show_contour=True,
     )
     return fig, stats
 
@@ -463,20 +614,27 @@ def render_forecast_tab():
     # ---- 空间图 ----
     st.write("---")
     st.write("### 空间图：区域预报场")
-    st.caption("给定预报时次，抓取目标点周边网格的 GFS 预报并渲染空间分布 (无需 Mapbox Token)")
+    st.caption("多模式视图：单时次热力图 + 等值线 | 多时次快照 | 距平异常检测 (无需 Mapbox Token)")
+
+    # 视图模式选择
+    spatial_mode = st.radio(
+        "视图模式",
+        ["single", "panel", "anomaly"],
+        format_func=lambda m: {"single": "单时次 (等值线)", "panel": "多时次快照", "anomaly": "距平模式"}[m],
+        horizontal=True, key="fc_spatial_mode",
+    )
 
     scol1, scol2, scol3 = st.columns(3)
     with scol1:
         variable = st.selectbox("空间变量", list(SPATIAL_VAR_LABELS.keys()),
                                 format_func=lambda v: SPATIAL_VAR_LABELS[v], key="fc_spatial_var")
-    # S1: 默认步长更细、半宽适中 → 至少 9x9=81 点（而非旧版 3x3~7x7）
     with scol2:
         step = st.slider("网格步长 (度)", 0.10, 1.0, 0.25, 0.05, key="fc_step")
     with scol3:
         half = st.slider("半宽 (度)", 0.5, 3.0, 1.0, 0.25, key="fc_half")
 
     if st.button("[空间] 生成空间预报场", use_container_width=True, key="fc_spatial"):
-        with st.spinner("正在抓取网格预报 (单次多站点请求)..."):
+        with st.spinner("正在抓取网格预报..."):
             lats, lons, times, field3d, err = fetch_gfs_spatial_grid(
                 lat, lon, step=step, half=half, days=days, model=model, variable=variable
             )
@@ -485,25 +643,33 @@ def render_forecast_tab():
         else:
             st.session_state["fc_grid"] = (lats, lons, times, field3d)
             st.session_state["fc_hour"] = 0
-            st.success(f"[OK] 网格 {len(lats)}x{len(lons)} 点，共 {len(times)} 个时次")
+            n_total = len(lats) * len(lons)
+            st.success(f"[OK] 网格 {len(lats)}x{len(lons)}={n_total} 点，共 {len(times)} 个时次")
 
     if "fc_grid" in st.session_state:
         lats, lons, times, field3d = st.session_state["fc_grid"]
-        hour_idx = st.slider("选择预报时次", 0, len(times) - 1,
-                             st.session_state.get("fc_hour", 0), key="fc_hour")
+        if spatial_mode == "single":
+            hour_idx = st.slider("选择预报时次", 0, len(times) - 1,
+                                 st.session_state.get("fc_hour", 0), key="fc_hour")
+        else:
+            hour_idx = 0  # panel/anomaly 模式不使用滑块
         try:
-            map_fig, grid_stats = _spatial_heatmap(lats, lons, times, field3d, lat, lon, hour_idx, variable)
+            map_fig, grid_stats = _spatial_heatmap(
+                lats, lons, times, field3d, lat, lon, hour_idx, variable,
+                mode=spatial_mode,
+            )
         except Exception as e:  # noqa: BLE001
             st.error(f"空间图数据构建失败: {e}")
         else:
             safe_chart(map_fig, "区域预报场", key="fc_spatial_map")
-            # S3: 网格统计量展示
-            sc1, sc2, sc3, sc4 = st.columns(4)
-            with sc1:
-                st.metric("最小值", f"{grid_stats['min']:.1f}")
-            with sc2:
-                st.metric("最大值", f"{grid_stats['max']:.1f}")
-            with sc3:
-                st.metric("平均值", f"{grid_stats['mean']:.1f}")
-            with sc4:
-                st.metric("网格规模", grid_stats["grid_shape"])
+            # 统计量（panel 模式无单一时次统计数据）
+            if grid_stats is not None:
+                sc1, sc2, sc3, sc4 = st.columns(4)
+                with sc1:
+                    st.metric("最小值", f"{grid_stats['min']:+.1f}" if spatial_mode == "anomaly" else f"{grid_stats['min']:.1f}")
+                with sc2:
+                    st.metric("最大值", f"{grid_stats['max']:+.1f}" if spatial_mode == "anomaly" else f"{grid_stats['max']:.1f}")
+                with sc3:
+                    st.metric("平均值", f"{grid_stats['mean']:+.1f}" if spatial_mode == "anomaly" else f"{grid_stats['mean']:.1f}")
+                with sc4:
+                    st.metric("网格规模", f"{grid_stats['n_points']}点 ({grid_stats['grid_shape']})")
