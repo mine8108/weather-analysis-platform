@@ -219,18 +219,38 @@ def heat_index(temp_c, rh):
 # 四、图表渲染
 # ============================================================
 def _forecast_time_series(fdf):
-    """时间图：气温 + 体感温度(左轴) + 降水(右轴) 双 Y 轴序列
+    """时间图：气温 + 体感温度(左轴) + 降水(右轴) + 精度增强
 
-    T1: 底部 rangeslider 支持缩放到具体时段
-    T2: X 轴 dtick=43200000(12h) 避免逐时标签重叠
-    T3: hovertemplate 含格式化日期时间
-    T4: 当前时刻竖线标注（醒目红色虚线）
+    Q1: 日温度包络带 (Min-Max 半透明填充)
+    Q2: 12h 累计降水柱 (替代逐时柱，减少视觉噪音)
+    Q3: 预报可信度梯度标注 (右上角: 0-3天高/4-7天中/8+天低)
+    Q4: 降水概率幕布 (WMO 天气码 → 概率, 半透明背景层)
     """
     now = pd.Timestamp.now(tz="Asia/Shanghai").tz_localize(None)
     fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+    # ---- Q1: 日温度包络带 (先加，在气温线后面) ----
+    df_temp = fdf[["timestamp", "temperature"]].copy()
+    df_temp["date"] = fdf["timestamp"].dt.date
+    day_min = df_temp.groupby("date")["temperature"].min()
+    day_max = df_temp.groupby("date")["temperature"].max()
+    dmax_arr = np.array([day_max[d.date()] for d in fdf["timestamp"]])
+    dmin_arr = np.array([day_min[d.date()] for d in fdf["timestamp"]])
+    fig.add_trace(go.Scatter(
+        x=fdf["timestamp"], y=dmax_arr, mode="lines",
+        line=dict(width=0), showlegend=False, hoverinfo="skip",
+    ), secondary_y=False)
+    fig.add_trace(go.Scatter(
+        x=fdf["timestamp"], y=dmin_arr, mode="lines",
+        fill="tonexty", fillcolor="rgba(231,76,60,0.10)",
+        line=dict(width=0), name="日波动范围",
+        hoverinfo="skip",
+    ), secondary_y=False)
+
+    # ---- 主气温线 ----
     fig.add_trace(
         go.Scatter(x=fdf["timestamp"], y=fdf["temperature"], mode="lines",
-                   name="气温", line=dict(color=COLORS["temp_color"], width=2),
+                   name="气温", line=dict(color=COLORS["temp_color"], width=2.2),
                    hovertemplate="%{x|%m-%d %H:%M}<br>气温: %{y:.1f}C<extra></extra>"),
         secondary_y=False,
     )
@@ -240,13 +260,49 @@ def _forecast_time_series(fdf):
                    hovertemplate="%{x|%m-%d %H:%M}<br>体感: %{y:.1f}C<extra></extra>"),
         secondary_y=False,
     )
+
+    # ---- Q4: 降水概率幕布 (WMO 天气码 → 概率) ----
+    if "weather_code" in fdf.columns:
+        def _wet_prob(c):
+            if c in range(0, 20): return 0.10
+            if c in range(20, 50): return 0.50
+            if c in range(50, 70): return 0.70
+            if c in range(70, 80): return 0.80
+            if c in range(80, 87): return 0.90
+            if c in range(95, 100): return 0.95
+            return 0.10
+        probs = np.array([_wet_prob(c) for c in fdf["weather_code"]], dtype=float)
+        fig.add_trace(go.Scatter(
+            x=fdf["timestamp"], y=probs, mode="none",
+            fill="tozeroy", fillcolor="rgba(41,128,185,0.08)",
+            name="降水概率", showlegend=True,
+            hoverinfo="skip",
+            yaxis="y2",
+        ), secondary_y=True)
+        # 概率刻度 (右侧第二 Y 轴)
+        fig.add_trace(go.Scatter(
+            x=fdf["timestamp"], y=probs, mode="lines",
+            line=dict(color="rgba(41,128,185,0.35)", width=1, dash="dot"),
+            name="降水概率", showlegend=True,
+            hovertemplate="%{x|%m-%d %H:%M}<br>降水概率: %{y:.0%}<extra></extra>",
+            yaxis="y3",
+        ), secondary_y=False)
+        # 用第三个隐含 Y 轴来显示概率刻度（只用于参考线，不显示独立轴）
+        fig.update_layout(yaxis3=dict(overlaying="y2", side="right",
+                                       range=[0, 1], showticklabels=False,
+                                       showgrid=False))
+
+    # ---- Q2: 12h 累计降水柱 (替代逐时柱) ----
+    hp12 = fdf.set_index("timestamp")["precipitation"].resample("12h").sum().reset_index()
     fig.add_trace(
-        go.Bar(x=fdf["timestamp"], y=fdf["precipitation"], name="降水",
-               marker_color=COLORS["rain_color"], opacity=0.5,
-               hovertemplate="%{x|%m-%d %H:%M}<br>降水: %{y:.1f} mm<extra></extra>"),
+        go.Bar(x=hp12["timestamp"], y=hp12["precipitation"], name="降水 (12h)",
+               marker_color=COLORS["rain_color"], opacity=0.55,
+               width=36000000,  # 12h in ms
+               hovertemplate="%{x|%m-%d %H:%M} (12h)<br>降水: %{y:.1f} mm<extra></extra>"),
         secondary_y=True,
     )
-    # T4: 醒目的当前时刻竖线
+
+    # ---- 当前时刻竖线 ----
     t_min = fdf["timestamp"].min()
     t_max = fdf["timestamp"].max()
     if t_min <= now <= t_max:
@@ -255,9 +311,22 @@ def _forecast_time_series(fdf):
                       annotation_text="现在",
                       annotation_position="top left",
                       annotation_font=dict(size=11, color="#d0021b"))
+
+    # ---- Q3: 预报可信度标注 ----
+    n_days = int((t_max - t_min).total_seconds() / 86400)
+    fig.add_annotation(
+        x=0.98, y=0.98, xref="paper", yref="paper",
+        text=("可信度: <span style='color:#2ca02c'>0-3天高</span> | "
+              "<span style='color:#f5a623'>4-7天中</span> | "
+              "<span style='color:#d0021b'>8+天低</span>"),
+        showarrow=False, font=dict(size=10),
+        bgcolor="rgba(255,255,255,0.82)", bordercolor="#ccc",
+        borderwidth=1, borderpad=5, align="right",
+    )
+
+    # ---- 轴设置 ----
     fig.update_yaxes(title_text="温度 (C)", secondary_y=False)
-    fig.update_yaxes(title_text="降水 (mm)", secondary_y=True)
-    # T1+T2: rangeslider + 稀疏刻度
+    fig.update_yaxes(title_text="降水 (mm, 12h合计)", secondary_y=True)
     fig.update_xaxes(
         rangeselector=dict(
             buttons=list([
@@ -273,12 +342,12 @@ def _forecast_time_series(fdf):
     )
     fig.update_layout(
         title=dict(
-            text="GFS 温度/体感/降水 预报",
+            text="GFS 温度/体感/降水 预报 (精度增强)",
             y=0.01, x=0.5, xanchor="center", yanchor="bottom",
             font=dict(size=14),
         ),
         hovermode="x unified",
-        height=480,
+        height=500,
         margin=dict(l=40, r=20, t=20, b=80),
         legend=dict(
             x=0.01, y=0.98,
