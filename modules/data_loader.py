@@ -195,7 +195,7 @@ def parse_timestamp(df):
 
 def render_file_upload_section():
     """渲染文件上传区域"""
-    st.subheader("📂 文件导入")
+    st.subheader("[文件] 文件导入")
 
     col1, col2 = st.columns(2)
 
@@ -231,12 +231,12 @@ def render_file_upload_section():
         df = parse_timestamp(df)
         recognized, unrecognized = detect_field_types(df)
 
-        st.success(f"✅ 成功导入: {source} | {len(df)} 条记录 | 识别字段: {len(recognized)} 个")
+        st.success(f"[OK] 成功导入: {source} | {len(df)} 条记录 | 识别字段: {len(recognized)} 个")
 
-        with st.expander("📋 数据预览（前20行）"):
+        with st.expander("[列表] 数据预览（前20行）"):
             st.dataframe(df.head(20), use_container_width=True)
 
-        with st.expander("🔍 字段识别详情"):
+        with st.expander("[搜索] 字段识别详情"):
             st.write("**已识别标准字段**:", recognized if recognized else "无")
             st.write("**未识别字段**:", unrecognized if unrecognized else "无")
             if unrecognized:
@@ -305,7 +305,7 @@ def render_manual_input_section(existing_df=None):
         manual_df = pd.DataFrame(st.session_state["manual_data"])
         st.dataframe(manual_df, use_container_width=True)
 
-        if st.button("🗑️ 清空手动录入", use_container_width=True):
+        if st.button("[清空]️ 清空手动录入", use_container_width=True):
             st.session_state["manual_data"] = []
             st.rerun()
 
@@ -363,7 +363,7 @@ def fetch_open_meteo(lat, lon, start_date, end_date):
 
 def render_api_section():
     """渲染 API 数据获取区域"""
-    st.subheader("🌐 API 数据获取 (Open-Meteo / ERA5)")
+    st.subheader("[网络] API 数据获取 (Open-Meteo / ERA5)")
 
     col1, col2, col3 = st.columns(3)
 
@@ -377,7 +377,7 @@ def render_api_section():
             value=(datetime.now() - timedelta(days=7), datetime.now() - timedelta(days=1)),
         )
 
-    if st.button("🔍 获取数据", use_container_width=True):
+    if st.button("[搜索] 获取数据", use_container_width=True):
         if len(date_range) == 2:
             start_str = date_range[0].strftime("%Y-%m-%d")
             end_str = date_range[1].strftime("%Y-%m-%d")
@@ -389,8 +389,8 @@ def render_api_section():
                 st.error(err)
                 return None, ""
             else:
-                st.success(f"✅ 获取成功: {len(df)} 条逐时记录")
-                with st.expander("📋 数据预览"):
+                st.success(f"[OK] 获取成功: {len(df)} 条逐时记录")
+                with st.expander("[列表] 数据预览"):
                     st.dataframe(df.head(20), use_container_width=True)
                 return df, f"Open-Meteo ({lat:.2f}N, {lon:.2f}E)"
         else:
@@ -400,7 +400,7 @@ def render_api_section():
 
 def render_template_download():
     """渲染模板下载区域"""
-    st.subheader("📥 模板下载")
+    st.subheader("[导入] 模板下载")
     template_path = "templates/data_template.csv"
     try:
         with open(template_path, "r", encoding="utf-8") as f:

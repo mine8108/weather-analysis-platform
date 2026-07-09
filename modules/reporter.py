@@ -133,12 +133,12 @@ def export_report_word(df, warnings_list, score, source=""):
 
 def render_export_tab(df, warnings_list, score, source=""):
     """渲染报告导出 Tab"""
-    st.subheader("📦 报告导出")
+    st.subheader("[导出] 报告导出")
 
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        st.write("#### 📊 数据导出")
+        st.write("#### [统计] 数据导出")
         if df is not None and not df.empty:
             csv_data = export_data_csv(df)
             if csv_data:
@@ -153,8 +153,8 @@ def render_export_tab(df, warnings_list, score, source=""):
                 st.info("无法导出数据")
 
     with col2:
-        st.write("#### 📄 分析报告")
-        if st.button("📝 生成 Word 分析报告", use_container_width=True):
+        st.write("#### [文档] 分析报告")
+        if st.button("[笔记] 生成 Word 分析报告", use_container_width=True):
             with st.spinner("正在生成报告..."):
                 doc_data = export_report_word(df, warnings_list, score, source)
                 if doc_data:
@@ -171,7 +171,7 @@ def render_export_tab(df, warnings_list, score, source=""):
             )
 
     with col3:
-        st.write("#### 📋 统计摘要")
+        st.write("#### [列表] 统计摘要")
         stats_fields = ["temperature", "pressure", "humidity", "wind_speed", "visibility", "precipitation"]
         if df is not None and not df.empty:
             for f in stats_fields:

@@ -256,7 +256,7 @@ def multi_station_comparison(df):
         return None
 
     stations = df["station_id"].unique()
-    st.write(f"### 🏷️ 多站点对比 (共 {len(stations)} 个站点)")
+    st.write(f"### [标签]️ 多站点对比 (共 {len(stations)} 个站点)")
 
     # 选择对比要素
     compare_fields = ["temperature", "pressure", "humidity", "wind_speed", "visibility"]
@@ -308,7 +308,7 @@ def multi_station_comparison(df):
 
 def render_visualization_tab(df):
     """渲染可视化 Tab 全部内容"""
-    st.subheader("📈 可视化分析")
+    st.subheader("[图表] 可视化分析")
 
     if df is None or df.empty:
         st.info("请先导入数据")
@@ -316,7 +316,7 @@ def render_visualization_tab(df):
 
     # 子Tab
     viz_tab1, viz_tab2, viz_tab3, viz_tab4 = st.tabs([
-        "📊 综合看板", "🌬️ 风场分析", "🔬 要素关系", "📋 统计摘要"
+        "[统计] 综合看板", "[风]️ 风场分析", "[实验] 要素关系", "[列表] 统计摘要"
     ])
 
     with viz_tab1:

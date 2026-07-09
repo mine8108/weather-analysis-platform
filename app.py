@@ -65,7 +65,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # 头部
-st.markdown('<div class="main-header">🌦️ 气象数据交互分析平台</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header">[天气]️ 气象数据交互分析平台</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-header">数据导入 · 可视化分析 · 国家预警标准检测 · 智能建议 · 报告导出</div>',
             unsafe_allow_html=True)
 
@@ -92,7 +92,7 @@ init_session()
 with st.sidebar:
     st.header("⚙️ 自定义预警阈值")
 
-    with st.expander("🔧 调整阈值（覆盖国家标准）", expanded=False):
+    with st.expander("[工具] 调整阈值（覆盖国家标准）", expanded=False):
         st.caption("留空则使用国家预警标准")
 
         custom = {}
@@ -125,30 +125,30 @@ with st.sidebar:
         fg_r = st.number_input("红色 <", value=50, step=10, key="fg_r")
         custom["fog"] = {"黄色": fg_y, "橙色": fg_o, "红色": fg_r}
 
-        if st.button("✅ 应用自定义阈值", use_container_width=True):
+        if st.button("[OK] 应用自定义阈值", use_container_width=True):
             set_custom_thresholds(custom)
             st.success("自定义阈值已应用！")
 
     st.divider()
-    st.caption("📚 中国气象局第16号令 · 气象灾害预警信号发布与传播办法")
+    st.caption("[资料] 中国气象局第16号令 · 气象灾害预警信号发布与传播办法")
     st.caption("© 气象数据交互分析平台 v1.0")
 
 # ============================================================
 # 主内容区：Tab 导航
 # ============================================================
 tabs = st.tabs([
-    "📥 数据导入",
-    "🔬 数据质控",
-    "📈 可视化分析",
-    "🚨 智能分析与建议",
-    "📅 气候态参照",
-    "📡 报文解码",
-    "📦 报告导出",
+    "[导入] 数据导入",
+    "[实验] 数据质控",
+    "[图表] 可视化分析",
+    "[预警] 智能分析与建议",
+    "[日期] 气候态参照",
+    "[雷达] 报文解码",
+    "[导出] 报告导出",
 ])
 
 # ---- Tab 1: 数据导入 ----
 with tabs[0]:
-    sub_tab1, sub_tab2, sub_tab3 = st.tabs(["📂 文件导入", "✏️ 手动录入", "🌐 API 获取"])
+    sub_tab1, sub_tab2, sub_tab3 = st.tabs(["[文件] 文件导入", "✏️ 手动录入", "[网络] API 获取"])
 
     with sub_tab1:
         df_file, source_file = render_file_upload_section()

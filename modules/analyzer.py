@@ -431,7 +431,7 @@ def render_analysis_tab(df):
 
     # ----- 耦合分析 -----
     st.write("---")
-    st.write("### \ud83d\udd17 多要素耦合分析")
+    st.write("### [链] 多要素耦合分析")
     coupling = multi_factor_coupling(df)
     if coupling:
         for alert in coupling:

@@ -273,7 +273,7 @@ def decode_metar(report):
 
 def render_codec_tab():
     """渲染气象报文解码 Tab"""
-    st.subheader("📡 气象报文解码")
+    st.subheader("[雷达] 气象报文解码")
 
     codec_type = st.radio("报文类型", ["SYNOP (地面天气报告)", "METAR (航空气象报告)"],
                           horizontal=True, key="codec_type")
@@ -285,7 +285,7 @@ def render_codec_tab():
         key="codec_input"
     )
 
-    if st.button("🔍 解码", use_container_width=True, key="decode_btn"):
+    if st.button("[搜索] 解码", use_container_width=True, key="decode_btn"):
         if not report_text.strip():
             st.warning("请输入报文内容")
             return
@@ -303,7 +303,7 @@ def render_codec_tab():
 
         # 显示解码结果
         if result:
-            st.success(f"✅ 解码成功 | 站点: {result.get('station_id', 'N/A')}")
+            st.success(f"[OK] 解码成功 | 站点: {result.get('station_id', 'N/A')}")
 
             cols = st.columns(4)
             field_config = [

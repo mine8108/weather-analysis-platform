@@ -134,8 +134,8 @@ FIELD_RANGES = {
 # --- 高温预警 ---
 HIGH_TEMP_WARNING = {
     "黄色": {"condition": "连续3天日最高气温≥35℃", "temp": 35, "days": 3, "level": "Ⅲ级", "icon": "☀"},
-    "橙色": {"condition": "24h内最高气温≥37℃", "temp": 37, "hours": 24, "level": "Ⅱ级", "icon": "🔥"},
-    "红色": {"condition": "24h内最高气温≥40℃", "temp": 40, "hours": 24, "level": "Ⅰ级", "icon": "🔴"},
+    "橙色": {"condition": "24h内最高气温≥37℃", "temp": 37, "hours": 24, "level": "Ⅱ级", "icon": "[火]"},
+    "红色": {"condition": "24h内最高气温≥40℃", "temp": 40, "hours": 24, "level": "Ⅰ级", "icon": "[红]"},
 }
 
 # --- 寒潮预警 ---

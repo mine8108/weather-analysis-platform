@@ -117,7 +117,7 @@ def compute_anomalies(df, climate_stats):
 
 def render_climate_ref_tab(df):
     """渲染气候态参考 Tab"""
-    st.subheader("📅 气候态背景参照")
+    st.subheader("[日期] 气候态背景参照")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -136,7 +136,7 @@ def render_climate_ref_tab(df):
 
     month = st.selectbox("选择参考月份", range(1, 13), index=inferred_month - 1, key="climate_month")
 
-    if st.button("📥 获取气候态数据", use_container_width=True, key="fetch_climate"):
+    if st.button("[导入] 获取气候态数据", use_container_width=True, key="fetch_climate"):
         with st.spinner("正在获取气候态数据（过去5年均值）..."):
             climate = fetch_climate_normal(lat, lon, month)
 
@@ -165,7 +165,7 @@ def render_climate_ref_tab(df):
 
     # 距平分析
     st.write("---")
-    st.write("### 📊 距平分析")
+    st.write("### [统计] 距平分析")
 
     if df is not None and not df.empty:
         anomalies = compute_anomalies(df, climate)

@@ -118,7 +118,7 @@ def compute_quality_score(df, issues):
 
 def render_quality_report(df):
     """渲染数据质量报告"""
-    st.subheader("🔬 数据质量控制")
+    st.subheader("[实验] 数据质量控制")
 
     if df is None or df.empty:
         st.info("请先导入数据")
@@ -136,13 +136,13 @@ def render_quality_report(df):
 
     with col1:
         if score >= 90:
-            st.success(f"### 📊 {score}/100 分")
+            st.success(f"### [统计] {score}/100 分")
             st.caption("数据质量：优秀")
         elif score >= 70:
-            st.warning(f"### 📊 {score}/100 分")
+            st.warning(f"### [统计] {score}/100 分")
             st.caption("数据质量：一般")
         else:
-            st.error(f"### 📊 {score}/100 分")
+            st.error(f"### [统计] {score}/100 分")
             st.caption("数据质量：较差，建议检查")
 
     with col2:
@@ -154,12 +154,12 @@ def render_quality_report(df):
     if issues:
         st.write("---")
         for issue in issues:
-            sev_icon = {"error": "🔴", "warning": "🟡", "info": "🔵"}.get(issue["severity"], "⚪")
+            sev_icon = {"error": "[红]", "warning": "[黄]", "info": "[蓝]"}.get(issue["severity"], "⚪")
             col = issue["field"]
             if col == "timestamp":
                 col = "时间"
             st.write(f"{sev_icon} **{col}** — {issue['detail']} ({issue['type']})")
     else:
-        st.success("✅ 未检测到数据质量问题")
+        st.success("[OK] 未检测到数据质量问题")
 
     return score, issues
