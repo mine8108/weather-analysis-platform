@@ -128,10 +128,14 @@ def render_climate_ref_tab(df):
     # 自动推断月份
     if df is not None and "timestamp" in df.columns:
         try:
-            inferred_month = df["timestamp"].dt.month.mode().iloc[0]
+            inferred_month = int(df["timestamp"].dt.month.mode().iloc[0])
         except Exception:
             inferred_month = datetime.now().month
     else:
+        inferred_month = datetime.now().month
+
+    # 防御：确保 inferred_month 是 1-12 的有效整数
+    if not isinstance(inferred_month, int) or not (1 <= inferred_month <= 12):
         inferred_month = datetime.now().month
 
     month = st.selectbox("选择参考月份", range(1, 13), index=inferred_month - 1, key="climate_month")
