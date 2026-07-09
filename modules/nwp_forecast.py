@@ -547,7 +547,256 @@ def _spatial_heatmap(lats, lons, times, field3d, lat, lon, hour_idx, variable,
 
 
 # ============================================================
-# 五、主渲染入口
+# 五、智能分析与建议
+# ============================================================
+def _analyze_forecast(fdf):
+    """分析 GFS 预报数据，返回结构化分析结果。
+
+    返回 dict：
+      warnings: 预警信号列表（仿 analyzer.py 风格）
+      extremes: 极端值摘要
+      trends: 趋势描述
+      coupling: 多要素耦合风险
+      summary: 单行总述
+      recommendations: {"travel": [...], "agri": [...]}
+    """
+    daily = fdf.copy()
+    daily["date"] = fdf["timestamp"].dt.date
+    # 日聚合
+    dmax_t = daily.groupby("date")["temperature"].max()
+    dmin_t = daily.groupby("date")["temperature"].min()
+    dprecip = daily.groupby("date")["precipitation"].sum()
+    dmax_ws = daily.groupby("date")["wind_speed"].max()
+    # 日均湿度（用于耦合分析）
+    davg_rh = daily.groupby("date")["humidity"].mean()
+
+    ndays = len(dmax_t)
+    results = {
+        "warnings": [],
+        "extremes": {},
+        "trends": {},
+        "coupling": [],
+        "summary": "",
+        "recommendations": {"travel": [], "agri": []},
+    }
+
+    # ----- 1. 高温预警 -----
+    hot = dmax_t[dmax_t >= 35]
+    if len(hot) > 0:
+        peak = hot.max()
+        peak_date = str(hot.idxmax())
+        if peak >= 40:
+            level, lv_num, icon_ = "红色", "I级", "[红]"
+        elif peak >= 37:
+            level, lv_num, icon_ = "橙色", "II级", "[橙]"
+        else:
+            level, lv_num, icon_ = "黄色", "III级", "[黄]"
+        results["warnings"].append({
+            "type": "高温", "level": level, "level_num": lv_num,
+            "detail": f"未来{ndays}天中{len(hot)}天日最高气温>=35C，峰值{peak:.1f}C ({peak_date})。",
+            "icon": icon_,
+        })
+
+    # ----- 2. 暴雨预警 -----
+    heavy = dprecip[dprecip >= 50]
+    for d, val in heavy.items():
+        if val >= 100:
+            lv, lnum = "红色", "I级"
+        elif val >= 75:
+            lv, lnum = "橙色", "II级"
+        elif val >= 50:
+            lv, lnum = "黄色", "III级"
+        else:
+            continue
+        results["warnings"].append({
+            "type": "暴雨", "level": lv, "level_num": lnum,
+            "detail": f"{d} 日降水量 {val:.1f} mm，需关注短时强降水。",
+            "icon": "[暴]",
+        })
+
+    # ----- 3. 大风预警 -----
+    windy = dmax_ws[dmax_ws >= 10.8]
+    for d, val in windy.items():
+        if val >= 24.5:
+            lv, lnum = "橙色", "II级"
+        elif val >= 17.2:
+            lv, lnum = "黄色", "III级"
+        elif val >= 10.8:
+            lv, lnum = "蓝色", "IV级"
+        else:
+            continue
+        results["warnings"].append({
+            "type": "大风", "level": lv, "level_num": lnum,
+            "detail": f"{d} 最大风速 {val:.1f} m/s，需注意户外作业安全。",
+            "icon": "[风]",
+        })
+
+    # ----- 4. 极端值 -----
+    results["extremes"] = {
+        "max_temp": (float(dmax_t.max()), str(dmax_t.idxmax())),
+        "min_temp": (float(dmin_t.min()), str(dmin_t.idxmin())),
+        "max_daily_precip": (float(dprecip.max()), str(dprecip.idxmax())),
+        "total_precip": float(dprecip.sum()),
+        "max_wind": (float(dmax_ws.max()), str(dmax_ws.idxmax())),
+        "ndays": ndays,
+    }
+
+    # ----- 5. 趋势 -----
+    first3 = dmax_t.iloc[:min(3, ndays)].mean()
+    last3 = dmax_t.iloc[-min(3, ndays):].mean()
+    diff = last3 - first3
+    if diff > 3:
+        t_trend = "明显升温"
+    elif diff > 1:
+        t_trend = "小幅升温"
+    elif diff < -3:
+        t_trend = "明显降温"
+    elif diff < -1:
+        t_trend = "小幅降温"
+    else:
+        t_trend = "基本平稳"
+    results["trends"]["temperature"] = t_trend
+    # 降水趋势
+    precip_days = int((dprecip > 0.1).sum())
+    results["trends"]["precip_days"] = precip_days
+    if precip_days == 0:
+        results["trends"]["precip"] = "全程无有效降水"
+    elif precip_days <= ndays * 0.3:
+        results["trends"]["precip"] = "降水日数较少"
+    else:
+        results["trends"]["precip"] = "降水日数偏多"
+
+    # ----- 6. 耦合分析 -----
+    # 高温+高湿 → 热应激
+    if len(hot) > 0:
+        hot_dates = list(hot.index)
+        hot_rh = davg_rh.loc[[d for d in hot_dates if d in davg_rh.index]]
+        if len(hot_rh) > 0 and hot_rh.mean() > 60:
+            results["coupling"].append({
+                "type": "热应激风险", "severity": "危险",
+                "detail": f"高温({hot.max():.1f}C)叠加高湿({hot_rh.mean():.0f}%)，体感温度显著升高，户外活动需防范中暑。",
+                "icon": "[热]",
+            })
+    # 大风+降水
+    if len(windy) > 0 and len(heavy) > 0:
+        overlap = set(windy.index) & set(heavy.index)
+        if overlap:
+            results["coupling"].append({
+                "type": "风雨耦合", "severity": "危险",
+                "detail": f"{len(overlap)} 天同时出现大风和强降水，出行风险加剧。",
+                "icon": "[风]",
+            })
+
+    # ----- 7. 总述 -----
+    parts = [f"未来{ndays}天气温趋势{t_trend}"]
+    if precip_days > 0:
+        parts.append(f"共{precip_days}个降水日，累计{results['extremes']['total_precip']:.0f} mm")
+    else:
+        parts.append("全程无明显降水")
+    if len(results["warnings"]) > 0:
+        types = set(w["type"] for w in results["warnings"])
+        parts.append(f"触发{'/'.join(types)}预警信号")
+    else:
+        parts.append("无预警风险")
+    results["summary"] = "。".join(parts) + "。"
+
+    # ----- 8. 建议 -----
+    t = {"travel": results["recommendations"]["travel"],
+         "agri": results["recommendations"]["agri"]}
+
+    if len(hot) > 0:
+        t["travel"].append(f"未来{len(hot)}天有高温 ({hot.max():.0f}C)，外出避开 11:00-15:00 时段，备足饮水。")
+        t["agri"].append(f"高温天气 ({len(hot)} 天 ≥35C)：及时灌溉降温；设施大棚覆盖遮阳网；禽畜采取喷淋降温。")
+
+    if len(heavy) > 0:
+        t["travel"].append(f"强降水日外出备雨具，低洼路段注意内涝；涉水谨慎。")
+        t["agri"].append(f"注意清沟排水；加固大棚基础；鱼塘检查防逃设施。")
+
+    if len(windy) > 0:
+        t["travel"].append("大风天气远离广告牌/临时搭建物；高空作业暂停。")
+        t["agri"].append("加固设施农业骨架；收起晾晒物；检查禽畜舍牢固性。")
+
+    if precip_days == 0 and len(hot) > 0:
+        t["agri"].append("高温少雨天气：增加灌溉频次，严防干旱；旱地作物覆盖保墒。")
+
+    if len(results["coupling"]) > 0:
+        for c in results["coupling"]:
+            t["travel"].append(f"[{c['type']}] {c['detail']}")
+
+    # 去重 + 限制条数
+    for k in ("travel", "agri"):
+        seen = set()
+        uniq = []
+        for s in t[k]:
+            if s not in seen:
+                seen.add(s)
+                uniq.append(s)
+        results["recommendations"][k] = uniq[:6]
+
+    return results
+
+
+def _render_forecast_advice(analysis):
+    """渲染预报智能分析结果"""
+    from config import WARN_STYLES
+
+    st.write("---")
+    st.write("### 智能分析与建议")
+
+    # 总述
+    st.markdown(f"**总结**：{analysis['summary']}")
+
+    # 极端值卡片
+    ex = analysis["extremes"]
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.metric("最高气温", f"{ex['max_temp'][0]:.0f}C", ex["max_temp"][1])
+    with c2:
+        st.metric("最低气温", f"{ex['min_temp'][0]:.0f}C", ex["min_temp"][1])
+    with c3:
+        st.metric("累计降水", f"{ex['total_precip']:.0f} mm")
+    with c4:
+        st.metric("最大风速", f"{ex['max_wind'][0]:.1f} m/s", ex["max_wind"][1])
+
+    # 预警
+    if analysis["warnings"]:
+        st.write("#### 预警信号")
+        level_order = {"红色": 0, "橙色": 1, "黄色": 2, "蓝色": 3}
+        sorted_w = sorted(analysis["warnings"], key=lambda w: level_order.get(w["level"], 4))
+        cols = st.columns(min(len(sorted_w), 2))
+        for i, warn in enumerate(sorted_w):
+            style = WARN_STYLES.get(warn["level"], WARN_STYLES["蓝色"])
+            with cols[i % 2]:
+                st.markdown(f"""<div style="background:{style['bg']};border-left:4px solid {style['color']};padding:10px 12px;border-radius:4px;margin-bottom:6px;font-size:13px">
+<b style="color:{style['color']};font-size:15px">{warn['icon']} {warn['type']}{warn['level']}</b>
+<br><span style="color:#555">{warn['level_num']} | {warn['detail']}</span></div>""", unsafe_allow_html=True)
+    else:
+        st.success("[OK] 未来预报期内未触发预警信号")
+
+    # 耦合分析
+    if analysis["coupling"]:
+        st.write("#### 多要素耦合风险")
+        for c in analysis["coupling"]:
+            st.warning(f"{c['icon']} **{c['type']}** ({c['severity']}): {c['detail']}")
+
+    # 建议
+    c1, c2 = st.columns(2)
+    with c1:
+        st.write("#### 出行建议")
+        for s in analysis["recommendations"]["travel"]:
+            st.write(f"- {s}")
+        if not analysis["recommendations"]["travel"]:
+            st.info("天气状况良好，无特殊出行限制。")
+    with c2:
+        st.write("#### 农业建议")
+        for s in analysis["recommendations"]["agri"]:
+            st.write(f"- {s}")
+        if not analysis["recommendations"]["agri"]:
+            st.info("天气状况对农业生产无明显不利影响。")
+
+
+# ============================================================
+# 六、主渲染入口
 # ============================================================
 def render_forecast_tab():
     """渲染「数值预报分析」Tab 全部内容"""
@@ -673,3 +922,8 @@ def render_forecast_tab():
                     st.metric("平均值", f"{grid_stats['mean']:+.1f}" if spatial_mode == "anomaly" else f"{grid_stats['mean']:.1f}")
                 with sc4:
                     st.metric("网格规模", f"{grid_stats['n_points']}点 ({grid_stats['grid_shape']})")
+
+    # ---- 智能分析与建议 ----
+    with st.spinner("正在生成预报智能分析..."):
+        analysis = _analyze_forecast(fdf)
+    _render_forecast_advice(analysis)
