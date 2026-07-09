@@ -132,6 +132,12 @@ def fetch_gfs_spatial_grid(center_lat, center_lon, step=0.5, half=1.5,
     n_lat = len(set(round(x, 4) for x in grid_lats))
     n_lon = len(set(round(x, 4) for x in grid_lons))
     n_loc = len(lat_coords)
+    # 防止用户把步长调得太细导致 URL 超长或超时
+    if n_loc > 100:
+        return None, None, None, None, (
+            f"网格点数过多 ({n_loc} 点，{n_lat}x{n_lon})。"
+            f"请增大步长或缩小半宽，确保不超过 100 点。"
+        )
 
     url = "https://api.open-meteo.com/v1/forecast"
     params = {
@@ -261,7 +267,7 @@ def _forecast_time_series(fdf):
                 dict(step="all"),
             ])
         ),
-        rangeslider=dict(visible=True, thickness=35),
+        rangeslider=dict(visible=True, thickness=0.15),
         dtick=43200000,
         tickformat="%m-%d %H:%M",
     )
@@ -408,14 +414,20 @@ def render_forecast_tab():
 
     # ---- 时间图 ----
     st.write("### 时间图：逐时预报序列")
-    ts_fig = _forecast_time_series(fdf)
-    st.plotly_chart(ts_fig, use_container_width=True, key="fc_ts")
+    try:
+        ts_fig = _forecast_time_series(fdf)
+        st.plotly_chart(ts_fig, use_container_width=True, key="fc_ts")
+    except Exception as e:  # noqa: BLE001
+        st.error(f"时间图渲染失败: {e}")
 
     # ---- 72h 高温panel ----
     st.write("### 72 小时高温预报面板")
     hh = fdf.head(72)
-    panel_fig = _high_temp_72h_panel(hh)
-    st.plotly_chart(panel_fig, use_container_width=True, key="fc_72h")
+    try:
+        panel_fig = _high_temp_72h_panel(hh)
+        st.plotly_chart(panel_fig, use_container_width=True, key="fc_72h")
+    except Exception as e:  # noqa: BLE001
+        st.error(f"高温面板渲染失败: {e}")
 
     max_t = float(hh["temperature"].max())
     max_app = float(hh["apparent_temperature"].max())
@@ -433,8 +445,11 @@ def render_forecast_tab():
     st.write("### 降水预报")
     total_precip = float(fdf["precipitation"].sum())
     st.metric("预报期累计降水", f"{total_precip:.1f} mm")
-    daily_fig = _daily_precip_chart(fdf)
-    st.plotly_chart(daily_fig, use_container_width=True, key="fc_daily_precip")
+    try:
+        daily_fig = _daily_precip_chart(fdf)
+        st.plotly_chart(daily_fig, use_container_width=True, key="fc_daily_precip")
+    except Exception as e:  # noqa: BLE001
+        st.error(f"降水图渲染失败: {e}")
 
     # ---- 空间图 ----
     st.write("---")
@@ -467,16 +482,19 @@ def render_forecast_tab():
         lats, lons, times, field3d = st.session_state["fc_grid"]
         hour_idx = st.slider("选择预报时次", 0, len(times) - 1,
                              st.session_state.get("fc_hour", 0), key="fc_hour")
-        map_fig, grid_stats = _spatial_heatmap(lats, lons, times, field3d, lat, lon, hour_idx, variable)
-        st.plotly_chart(map_fig, use_container_width=True, key="fc_spatial_map")
+        try:
+            map_fig, grid_stats = _spatial_heatmap(lats, lons, times, field3d, lat, lon, hour_idx, variable)
+            st.plotly_chart(map_fig, use_container_width=True, key="fc_spatial_map")
 
-        # S3: 网格统计量展示
-        sc1, sc2, sc3, sc4 = st.columns(4)
-        with sc1:
-            st.metric("最小值", f"{grid_stats['min']:.1f}")
-        with sc2:
-            st.metric("最大值", f"{grid_stats['max']:.1f}")
-        with sc3:
-            st.metric("平均值", f"{grid_stats['mean']:.1f}")
-        with sc4:
-            st.metric("网格规模", grid_stats["grid_shape"])
+            # S3: 网格统计量展示
+            sc1, sc2, sc3, sc4 = st.columns(4)
+            with sc1:
+                st.metric("最小值", f"{grid_stats['min']:.1f}")
+            with sc2:
+                st.metric("最大值", f"{grid_stats['max']:.1f}")
+            with sc3:
+                st.metric("平均值", f"{grid_stats['mean']:.1f}")
+            with sc4:
+                st.metric("网格规模", grid_stats["grid_shape"])
+        except Exception as e:  # noqa: BLE001
+            st.error(f"空间图渲染失败: {e}")
