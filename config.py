@@ -430,3 +430,76 @@ WMO_WEATHER_CODES = {
     97: "强雷暴",
     99: "强雷暴伴有冰雹",
 }
+
+
+# ============================================================
+# 八、全局调试模式与单图崩溃防护
+# ============================================================
+def get_debug_mode():
+    """返回当前调试模式 (从 streamlit session_state 读取，外部调用时默认 False)。"""
+    try:
+        import streamlit as st
+        return st.session_state.get("debug_mode", False)
+    except Exception:
+        return False
+
+
+def safe_chart(fig, section_label, *, use_container_width=True, key=None):
+    """受保护的图表渲染：正常模式显式错误报告，异常时捕获并显示分层次、通俗化的错误摘要。
+
+    参数：
+      fig: plotly Figure 对象
+      section_label: 图表区块名称（如 "温度时序图"），用于错误报告中定位
+    """
+    import streamlit as st
+    import traceback
+
+    try:
+        kwargs = {"use_container_width": use_container_width}
+        if key:
+            kwargs["key"] = key
+        st.plotly_chart(fig, **kwargs)
+    except Exception as e:
+        debug = get_debug_mode()
+        err_type = type(e).__name__
+
+        # 通俗化错误摘要：从 Python 异常类型映射到中文描述
+        _FRIENDLY_MAP = {
+            "ValueError": "参数值越界",
+            "TypeError": "类型不匹配",
+            "KeyError": "缺少必要字段",
+            "IndexError": "数组下标越界",
+            "AttributeError": "对象属性缺失",
+            "RuntimeError": "运行时异常",
+        }
+        cause = _FRIENDLY_MAP.get(err_type, f"未知错误 ({err_type})")
+
+        if debug:
+            # 调试模式：折叠显示完整 traceback 供排查
+            st.warning(f"[图表 {cause}] 「{section_label}」渲染失败，详细信息如下。")
+            st.code(traceback.format_exc(), language="python")
+        else:
+            # 普通模式：一行可读摘要
+            st.error(
+                f"[图表 {cause}] 「{section_label}」渲染失败，"
+                f"可在侧边栏开启「调试模式」查看详情。"
+            )
+
+
+# ============================================================
+# 九、常见错误中文翻译表（供 safe_chart 之外独立使用）
+# ============================================================
+ERROR_TRANSLATIONS = {
+    "ValueError": "参数值越界",
+    "TypeError": "类型不匹配",
+    "KeyError": "缺少必要字段",
+    "IndexError": "数组下标越界",
+    "AttributeError": "对象属性缺失",
+    "RuntimeError": "运行时异常",
+    "ConnectionError": "网络连接失败",
+    "TimeoutError": "请求超时",
+    "OSError": "文件系统错误",
+    "FileNotFoundError": "文件未找到",
+    "PermissionError": "无权限访问",
+    "MemoryError": "内存不足",
+}

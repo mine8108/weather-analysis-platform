@@ -131,6 +131,9 @@ with st.sidebar:
             st.success("自定义阈值已应用！")
 
     st.divider()
+    st.checkbox("[调试] 显示详细错误信息", value=False, key="debug_mode",
+                help="开启后，图表渲染失败时会展示完整的 Python 报错堆栈，便于排查问题。")
+    st.divider()
     st.caption("[资料] 中国气象局第16号令 · 气象灾害预警信号发布与传播办法")
     st.caption("© 气象数据交互分析平台 v1.0")
 

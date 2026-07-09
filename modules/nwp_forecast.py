@@ -17,7 +17,7 @@ import streamlit as st
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from config import COLORS
+from config import COLORS, safe_chart
 
 # ============================================================
 # 一、模式选项
@@ -414,20 +414,14 @@ def render_forecast_tab():
 
     # ---- 时间图 ----
     st.write("### 时间图：逐时预报序列")
-    try:
-        ts_fig = _forecast_time_series(fdf)
-        st.plotly_chart(ts_fig, use_container_width=True, key="fc_ts")
-    except Exception as e:  # noqa: BLE001
-        st.error(f"时间图渲染失败: {e}")
-
-    # ---- 72h 高温panel ----
+    ts_fig = _forecast_time_series(fdf)
+    safe_chart(ts_fig, "温度/体感/降水 预报", key="fc_ts")
+    # D: 说明 rangeslider 的 Plotly 天然限制
+    st.caption("提示：底部缩放滑块仅关联左侧「气温」坐标轴（右轴降水不随滑块缩放），这是 Plotly 原生行为。")
     st.write("### 72 小时高温预报面板")
     hh = fdf.head(72)
-    try:
-        panel_fig = _high_temp_72h_panel(hh)
-        st.plotly_chart(panel_fig, use_container_width=True, key="fc_72h")
-    except Exception as e:  # noqa: BLE001
-        st.error(f"高温面板渲染失败: {e}")
+    panel_fig = _high_temp_72h_panel(hh)
+    safe_chart(panel_fig, "72小时高温预报", key="fc_72h")
 
     max_t = float(hh["temperature"].max())
     max_app = float(hh["apparent_temperature"].max())
@@ -445,11 +439,8 @@ def render_forecast_tab():
     st.write("### 降水预报")
     total_precip = float(fdf["precipitation"].sum())
     st.metric("预报期累计降水", f"{total_precip:.1f} mm")
-    try:
-        daily_fig = _daily_precip_chart(fdf)
-        st.plotly_chart(daily_fig, use_container_width=True, key="fc_daily_precip")
-    except Exception as e:  # noqa: BLE001
-        st.error(f"降水图渲染失败: {e}")
+    daily_fig = _daily_precip_chart(fdf)
+    safe_chart(daily_fig, "逐日降水预报", key="fc_daily_precip")
 
     # ---- 空间图 ----
     st.write("---")
@@ -484,8 +475,10 @@ def render_forecast_tab():
                              st.session_state.get("fc_hour", 0), key="fc_hour")
         try:
             map_fig, grid_stats = _spatial_heatmap(lats, lons, times, field3d, lat, lon, hour_idx, variable)
-            st.plotly_chart(map_fig, use_container_width=True, key="fc_spatial_map")
-
+        except Exception as e:  # noqa: BLE001
+            st.error(f"空间图数据构建失败: {e}")
+        else:
+            safe_chart(map_fig, "区域预报场", key="fc_spatial_map")
             # S3: 网格统计量展示
             sc1, sc2, sc3, sc4 = st.columns(4)
             with sc1:
@@ -496,5 +489,3 @@ def render_forecast_tab():
                 st.metric("平均值", f"{grid_stats['mean']:.1f}")
             with sc4:
                 st.metric("网格规模", grid_stats["grid_shape"])
-        except Exception as e:  # noqa: BLE001
-            st.error(f"空间图渲染失败: {e}")

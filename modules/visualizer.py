@@ -10,7 +10,8 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 from config import (
     COLORS, WIND_DIRECTIONS,
-    get_beaufort_level, get_wind_direction_name
+    get_beaufort_level, get_wind_direction_name,
+    safe_chart,
 )
 
 
@@ -302,7 +303,7 @@ def multi_station_comparison(df):
         height=400,
         margin=dict(l=40, r=20, t=40, b=40),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    safe_chart(fig, "多站点对比", use_container_width=True)
     return fig
 
 
@@ -394,7 +395,7 @@ def render_visualization_tab(df):
         
         dashboard = dashboard_view(df)
         if dashboard:
-            st.plotly_chart(dashboard, use_container_width=True, key="viz_dashboard")
+            safe_chart(dashboard, "综合看板", key="viz_dashboard")
         else:
             st.warning("缺少可视化所需的时间序列数据")
 
@@ -403,7 +404,7 @@ def render_visualization_tab(df):
         with col_a:
             wind_rose = wind_rose_chart(df)
             if wind_rose:
-                st.plotly_chart(wind_rose, use_container_width=True, key="viz_wind_rose")
+                safe_chart(wind_rose, "风向玫瑰图", key="viz_wind_rose")
             else:
                 st.info("缺少风向风速数据，无法绘制玫瑰图")
 
@@ -415,7 +416,7 @@ def render_visualization_tab(df):
                     COLORS["wind_color"], "风速", "m/s"
                 )
                 if ts_wind:
-                    st.plotly_chart(ts_wind, use_container_width=True, key="viz_ts_wind")
+                    safe_chart(ts_wind, "风速时间序列", key="viz_ts_wind")
 
             # 风要素统计
             if "wind_speed" in df.columns:
@@ -434,7 +435,7 @@ def render_visualization_tab(df):
     with viz_tab3:
         scatter = scatter_matrix(df)
         if scatter:
-            st.plotly_chart(scatter, use_container_width=True, key="viz_scatter")
+            safe_chart(scatter, "要素关系散点矩阵", key="viz_scatter")
         else:
             st.info("至少需要两个以上有效要素字段")
 
@@ -457,7 +458,7 @@ def render_visualization_tab(df):
                 title, color, unit = ts_config[selected_ts]
                 ts_fig = time_series_chart(df, selected_ts, f"{title}时间序列", color, title, unit)
                 if ts_fig:
-                    st.plotly_chart(ts_fig, use_container_width=True, key="viz_ts_single")
+                    safe_chart(ts_fig, f"{title}时间序列", key="viz_ts_single")
 
     with viz_tab4:
         # 统计摘要
@@ -477,6 +478,6 @@ def render_visualization_tab(df):
         st.caption("用于查看各气象要素的取值分布，默认展示降水量（可叠加其他要素对比）")
         hist_fig = distribution_histogram(df)
         if hist_fig:
-            st.plotly_chart(hist_fig, use_container_width=True, key="viz_hist")
+            safe_chart(hist_fig, "要素分布直方图", key="viz_hist")
         else:
             st.info("当前数据中缺少可用于分布统计的要素字段")
