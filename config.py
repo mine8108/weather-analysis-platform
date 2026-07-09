@@ -133,7 +133,7 @@ FIELD_RANGES = {
 
 # --- 高温预警 ---
 HIGH_TEMP_WARNING = {
-    "黄色": {"condition": "连续3天日最高气温≥35℃", "temp": 35, "days": 3, "level": "Ⅲ级", "icon": "☀"},
+    "黄色": {"condition": "连续3天日最高气温≥35℃", "temp": 35, "days": 3, "level": "Ⅲ级", "icon": "[晴]"},
     "橙色": {"condition": "24h内最高气温≥37℃", "temp": 37, "hours": 24, "level": "Ⅱ级", "icon": "[火]"},
     "红色": {"condition": "24h内最高气温≥40℃", "temp": 40, "hours": 24, "level": "Ⅰ级", "icon": "[红]"},
 }
@@ -220,9 +220,9 @@ FROST_WARNING = {
 
 # --- 雷电预警 ---
 THUNDER_WARNING = {
-    "黄色": {"level": "Ⅲ级", "icon": "⚡", "condition": "6h内可能发生雷电活动"},
-    "橙色": {"level": "Ⅱ级", "icon": "⚡", "condition": "2h内发生雷电可能性很大"},
-    "红色": {"level": "Ⅰ级", "icon": "⚡", "condition": "2h内发生雷电可能性非常大"},
+    "黄色": {"level": "Ⅲ级", "icon": "[雷电]", "condition": "6h内可能发生雷电活动"},
+    "橙色": {"level": "Ⅱ级", "icon": "[雷电]", "condition": "2h内发生雷电可能性很大"},
+    "红色": {"level": "Ⅰ级", "icon": "[雷电]", "condition": "2h内发生雷电可能性非常大"},
 }
 
 # --- 霾预警 ---

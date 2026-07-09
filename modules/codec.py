@@ -327,7 +327,7 @@ def render_codec_tab():
                     )
 
             # 提供"添加到当前数据"按钮
-            if st.button("➕ 将此记录添加到手动录入区", use_container_width=True):
+            if st.button("[+] 将此记录添加到手动录入区", use_container_width=True):
                 if "manual_data" not in st.session_state:
                     st.session_state["manual_data"] = []
                 st.session_state["manual_data"].append(result)

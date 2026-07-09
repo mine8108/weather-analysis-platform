@@ -143,7 +143,7 @@ def render_export_tab(df, warnings_list, score, source=""):
             csv_data = export_data_csv(df)
             if csv_data:
                 st.download_button(
-                    label="⬇️ 导出处理后的数据 (CSV)",
+                    label="[下载] 导出处理后的数据 (CSV)",
                     data=csv_data,
                     file_name=f"气象数据_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
                     mime="text/csv",
@@ -163,7 +163,7 @@ def render_export_tab(df, warnings_list, score, source=""):
 
         if "report_data" in st.session_state:
             st.download_button(
-                label="⬇️ 下载分析报告 (Word)",
+                label="[下载] 下载分析报告 (Word)",
                 data=st.session_state["report_data"],
                 file_name=f"气象分析报告_{datetime.now().strftime('%Y%m%d_%H%M')}.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",

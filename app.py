@@ -65,7 +65,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # 头部
-st.markdown('<div class="main-header">[天气]️ 气象数据交互分析平台</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header">[天气] 气象数据交互分析平台</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-header">数据导入 · 可视化分析 · 国家预警标准检测 · 智能建议 · 报告导出</div>',
             unsafe_allow_html=True)
 
@@ -90,7 +90,7 @@ init_session()
 # 侧边栏：自定义预警阈值
 # ============================================================
 with st.sidebar:
-    st.header("⚙️ 自定义预警阈值")
+    st.header("[设置] 自定义预警阈值")
 
     with st.expander("[工具] 调整阈值（覆盖国家标准）", expanded=False):
         st.caption("留空则使用国家预警标准")
@@ -148,7 +148,7 @@ tabs = st.tabs([
 
 # ---- Tab 1: 数据导入 ----
 with tabs[0]:
-    sub_tab1, sub_tab2, sub_tab3 = st.tabs(["[文件] 文件导入", "✏️ 手动录入", "[网络] API 获取"])
+    sub_tab1, sub_tab2, sub_tab3 = st.tabs(["[文件] 文件导入", "[编辑] 手动录入", "[网络] API 获取"])
 
     with sub_tab1:
         df_file, source_file = render_file_upload_section()

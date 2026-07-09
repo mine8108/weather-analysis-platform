@@ -154,7 +154,7 @@ def render_quality_report(df):
     if issues:
         st.write("---")
         for issue in issues:
-            sev_icon = {"error": "[红]", "warning": "[黄]", "info": "[蓝]"}.get(issue["severity"], "⚪")
+            sev_icon = {"error": "[红]", "warning": "[黄]", "info": "[蓝]"}.get(issue["severity"], "[正常]")
             col = issue["field"]
             if col == "timestamp":
                 col = "时间"

@@ -247,7 +247,7 @@ def render_file_upload_section():
 
 def render_manual_input_section(existing_df=None):
     """渲染手动录入区域"""
-    st.subheader("✏️ 手动录入")
+    st.subheader("[编辑] 手动录入")
 
     with st.expander("添加观测记录", expanded=False):
         col1, col2, col3, col4 = st.columns(4)
@@ -275,7 +275,7 @@ def render_manual_input_section(existing_df=None):
             wcode = st.number_input("天气码 (WMO)", value=None, min_value=0, max_value=99, step=1)
             station = st.text_input("站点ID", placeholder="ST01")
 
-        if st.button("➕ 添加记录", use_container_width=True):
+        if st.button("[+] 添加记录", use_container_width=True):
             record = {
                 "timestamp": obs_time,
                 "temperature": temp,
@@ -305,7 +305,7 @@ def render_manual_input_section(existing_df=None):
         manual_df = pd.DataFrame(st.session_state["manual_data"])
         st.dataframe(manual_df, use_container_width=True)
 
-        if st.button("[清空]️ 清空手动录入", use_container_width=True):
+        if st.button("[清空] 清空手动录入", use_container_width=True):
             st.session_state["manual_data"] = []
             st.rerun()
 
@@ -406,7 +406,7 @@ def render_template_download():
         with open(template_path, "r", encoding="utf-8") as f:
             template_content = f.read()
         st.download_button(
-            label="⬇️ 下载标准数据模板 (CSV)",
+            label="[下载] 下载标准数据模板 (CSV)",
             data=template_content,
             file_name="气象数据模板.csv",
             mime="text/csv",
