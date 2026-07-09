@@ -213,30 +213,63 @@ def heat_index(temp_c, rh):
 # 四、图表渲染
 # ============================================================
 def _forecast_time_series(fdf):
-    """时间图：气温 + 体感温度(左轴) + 降水(右轴) 双 Y 轴序列"""
+    """时间图：气温 + 体感温度(左轴) + 降水(右轴) 双 Y 轴序列
+
+    T1: 底部 rangeslider 支持缩放到具体时段
+    T2: X 轴 dtick=43200000(12h) 避免逐时标签重叠
+    T3: hovertemplate 含格式化日期时间
+    T4: 当前时刻竖线标注（醒目红色虚线）
+    """
+    now = pd.Timestamp.now(tz="Asia/Shanghai").tz_localize(None)
     fig = make_subplots(specs=[[{"secondary_y": True}]])
     fig.add_trace(
         go.Scatter(x=fdf["timestamp"], y=fdf["temperature"], mode="lines",
-                   name="气温", line=dict(color=COLORS["temp_color"], width=2)),
+                   name="气温", line=dict(color=COLORS["temp_color"], width=2),
+                   hovertemplate="%{x|%m-%d %H:%M}<br>气温: %{y:.1f}C<extra></extra>"),
         secondary_y=False,
     )
     fig.add_trace(
         go.Scatter(x=fdf["timestamp"], y=fdf["apparent_temperature"], mode="lines",
-                   name="体感温度", line=dict(color="#e67e22", width=2, dash="dot")),
+                   name="体感温度", line=dict(color="#e67e22", width=2, dash="dot"),
+                   hovertemplate="%{x|%m-%d %H:%M}<br>体感: %{y:.1f}C<extra></extra>"),
         secondary_y=False,
     )
     fig.add_trace(
         go.Bar(x=fdf["timestamp"], y=fdf["precipitation"], name="降水",
-               marker_color=COLORS["rain_color"], opacity=0.5),
+               marker_color=COLORS["rain_color"], opacity=0.5,
+               hovertemplate="%{x|%m-%d %H:%M}<br>降水: %{y:.1f} mm<extra></extra>"),
         secondary_y=True,
     )
-    fig.update_yaxes(title_text="温度 (℃)", secondary_y=False)
+    # T4: 醒目的当前时刻竖线
+    t_min = fdf["timestamp"].min()
+    t_max = fdf["timestamp"].max()
+    if t_min <= now <= t_max:
+        fig.add_vline(x=now, line_width=2, line_dash="dash",
+                      line_color="#d0021b",
+                      annotation_text="现在",
+                      annotation_position="top left",
+                      annotation_font=dict(size=11, color="#d0021b"))
+    fig.update_yaxes(title_text="温度 (C)", secondary_y=False)
     fig.update_yaxes(title_text="降水 (mm)", secondary_y=True)
+    # T1+T2: rangeslider + 稀疏刻度
+    fig.update_xaxes(
+        rangeselector=dict(
+            buttons=list([
+                dict(count=3, label="3d", step="day", stepmode="backward"),
+                dict(count=7, label="7d", step="day", stepmode="backward"),
+                dict(count=14, label="14d", step="day", stepmode="backward"),
+                dict(step="all"),
+            ])
+        ),
+        rangeslider=dict(visible=True, thickness=35),
+        dtick=43200000,
+        tickformat="%m-%d %H:%M",
+    )
     fig.update_layout(
         title="GFS 温度 / 体感温度 / 降水 预报",
         hovermode="x unified",
-        height=420,
-        margin=dict(l=40, r=20, t=40, b=40),
+        height=480,
+        margin=dict(l=40, r=20, t=40, b=80),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
     )
     return fig
@@ -285,29 +318,57 @@ def _daily_precip_chart(fdf):
 
 
 def _spatial_heatmap(lats, lons, times, field3d, lat, lon, hour_idx, variable):
-    """空间图：给定时次渲染经纬度热力图，并标记目标点"""
+    """空间图：给定时次渲染经纬度热力图，并标记目标点
+
+    S2: 增大轴标签字号
+    S4+S5: 优化 colorbar（加厚/更多tick/标题侧置）
+    S3 返回值扩展：同时返回 (fig, stats_dict) 供调用方展示统计量
+    """
     field2d = field3d[:, :, hour_idx]
     vname = SPATIAL_VAR_LABELS.get(variable, variable)
+
+    # S3: 预计算网格统计量
+    valid = field2d[~np.isnan(field2d)]
+    stats = {
+        "min": float(np.min(valid)) if len(valid) > 0 else float("nan"),
+        "max": float(np.max(valid)) if len(valid) > 0 else float("nan"),
+        "mean": float(np.mean(valid)) if len(valid) > 0 else float("nan"),
+        "n_points": int(field2d.size),
+        "grid_shape": f"{field2d.shape[0]}x{field2d.shape[1]}",
+        "time_str": str(times[hour_idx]),
+    }
+
     fig = go.Figure(go.Heatmap(
         z=field2d,
         x=lons, y=lats,
         colorscale="RdYlBu_r",
-        colorbar=dict(title=vname),
-        hovertemplate="经度 %{x:.2f}<br>纬度 %{y:.2f}<br>" + vname + ": %{z:.1f}<extra></extra>",
-
+        # S5: 加厚 colorbar + 更多 tick + 标题侧置
+        colorbar=dict(
+            title=dict(text=vname, side="right", font=dict(size=13)),
+            thickness=15,
+            len=0.95,
+            tickfont=dict(size=11),
+        ),
+        hovertemplate="经度 %{x:.2f}E<br>纬度 %{y:.2f}N<br>" + vname + ": %{z:.1f}<extra></extra>",
     ))
+    # 目标点标记（更大更醒目）
     fig.add_trace(go.Scatter(
-        x=[lon], y=[lat], mode="markers", name="目标点",
-        marker=dict(color="black", size=12, symbol="x"),
-        hovertemplate="目标点<extra></extra>",
+        x=[lon], y=[lat], mode="markers+text", name="目标点",
+        marker=dict(color="black", size=16, symbol="x", line=dict(width=2)),
+        text=["目标"], textposition="middle right",
+        textfont=dict(size=11, color="#333"),
+        hovertemplate="目标点 (%.2fN, %.2fE)<extra></extra>" % (lat, lon),
     ))
+    # S2: 轴标题字号增大 + 刻度格式
     fig.update_layout(
         title=f"{vname} 空间分布 @ {times[hour_idx]}",
-        xaxis_title="经度", yaxis_title="纬度",
-        yaxis=dict(scaleanchor="x", scaleratio=1),
-        height=480, margin=dict(l=40, r=20, t=40, b=40),
+        xaxis_title=dict(text="经度 (E)", font=dict(size=13)),
+        yaxis_title=dict(text="纬度 (N)", font=dict(size=13)),
+        xaxis=dict(tickfont=dict(size=11), tickformat=".2f"),
+        yaxis=dict(scaleanchor="x", scaleratio=1, tickfont=dict(size=11), tickformat=".2f"),
+        height=520, margin=dict(l=50, r=50, t=45, b=50),
     )
-    return fig
+    return fig, stats
 
 
 # ============================================================
@@ -384,10 +445,11 @@ def render_forecast_tab():
     with scol1:
         variable = st.selectbox("空间变量", list(SPATIAL_VAR_LABELS.keys()),
                                 format_func=lambda v: SPATIAL_VAR_LABELS[v], key="fc_spatial_var")
+    # S1: 默认步长更细、半宽适中 → 至少 9x9=81 点（而非旧版 3x3~7x7）
     with scol2:
-        step = st.slider("网格步长 (°)", 0.25, 1.0, 0.5, 0.25, key="fc_step")
+        step = st.slider("网格步长 (度)", 0.10, 1.0, 0.25, 0.05, key="fc_step")
     with scol3:
-        half = st.slider("半宽 (°)", 0.5, 3.0, 1.5, 0.5, key="fc_half")
+        half = st.slider("半宽 (度)", 0.5, 3.0, 1.0, 0.25, key="fc_half")
 
     if st.button("[空间] 生成空间预报场", use_container_width=True, key="fc_spatial"):
         with st.spinner("正在抓取网格预报 (单次多站点请求)..."):
@@ -405,5 +467,16 @@ def render_forecast_tab():
         lats, lons, times, field3d = st.session_state["fc_grid"]
         hour_idx = st.slider("选择预报时次", 0, len(times) - 1,
                              st.session_state.get("fc_hour", 0), key="fc_hour")
-        map_fig = _spatial_heatmap(lats, lons, times, field3d, lat, lon, hour_idx, variable)
+        map_fig, grid_stats = _spatial_heatmap(lats, lons, times, field3d, lat, lon, hour_idx, variable)
         st.plotly_chart(map_fig, use_container_width=True, key="fc_spatial_map")
+
+        # S3: 网格统计量展示
+        sc1, sc2, sc3, sc4 = st.columns(4)
+        with sc1:
+            st.metric("最小值", f"{grid_stats['min']:.1f}")
+        with sc2:
+            st.metric("最大值", f"{grid_stats['max']:.1f}")
+        with sc3:
+            st.metric("平均值", f"{grid_stats['mean']:.1f}")
+        with sc4:
+            st.metric("网格规模", grid_stats["grid_shape"])
