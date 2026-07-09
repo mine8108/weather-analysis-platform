@@ -146,8 +146,6 @@ def render_climate_ref_tab(df):
 
         if climate:
             st.session_state["climate_data"] = climate
-            st.session_state["climate_lat"] = lat
-            st.session_state["climate_lon"] = lon
             st.rerun()
 
     if "climate_data" not in st.session_state:
