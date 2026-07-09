@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>气象数据交互分析平台 · 用户使用手册</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", "Helvetica Neue", sans-serif;
+    line-height: 1.8; color: #2c3e50; background: #f5f7fa;
+  }
+  .container { max-width: 920px; margin: 0 auto; padding: 0 24px 80px; }
+  .hero {
+    background: linear-gradient(135deg, #1f77b4 0%, #2980b9 100%);
+    color: white; padding: 60px 24px; text-align: center; margin-bottom: 40px;
+  }
+  .hero h1 { font-size: 32px; font-weight: 700; margin-bottom: 12px; }
+  .hero p { font-size: 16px; opacity: 0.9; }
+  .hero .version { display: inline-block; margin-top: 16px; padding: 4px 16px;
+    background: rgba(255,255,255,0.2); border-radius: 20px; font-size: 13px; }
+  h2 { font-size: 24px; color: #1f77b4; margin: 48px 0 16px; padding-bottom: 8px;
+    border-bottom: 3px solid #1f77b4; }
+  h3 { font-size: 18px; color: #2980b9; margin: 28px 0 12px; }
+  p { margin-bottom: 12px; }
+  .step-box { background: white; border-radius: 8px; padding: 20px 24px; margin: 16px 0;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+  .step-num { display: inline-block; width: 28px; height: 28px; line-height: 28px;
+    text-align: center; background: #1f77b4; color: white; border-radius: 50%;
+    font-weight: bold; margin-right: 10px; font-size: 14px; }
+  code { background: #f0f3f5; padding: 2px 8px; border-radius: 4px; font-family: Consolas, monospace;
+    font-size: 14px; color: #c0392b; }
+  pre { background: #2c3e50; color: #ecf0f1; padding: 16px 20px; border-radius: 8px;
+    overflow-x: auto; margin: 12px 0; font-family: Consolas, monospace; font-size: 14px; line-height: 1.6; }
+  pre .comment { color: #7f8c8d; }
+  pre .cmd { color: #2ecc71; }
+  .mockup { background: white; border-radius: 8px; padding: 24px; margin: 16px 0;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06); text-align: center; }
+  .mockup svg { max-width: 100%; height: auto; }
+  .mockup .cap { font-size: 13px; color: #7f8c8d; margin-top: 12px; }
+  .tip { background: #e8f4fd; border-left: 4px solid #3498db; padding: 12px 16px;
+    border-radius: 4px; margin: 16px 0; }
+  .warn { background: #fef5e7; border-left: 4px solid #f39c12; padding: 12px 16px;
+    border-radius: 4px; margin: 16px 0; }
+  .danger { background: #fdedec; border-left: 4px solid #e74c3c; padding: 12px 16px;
+    border-radius: 4px; margin: 16px 0; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; background: white;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06); border-radius: 8px; overflow: hidden; }
+  th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid #ecf0f1; }
+  th { background: #1f77b4; color: white; font-weight: 600; }
+  tr:last-child td { border-bottom: none; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px;
+    font-weight: bold; color: white; }
+  .b-blue { background: #0066cc; }
+  .b-yellow { background: #f5a623; }
+  .b-orange { background: #f26522; }
+  .b-red { background: #d0021b; }
+  .toc { background: white; border-radius: 8px; padding: 24px; margin: 24px 0;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+  .toc a { color: #1f77b4; text-decoration: none; display: block; padding: 6px 0;
+    border-bottom: 1px dashed #ecf0f1; }
+  .toc a:hover { color: #2980b9; padding-left: 8px; transition: 0.2s; }
+  .footer { text-align: center; color: #95a5a6; font-size: 13px; margin-top: 60px;
+    padding-top: 24px; border-top: 1px solid #ecf0f1; }
+  .feature-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+  .feature-card { background: white; border-radius: 8px; padding: 16px 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+  .feature-card .icon { font-size: 28px; }
+  .feature-card h4 { color: #1f77b4; margin: 8px 0 4px; }
+  .feature-card p { font-size: 14px; color: #7f8c8d; margin: 0; }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <h1>🌦️ 气象数据交互分析平台</h1>
+  <p>用户使用手册 · 数据导入 → 可视化分析 → 国家预警 → 智能建议 → 报告导出</p>
+  <span class="version">版本 v1.0 · 基于 Streamlit + Python</span>
+</div>
+
+<div class="container">
+
+  <div class="toc">
+    <h3 style="margin-top:0">📑 目录</h3>
+    <a href="#intro">一、软件简介</a>
+    <a href="#install">二、安装与启动</a>
+    <a href="#overview">三、界面总览</a>
+    <a href="#tab1">四、Tab1 数据导入</a>
+    <a href="#tab2">五、Tab2 数据质控</a>
+    <a href="#tab3">六、Tab3 可视化分析</a>
+    <a href="#tab4">七、Tab4 智能分析与建议</a>
+    <a href="#tab5">八、Tab5 气候态参照</a>
+    <a href="#tab6">九、Tab6 报文解码</a>
+    <a href="#tab7">十、Tab7 报告导出</a>
+    <a href="#sidebar">十一、侧边栏：自定义阈值</a>
+    <a href="#faq">十二、常见问题（FAQ）</a>
+    <a href="#demo">十三、示例数据使用说明</a>
+  </div>
+
+  <!-- 一、软件简介 -->
+  <h2 id="intro">一、软件简介</h2>
+  <p>本软件是一个基于 Python（Streamlit 框架）开发的气象数据交互分析平台，面向气象、环境、农业等领域的科研与业务场景。用户导入气象观测数据后，软件自动完成数据可视化、国家预警标准检测、智能应对建议生成，并支持导出分析报告。</p>
+
+  <div class="feature-grid">
+    <div class="feature-card">
+      <div class="icon">📥</div>
+      <h4>多源数据导入</h4>
+      <p>支持 CSV、Excel、手动录入、API 自动获取四种方式</p>
+    </div>
+    <div class="feature-card">
+      <div class="icon">📈</div>
+      <h4>专业可视化</h4>
+      <p>综合看板、风向玫瑰图、散点矩阵、多站点对比</p>
+    </div>
+    <div class="feature-card">
+      <div class="icon">🚨</div>
+      <h4>国家预警检测</h4>
+      <p>8 类气象灾害预警，严格遵循中国气象局第16号令</p>
+    </div>
+    <div class="feature-card">
+      <div class="icon">💡</div>
+      <h4>智能建议生成</h4>
+      <p>公众出行建议 + 农业生产建议自动生成</p>
+    </div>
+  </div>
+
+  <!-- 二、安装与启动 -->
+  <h2 id="install">二、安装与启动</h2>
+
+  <div class="step-box">
+    <p><span class="step-num">1</span><strong>打开终端</strong></p>
+    <p>按 <code>Win + R</code>，输入 <code>cmd</code>，回车打开命令提示符；或使用 Anaconda Prompt。</p>
+  </div>
+
+  <div class="step-box">
+    <p><span class="step-num">2</span><strong>进入项目目录</strong></p>
+    <pre><span class="cmd">cd</span> "C:\Users\ASUS\OneDrive\Desktop\24024115 郑昊\气象编程\weather_app"</pre>
+  </div>
+
+  <div class="step-box">
+    <p><span class="step-num">3</span><strong>安装依赖（仅首次需要）</strong></p>
+    <pre><span class="cmd">pip</span> install -r requirements.txt</pre>
+    <div class="tip">依赖包含：streamlit、pandas、numpy、plotly、matplotlib、openpyxl、python-docx、requests。若安装缓慢，可加 <code>-i https://pypi.tuna.tsinghua.edu.cn/simple</code> 使用清华镜像。</div>
+  </div>
+
+  <div class="step-box">
+    <p><span class="step-num">4</span><strong>启动软件</strong></p>
+    <pre><span class="cmd">streamlit</span> run app.py</pre>
+    <p>启动后，终端会显示本地访问地址（默认为 <code>http://localhost:8501</code>），用浏览器打开即可使用。</p>
+  </div>
+
+  <div class="danger">⚠️ 注意：<strong>不要</strong>把 <code>pip install</code> 或 <code>streamlit run</code> 写进 .py 文件用 Spyder 运行——这些是终端命令，不是 Python 代码。Streamlit 是一个独立服务器进程，应通过外部终端启动。</div>
+
+  <!-- 三、界面总览 -->
+  <h2 id="overview">三、界面总览</h2>
+  <p>软件界面顶部为标题栏，主体分为 7 个标签页（Tab），左侧为阈值自定义侧边栏。每次使用的基本流程：<strong>先到 Tab1 导入数据，再到后续 Tab 分析</strong>。</p>
+
+  <div class="mockup">
+    <svg viewBox="0 0 680 380" xmlns="http://www.w3.org/2000/svg">
+      <rect x="0" y="0" width="680" height="380" rx="8" fill="#ffffff" stroke="#e0e6ed"/>
+      <!-- 标题栏 -->
+      <rect x="0" y="0" width="680" height="52" rx="8" fill="#1f77b4"/>
+      <text x="24" y="33" fill="#fff" font-size="18" font-weight="bold">🌦️ 气象数据交互分析平台</text>
+      <!-- Tab栏 -->
+      <rect x="0" y="52" width="680" height="44" fill="#f0f3f5"/>
+      <rect x="12" y="62" width="84" height="28" rx="4" fill="#1f77b4"/>
+      <text x="54" y="81" fill="#fff" font-size="12" text-anchor="middle">📥 数据导入</text>
+      <rect x="104" y="62" width="84" height="28" rx="4" fill="#e8edf2"/>
+      <text x="146" y="81" fill="#555" font-size="12" text-anchor="middle">🔬 数据质控</text>
+      <rect x="196" y="62" width="92" height="28" rx="4" fill="#e8edf2"/>
+      <text x="242" y="81" fill="#555" font-size="12" text-anchor="middle">📈 可视化</text>
+      <rect x="296" y="62" width="108" height="28" rx="4" fill="#e8edf2"/>
+      <text x="350" y="81" fill="#555" font-size="12" text-anchor="middle">🚨 智能分析</text>
+      <rect x="412" y="62" width="84" height="28" rx="4" fill="#e8edf2"/>
+      <text x="454" y="81" fill="#555" font-size="12" text-anchor="middle">📅 气候态</text>
+      <rect x="504" y="62" width="84" height="28" rx="4" fill="#e8edf2"/>
+      <text x="546" y="81" fill="#555" font-size="12" text-anchor="middle">📡 报文</text>
+      <rect x="596" y="62" width="84" height="28" rx="4" fill="#e8edf2"/>
+      <text x="638" y="81" fill="#555" font-size="12" text-anchor="middle">📦 导出</text>
+      <!-- 主体内容区 -->
+      <rect x="12" y="108" width="500" height="260" rx="6" fill="#fafbfc" stroke="#e0e6ed"/>
+      <text x="28" y="138" fill="#333" font-size="14" font-weight="bold">数据导入区</text>
+      <rect x="28" y="152" width="220" height="64" rx="6" fill="#fff" stroke="#d0d8e0"/>
+      <text x="138" y="180" fill="#555" font-size="12" text-anchor="middle">📂 上传 CSV 文件</text>
+      <text x="138" y="200" fill="#999" font-size="10" text-anchor="middle">选择 .csv 数据文件</text>
+      <rect x="264" y="152" width="220" height="64" rx="6" fill="#fff" stroke="#d0d8e0"/>
+      <text x="374" y="180" fill="#555" font-size="12" text-anchor="middle">📊 上传 Excel 文件</text>
+      <text x="374" y="200" fill="#999" font-size="10" text-anchor="middle">选择 .xlsx 数据文件</text>
+      <rect x="28" y="228" width="456" height="40" rx="6" fill="#e8f4fd" stroke="#bcdcf5"/>
+      <text x="256" y="253" fill="#2980b9" font-size="12" text-anchor="middle">✓ 成功导入: CSV: demo.csv | 120 条记录 | 识别字段: 11 个</text>
+      <rect x="28" y="280" width="220" height="72" rx="6" fill="#fff" stroke="#d0d8e0"/>
+      <text x="138" y="304" fill="#555" font-size="12" text-anchor="middle">📥 模板下载</text>
+      <text x="138" y="324" fill="#999" font-size="10" text-anchor="middle">获取标准数据模板</text>
+      <rect x="264" y="280" width="220" height="72" rx="6" fill="#fff" stroke="#d0d8e0"/>
+      <text x="374" y="304" fill="#555" font-size="12" text-anchor="middle">🌐 API 数据获取</text>
+      <text x="374" y="324" fill="#999" font-size="10" text-anchor="middle">Open-Meteo / ERA5</text>
+      <!-- 侧边栏 -->
+      <rect x="528" y="108" width="148" height="260" rx="6" fill="#f8f9fb" stroke="#e0e6ed"/>
+      <text x="544" y="134" fill="#1f77b4" font-size="13" font-weight="bold">⚙️ 自定义阈值</text>
+      <line x1="544" y1="144" x2="660" y2="144" stroke="#e0e6ed"/>
+      <text x="544" y="166" fill="#666" font-size="11">高温预警 (℃)</text>
+      <rect x="544" y="174" width="108" height="20" rx="3" fill="#fff" stroke="#d0d8e0"/>
+      <text x="552" y="188" fill="#999" font-size="10">黄色 ≥ 35.0</text>
+      <rect x="544" y="200" width="108" height="20" rx="3" fill="#fff" stroke="#d0d8e0"/>
+      <text x="552" y="214" fill="#999" font-size="10">橙色 ≥ 37.0</text>
+      <rect x="544" y="226" width="108" height="20" rx="3" fill="#fff" stroke="#d0d8e0"/>
+      <text x="552" y="240" fill="#999" font-size="10">红色 ≥ 40.0</text>
+      <rect x="544" y="258" width="108" height="28" rx="4" fill="#1f77b4"/>
+      <text x="598" y="277" fill="#fff" font-size="11" text-anchor="middle">✓ 应用</text>
+    </svg>
+    <div class="cap">图 1：软件主界面布局（顶部标题 + 7 个标签页 + 左侧阈值侧边栏）</div>
+  </div>
+
+  <!-- 四、Tab1 数据导入 -->
+  <h2 id="tab1">四、Tab1 数据导入</h2>
+  <p>这是使用软件的第一步。数据成功导入后，页面底部会显示"当前数据: N 条记录"。</p>
+
+  <h3>4.1 文件导入（CSV / Excel）</h3>
+  <ol>
+    <li>在"📂 文件导入"子标签下，点击"上传 CSV 文件"或"上传 Excel 文件"</li>
+    <li>选择你的数据文件。软件会自动：
+      <ul>
+        <li><strong>识别列名</strong>：支持"气温/温度/temp"、"气压/pres"等多种中英文别名</li>
+        <li><strong>解析时间</strong>：自动识别 <code>2026-07-01 14:00</code> 等多种时间格式</li>
+        <li><strong>标记字段</strong>：展开"字段识别详情"可查看已识别/未识别的字段</li>
+      </ul>
+    </li>
+  </ol>
+
+  <h3>4.2 手动录入</h3>
+  <p>展开"添加观测记录"表单，逐条填写时间、气温、风速等，点击"➕ 添加记录"。适合少量补录。</p>
+
+  <h3>4.3 API 自动获取</h3>
+  <p>在"🌐 API 获取"子标签下：
+    <ul>
+      <li>填入<strong>纬度</strong>、<strong>经度</strong>（默认北京燕郊 39.94, 116.85）</li>
+      <li>选择<strong>日期范围</strong></li>
+      <li>点击"🔍 获取数据"——自动从 Open-Meteo（ERA5 再分析）下载逐时数据</li>
+    </ul>
+  </p>
+
+  <div class="tip">💡 不确定数据格式？点击"📥 模板下载"获取 <code>气象数据模板.csv</code>，照着填即可。模板包含 timestamp（时间）、temperature（气温）、pressure（气压）等 11 个标准字段。</div>
+
+  <div class="mockup">
+    <svg viewBox="0 0 680 260" xmlns="http://www.w3.org/2000/svg">
+      <rect x="0" y="0" width="680" height="260" rx="8" fill="#fff" stroke="#e0e6ed"/>
+      <text x="24" y="34" fill="#1f77b4" font-size="16" font-weight="bold">📂 文件导入</text>
+      <rect x="24" y="52" width="300" height="70" rx="6" fill="#f8f9fb" stroke="#d0d8e0"/>
+      <text x="44" y="80" fill="#555" font-size="13">📄 上传 CSV 文件</text>
+      <text x="44" y="102" fill="#999" font-size="11">支持 .csv / .txt，自动识别编码</text>
+      <rect x="356" y="52" width="300" height="70" rx="6" fill="#f8f9fb" stroke="#d0d8e0"/>
+      <text x="376" y="80" fill="#555" font-size="13">📊 上传 Excel 文件</text>
+      <text x="376" y="102" fill="#999" font-size="11">支持 .xlsx / .xls</text>
+      <rect x="24" y="140" width="632" height="36" rx="6" fill="#e8f4fd" stroke="#bcdcf5"/>
+      <text x="44" y="164" fill="#2980b9" font-size="13">✓ 成功导入: CSV: demo.csv | 120 条记录 | 识别字段: 11 个</text>
+      <rect x="24" y="188" width="300" height="50" rx="6" fill="#fff" stroke="#d0d8e0"/>
+      <text x="44" y="212" fill="#555" font-size="13">📥 模板下载</text>
+      <text x="44" y="230" fill="#999" font-size="11">标准 CSV 模板</text>
+      <rect x="356" y="188" width="300" height="50" rx="6" fill="#fff" stroke="#d0d8e0"/>
+      <text x="376" y="212" fill="#555" font-size="13">📋 字段识别详情</text>
+      <text x="376" y="230" fill="#999" font-size="11">已识别 / 未识别字段</text>
+    </svg>
+    <div class="cap">图 2：Tab1 数据导入界面</div>
+  </div>
+
+  <!-- 五、Tab2 数据质控 -->
+  <h2 id="tab2">五、Tab2 数据质控</h2>
+  <p>导入数据后，此页自动执行质量检查：</p>
+  <table>
+    <tr><th>检查项</th><th>说明</th></tr>
+    <tr><td>范围校验</td><td>气温 -50~55℃、气压 500~1100hPa、湿度 0~100%、风速 0~75m/s</td></tr>
+    <tr><td>时间一致性</td><td>检测相邻时次突跳（如 1h 降温≥8℃ 标记可疑）</td></tr>
+    <tr><td>完整性检查</td><td>统计各字段缺失率、连续缺失段</td></tr>
+    <tr><td>质量评分</td><td>综合计算百分制评分，辅助判断数据可用性</td></tr>
+  </table>
+  <p>页面会以表格列出所有异常记录（红色标记），便于你清洗数据。</p>
+
+  <!-- 六、Tab3 可视化分析 -->
+  <h2 id="tab3">六、Tab3 可视化分析</h2>
+  <p>本页含 4 个子标签，所有图表均为交互式（可缩放、悬停查看数值、下载为图片）：</p>
+  <table>
+    <tr><th>子标签</th><th>内容</th></tr>
+    <tr><td>📊 综合看板</td><td>温/压/湿/风四要素 2×2 同屏显示</td></tr>
+    <tr><td>🌬️ 风场分析</td><td>风向风速玫瑰图（16 方位）+ 主导风向/平均风速</td></tr>
+    <tr><td>🔬 要素关系</td><td>散点矩阵（看要素相关性）+ 单要素时间序列</td></tr>
+    <tr><td>📋 统计摘要</td><td>各要素均值/极值/标准差 + 多站点对比</td></tr>
+  </table>
+
+  <div class="tip">💡 风向玫瑰图按 16 个方位（N/NNE/NE…）分扇区，颜色深浅代表风速等级，可直观看出主导风向和强风频率。</div>
+
+  <!-- 七、Tab4 智能分析与建议 -->
+  <h2 id="tab4">七、Tab4 智能分析与建议（核心功能）</h2>
+  <p>本页是软件的核心价值所在，自动完成以下分析：</p>
+
+  <h3>7.1 预警信号检测</h3>
+  <p>严格依据《气象灾害预警信号发布与传播办法》（中国气象局第16号令）检测 8 类预警：</p>
+  <table>
+    <tr><th>预警类型</th><th>图标</th><th>检测逻辑（节选）</th></tr>
+    <tr><td>高温</td><td><span class="badge b-yellow">黄</span> <span class="badge b-orange">橙</span> <span class="badge b-red">红</span></td><td>连续3天≥35℃ / 24h内≥37℃ / ≥40℃</td></tr>
+    <tr><td>寒潮</td><td><span class="badge b-blue">蓝</span> <span class="badge b-yellow">黄</span> <span class="badge b-orange">橙</span> <span class="badge b-red">红</span></td><td>48h/24h 降温幅度 + 最低气温</td></tr>
+    <tr><td>大风</td><td><span class="badge b-blue">蓝</span> <span class="badge b-yellow">黄</span> <span class="badge b-orange">橙</span> <span class="badge b-red">红</span></td><td>平均风力 6/8/10/12 级（10.8/17.2/24.5/32.7 m/s）</td></tr>
+    <tr><td>大雾</td><td><span class="badge b-yellow">黄</span> <span class="badge b-orange">橙</span> <span class="badge b-red">红</span></td><td>能见度 &lt;500m / &lt;200m / &lt;50m</td></tr>
+    <tr><td>暴雨</td><td><span class="badge b-blue">蓝</span> <span class="badge b-yellow">黄</span> <span class="badge b-orange">橙</span> <span class="badge b-red">红</span></td><td>12h/6h/3h 降雨量 ≥50mm / 3h≥100mm</td></tr>
+    <tr><td>霜冻</td><td><span class="badge b-blue">蓝</span> <span class="badge b-yellow">黄</span> <span class="badge b-orange">橙</span></td><td>地温 ≤0℃ / ≤-3℃ / ≤-5℃</td></tr>
+    <tr><td>雷电</td><td><span class="badge b-yellow">黄</span> <span class="badge b-orange">橙</span> <span class="badge b-red">红</span></td><td>天气码含雷暴（WMO 95-99）</td></tr>
+    <tr><td>霾</td><td><span class="badge b-yellow">黄</span> <span class="badge b-orange">橙</span></td><td>能见度 &lt;3000m / &lt;2000m</td></tr>
+  </table>
+
+  <h3>7.2 多要素耦合分析</h3>
+  <p>除单要素阈值外，还检测以下组合风险：</p>
+  <ul>
+    <li><strong>热应激</strong>：高温（≥35℃）+ 高湿（≥60%）→ 计算体感热指数</li>
+    <li><strong>降水可能性</strong>：气压 6h 骤降（≥3hPa）+ 高湿（≥70%）</li>
+    <li><strong>风寒效应</strong>：低温（≤0℃）+ 大风（≥10.8m/s）</li>
+  </ul>
+
+  <h3>7.3 智能建议生成</h3>
+  <p>页面下方自动生成两类建议（基于国家预警防御指南）：</p>
+  <ul>
+    <li><strong>🚶 公众出行建议</strong>：如"高温橙色：尽量避免高温时段户外活动"</li>
+    <li><strong>🌾 农业生产建议</strong>：如"大风黄色：停止喷药和灌溉，加固设施农业骨架"</li>
+  </ul>
+
+  <div class="mockup">
+    <svg viewBox="0 0 680 280" xmlns="http://www.w3.org/2000/svg">
+      <rect x="0" y="0" width="680" height="280" rx="8" fill="#fff" stroke="#e0e6ed"/>
+      <text x="24" y="32" fill="#1f77b4" font-size="16" font-weight="bold">🚨 智能分析与建议</text>
+      <text x="24" y="60" fill="#333" font-size="13" font-weight="bold">预警信号检测（国家气象预警标准）</text>
+      <!-- 预警卡片 -->
+      <rect x="24" y="72" width="200" height="56" rx="6" fill="#fff8e6" stroke="#f5a623"/>
+      <text x="40" y="98" fill="#f5a623" font-size="14" font-weight="bold">☀ 高温黄色预警</text>
+      <text x="40" y="118" fill="#888" font-size="11">Ⅲ级 | 连续 5 天日最高≥35℃</text>
+      <rect x="240" y="72" width="200" height="56" rx="6" fill="#fff0e6" stroke="#f26522"/>
+      <text x="256" y="98" fill="#f26522" font-size="14" font-weight="bold">[橙] 大雾橙色预警</text>
+      <text x="256" y="118" fill="#888" font-size="11">Ⅱ级 | 最低能见度 100m</text>
+      <rect x="456" y="72" width="200" height="56" rx="6" fill="#e6f0ff" stroke="#0066cc"/>
+      <text x="472" y="98" fill="#0066cc" font-size="14" font-weight="bold">[蓝] 暴雨蓝色预警</text>
+      <text x="472" y="118" fill="#888" font-size="11">Ⅳ级 | 12h 降雨 61.3mm</text>
+      <!-- 建议区 -->
+      <text x="24" y="160" fill="#333" font-size="13" font-weight="bold">🚶 公众出行建议</text>
+      <text x="24" y="182" fill="#555" font-size="12">• 午后尽量减少户外活动，防暑降温</text>
+      <text x="24" y="202" fill="#555" font-size="12">• 能见度低时注意行车安全</text>
+      <text x="24" y="230" fill="#333" font-size="13" font-weight="bold">🌾 农业生产建议</text>
+      <text x="24" y="252" fill="#555" font-size="12">• 设施农业检查加固，暂停户外作业</text>
+    </svg>
+    <div class="cap">图 3：Tab4 预警卡片与建议生成效果</div>
+  </div>
+
+  <!-- 八、Tab5 气候态参照 -->
+  <h2 id="tab5">八、Tab5 气候态参照</h2>
+  <p>输入经纬度后，软件拉取该地点近 5 年同期气候平均（ERA5），与你的数据对比：</p>
+  <ul>
+    <li><strong>距平分析</strong>：标注"当前气温较同期偏高 X℃"</li>
+    <li><strong>异常判断</strong>：比单纯阈值更有意义——35℃ 在盛夏可能正常，在隆冬则是极端异常</li>
+  </ul>
+
+  <!-- 九、Tab6 报文解码 -->
+  <h2 id="tab6">九、Tab6 报文解码</h2>
+  <p>面向专业气象场景。将标准气象报文粘贴入输入框，自动解析为结构化数据：</p>
+  <ul>
+    <li><strong>METAR</strong>：如 <code>METAR ZBAA 010800Z 18006KT 5000 BR BKN040 25/18 Q1015</code></li>
+    <li><strong>SYNOP</strong>：如 <code>AAXX 01084 54511 02999 02501 ...</code></li>
+  </ul>
+  <p>解析结果包含站点、时间、风、温湿、气压、能见度、云量等，可直接用于后续分析。</p>
+
+  <!-- 十、Tab7 报告导出 -->
+  <h2 id="tab7">十、Tab7 报告导出</h2>
+  <table>
+    <tr><th>导出类型</th><th>格式</th><th>说明</th></tr>
+    <tr><td>数据导出</td><td>CSV</td><td>导出处理后的完整数据（UTF-8 含中文）</td></tr>
+    <tr><td>分析报告</td><td>Word (.docx)</td><td>含预警信号、统计摘要、防御建议的完整报告</td></tr>
+    <tr><td>统计摘要</td><td>界面</td><td>各要素关键统计指标一览</td></tr>
+  </table>
+  <div class="tip">💡 Word 报告可直接用于业务汇报或论文附录，格式已按规范排版。</div>
+
+  <!-- 十一、侧边栏 -->
+  <h2 id="sidebar">十一、侧边栏：自定义预警阈值</h2>
+  <p>左侧栏的"⚙️ 自定义预警阈值"面板允许你调整各级阈值，以覆盖国家标准：</p>
+  <ul>
+    <li><strong>高温预警</strong>：黄色/橙色/红色 触发温度</li>
+    <li><strong>大风预警</strong>：蓝/黄/橙/红 触发风速</li>
+    <li><strong>大雾预警</strong>：黄/橙/红 触发能见度</li>
+  </ul>
+  <p>修改后点击"✓ 应用自定义阈值"即可生效。<strong>留空则使用国家预警标准。</strong></p>
+  <div class="warn">⚠️ 适用场景：不同行业可能需要更严格的标准（如电力行业高温预警可能降至 38℃），自定义阈值用于此目的。</div>
+
+  <!-- 十二、FAQ -->
+  <h2 id="faq">十二、常见问题（FAQ）</h2>
+
+  <h3>Q1：启动后浏览器打不开？</h3>
+  <p>确认终端显示的地址（如 <code>http://localhost:8501</code>），手动复制到浏览器地址栏。若端口被占用，用 <code>streamlit run app.py --server.port 8502</code> 换端口。</p>
+
+  <h3>Q2：列名识别不出来？</h3>
+  <p>软件支持常见中英文别名。若你的列名特殊，请参考"📥 模板下载"中的标准字段名重命名，或在 Tab1 手动录入。</p>
+
+  <h3>Q3：预警没有触发？</h3>
+  <p>检查：① 数据量是否足够（高温需≥24条、寒潮需≥48条逐时数据）；② 字段名是否正确识别；③ 数据是否确实达到阈值。可在 Tab2 查看数据质量。</p>
+
+  <h3>Q4：API 获取失败？</h3>
+  <p>确认网络连通，且日期范围不超过 Open-Meteo 的免费区间（历史数据约 1940 年至今）。</p>
+
+  <h3>Q5：Spyder 里运行 app.py 报错？</h3>
+  <p>Streamlit 应通过外部终端（cmd / Anaconda Prompt）启动，不要在 Spyder 内用 <code>%runfile</code> 运行。Spyder 仅用于编辑代码。</p>
+
+  <!-- 十三、示例数据 -->
+  <h2 id="demo">十三、示例数据使用说明</h2>
+  <p>项目自带示例数据 <code>示例数据/示例气象数据.csv</code>，覆盖 5 天（2026-07-01 至 07-05）逐时观测， deliberately 设计了多种天气场景：</p>
+  <table>
+    <tr><th>日期</th><th>场景</th><th>预期触发预警</th></tr>
+    <tr><td>07-01 ~ 07-02</td><td>正常夏季升温</td><td>—</td></tr>
+    <tr><td>07-03</td><td>高温天气</td><td>高温黄色（连续≥35℃）</td></tr>
+    <tr><td>07-04 午后</td><td>大风过程</td><td>大风蓝色（≥10.8m/s）</td></tr>
+    <tr><td>07-05 凌晨</td><td>浓雾</td><td>大雾橙色（能见度 100m）</td></tr>
+    <tr><td>07-05 午后</td><td>雷阵雨</td><td>暴雨蓝色 + 雷电黄色</td></tr>
+  </table>
+
+  <h3>用示例数据快速体验</h3>
+  <div class="step-box">
+    <p><span class="step-num">1</span>启动软件后，进入 <strong>Tab1 数据导入</strong></p>
+    <p><span class="step-num">2</span>点击"上传 CSV 文件"，选择 <code>weather_app/示例数据/示例气象数据.csv</code></p>
+    <p><span class="step-num">3</span>依次查看 Tab2（质控）、Tab3（可视化）、Tab4（预警与建议）、Tab7（导出报告）</p>
+  </div>
+
+  <div class="footer">
+    <p>气象数据交互分析平台 · 用户使用手册 v1.0</p>
+    <p>数据标准：中国气象局第16号令《气象灾害预警信号发布与传播办法》</p>
+    <p>© 2026 气象编程 · 保留所有权利</p>
+  </div>
+
+</div>
+</body>
+</html>

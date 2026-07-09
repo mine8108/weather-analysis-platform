@@ -1,0 +1,57 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ===== 虚拟环境 =====
+.venv/
+venv/
+env/
+ENV/
+.venv
+venv.bak/
+
+# ===== Streamlit / 凭据 =====
+.streamlit/secrets.toml
+.streamlit/credentials.toml
+
+# ===== 本地缓存 / 日志 =====
+.cache/
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+.streamlit/feedback/
+
+# ===== 编辑器 / 系统 =====
+.idea/
+.vscode/
+*.swp
+*~
+
+# ===== 测试 / 覆盖率 =====
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ===== 数据集（可选保留示例，忽略大文件） =====
+data/raw/
+*.parquet
