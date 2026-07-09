@@ -65,6 +65,7 @@ def parse_timestamp(df):
         "timestamp", "时间", "日期", "时刻", "datetime", "date", "time",
         "观测时间", "观测时次", "记录时间", "采集时间", "数据时间",
         "资料时间", "年月日", "TIMESTAMP", "obs_time", "record_time",
+        "t", "Unnamed: 0", "unnamed",
     ]
     for c in df.columns:
         if c.strip().lower() in [e.lower() for e in exact_candidates]:
@@ -86,16 +87,46 @@ def parse_timestamp(df):
                 ts_col = c
                 break
 
-    # ---- 第4级：尝试逐列解析为 datetime（取第一个能成功转为 datetime 的列）----
-    if ts_col is None and len(df.columns) > 0:
+    # ---- 第4级：逐列尝试解析为 datetime（取第一个能成功转为 datetime 的列）----
+    # 但需过滤：数值列被 pd.to_datetime 误解析为 Unix 纳秒时间戳的情况
+    if ts_col is None:
         for c in df.columns:
             try:
                 parsed = pd.to_datetime(df[c], errors="coerce")
-                if parsed.notna().sum() >= len(df) * 0.5:  # 至少50%能解析为有效时间
+                valid_count = parsed.notna().sum()
+                if valid_count >= len(df) * 0.5:
+                    # 过滤：如果解析结果全部在 1970-1980 年之间，且原始数据是数值类型，则视为误解析
+                    if valid_count > 0:
+                        min_ts = parsed[parsed.notna()].min()
+                        max_ts = parsed[parsed.notna()].max()
+                        if min_ts.year >= 1970 and max_ts.year <= 1980 and pd.api.types.is_numeric_dtype(df[c]):
+                            continue  # 拒绝：误解析为 Unix 纳秒时间戳
                     ts_col = c
                     break
             except Exception:
                 continue
+
+    # ---- 第5级：尝试解析数值型 HMMSS / HHMMSS 格式（如 81829 = 8:18:29）----
+    if ts_col is None:
+        for c in df.columns:
+            if pd.api.types.is_numeric_dtype(df[c]):
+                vals = df[c].dropna()
+                if len(vals) > 0 and vals.min() >= 0 and vals.max() <= 240000:
+                    # 尝试解析为 HMMSS / HHMMSS
+                    try:
+                        str_vals = vals.astype(int).astype(str).str.zfill(6)
+                        parsed = pd.to_datetime(str_vals, format="%H%M%S", errors="coerce")
+                        if parsed.notna().sum() >= len(df) * 0.5:
+                            # 使用今天的日期拼接
+                            today = pd.Timestamp.now().strftime("%Y-%m-%d")
+                            df["timestamp"] = pd.to_datetime(
+                                today + " " + str_vals,
+                                format="%Y-%m-%d %H%M%S",
+                                errors="coerce"
+                            )
+                            return df.sort_values("timestamp").reset_index(drop=True)
+                    except Exception:
+                        pass
 
     # ---- 全部失败：用索引生成伪时间戳（每小时递增，从今天0点起）----
     if ts_col is None:
@@ -109,6 +140,24 @@ def parse_timestamp(df):
         return df.sort_values("timestamp").reset_index(drop=True)
 
     # ---- 成功定位到时间列：尝试多种格式解析 ----
+    # 特殊处理：如果列是数值型且值在 0-240000 之间，尝试 HMMSS 格式
+    if pd.api.types.is_numeric_dtype(df[ts_col]):
+        vals = df[ts_col].dropna()
+        if len(vals) > 0 and vals.min() >= 0 and vals.max() <= 240000:
+            try:
+                str_vals = vals.astype(int).astype(str).str.zfill(6)
+                parsed = pd.to_datetime(str_vals, format="%H%M%S", errors="coerce")
+                if parsed.notna().sum() >= len(df) * 0.5:
+                    today = pd.Timestamp.now().strftime("%Y-%m-%d")
+                    df["timestamp"] = pd.to_datetime(
+                        today + " " + str_vals,
+                        format="%Y-%m-%d %H%M%S",
+                        errors="coerce"
+                    )
+                    return df.sort_values("timestamp").reset_index(drop=True)
+            except Exception:
+                pass
+
     formats = [
         None,  # pandas 自动推断
         "%Y-%m-%d %H:%M:%S",
@@ -125,6 +174,9 @@ def parse_timestamp(df):
         "%m/%d/%Y",
         "%d-%m-%Y %H:%M:%S",
         "%d/%m/%Y %H:%M",
+        "%H%M%S",  # HMMSS / HHMMSS 纯时间格式
+        "%H:%M:%S",
+        "%H:%M",
     ]
 
     for fmt in formats:

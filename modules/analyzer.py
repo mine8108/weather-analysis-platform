@@ -382,7 +382,7 @@ def generate_advice(warnings_list):
 
 def render_analysis_tab(df):
     """渲染智能分析 Tab"""
-    st.subheader("🚨 智能分析与建议")
+    st.subheader("[预警] 智能分析与建议")
 
     if df is None or df.empty:
         st.info("请先导入数据")
@@ -427,7 +427,7 @@ def render_analysis_tab(df):
                 </div>
                 """, unsafe_allow_html=True)
     else:
-        st.success("✅ 未触发任何预警信号")
+        st.success("[OK] 未触发任何预警信号")
 
     # ----- 耦合分析 -----
     st.write("---")
@@ -435,7 +435,7 @@ def render_analysis_tab(df):
     coupling = multi_factor_coupling(df)
     if coupling:
         for alert in coupling:
-            sev = "🔴" if alert["severity"] == "危险" else "🟡"
+            sev = "[红]" if alert["severity"] == "危险" else "[黄]"
             st.warning(f"{sev} {alert['icon']} **{alert['type']}**: {alert['detail']}")
     else:
         st.info("当前未检测到显著的多要素耦合风险")
@@ -447,7 +447,7 @@ def render_analysis_tab(df):
     col1, col2 = st.columns(2)
 
     with col1:
-        st.write("### 🚶 公众出行建议")
+        st.write("### [出行] 公众出行建议")
         if public_adv:
             for adv in public_adv:
                 st.write(f"- {adv}")
@@ -455,7 +455,7 @@ def render_analysis_tab(df):
             st.info("当前无特殊出行建议，天气状况良好。")
 
     with col2:
-        st.write("### 🌾 农业生产建议")
+        st.write("### [农业] 农业生产建议")
         if agri_adv:
             for adv in agri_adv:
                 st.write(f"- {adv}")
@@ -464,7 +464,7 @@ def render_analysis_tab(df):
 
     # ----- 统计摘要 -----
     st.write("---")
-    st.write("### 📊 数据统计摘要")
+    st.write("### [统计] 数据统计摘要")
     stat_cols = st.columns(4)
 
     stats_config = [
