@@ -145,9 +145,9 @@ tabs = st.tabs([
     "[实验] 数据质控",
     "[图表] 可视化分析",
     "[预警] 智能分析与建议",
+    "[导出] 报告导出",
     "[日期] 气候态参照",
     "[雷达] 报文解码",
-    "[导出] 报告导出",
     "[预报] 数值预报",
 ])
 
@@ -219,22 +219,22 @@ with tabs[3]:
         all_w += check_haze(st.session_state["df"])
         st.session_state["warnings_list"] = all_w
 
-# ---- Tab 5: 气候态参照 ----
+# ---- Tab 5: 报告导出 ----
 with tabs[4]:
-    render_climate_ref_tab(st.session_state["df"])
-
-# ---- Tab 6: 报文解码 ----
-with tabs[5]:
-    render_codec_tab()
-
-# ---- Tab 7: 报告导出 ----
-with tabs[6]:
     render_export_tab(
         st.session_state["df"],
         st.session_state.get("warnings_list", []),
         st.session_state.get("quality_score", 0.0),
         st.session_state.get("source", ""),
     )
+
+# ---- Tab 6: 气候态参照 ----
+with tabs[5]:
+    render_climate_ref_tab(st.session_state["df"])
+
+# ---- Tab 7: 报文解码 ----
+with tabs[6]:
+    render_codec_tab()
 
 # ---- Tab 8: 数值预报 ----
 with tabs[7]:

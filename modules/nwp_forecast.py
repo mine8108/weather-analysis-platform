@@ -926,4 +926,5 @@ def render_forecast_tab():
     # ---- 智能分析与建议 ----
     with st.spinner("正在生成预报智能分析..."):
         analysis = _analyze_forecast(fdf)
+    st.session_state["fc_analysis"] = analysis
     _render_forecast_advice(analysis)
