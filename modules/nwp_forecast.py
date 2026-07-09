@@ -550,25 +550,28 @@ def _spatial_heatmap(lats, lons, times, field3d, lat, lon, hour_idx, variable,
 # 五、智能分析与建议
 # ============================================================
 def _analyze_forecast(fdf):
-    """分析 GFS 预报数据，返回结构化分析结果。
+    """分析 GFS 预报数据（增强版：6h 滚动 + 趋势置信 + 连续事件 + 昼夜温差）。
 
     返回 dict：
-      warnings: 预警信号列表（仿 analyzer.py 风格）
-      extremes: 极端值摘要
-      trends: 趋势描述
-      coupling: 多要素耦合风险
-      summary: 单行总述
-      recommendations: {"travel": [...], "agri": [...]}
+      warnings, extremes, trends, coupling, summary, recommendations,
+      precision (新增: 趋势数值详情, 6h断片, 连续事件, 日较差)
     """
     daily = fdf.copy()
     daily["date"] = fdf["timestamp"].dt.date
-    # 日聚合
+    # 6h 滚动窗口
+    daily["hour6"] = daily["timestamp"].dt.floor("6h")
+
     dmax_t = daily.groupby("date")["temperature"].max()
     dmin_t = daily.groupby("date")["temperature"].min()
     dprecip = daily.groupby("date")["precipitation"].sum()
     dmax_ws = daily.groupby("date")["wind_speed"].max()
-    # 日均湿度（用于耦合分析）
     davg_rh = daily.groupby("date")["humidity"].mean()
+    # 昼夜温差
+    diurnal = dmax_t - dmin_t
+
+    # 6h 聚合：温度和降水
+    h6_temp = daily.groupby("hour6")["temperature"].max()
+    h6_precip = daily.groupby("hour6")["precipitation"].sum()
 
     ndays = len(dmax_t)
     results = {
@@ -578,10 +581,26 @@ def _analyze_forecast(fdf):
         "coupling": [],
         "summary": "",
         "recommendations": {"travel": [], "agri": []},
+        "precision": {},  # 新增精度信息
     }
 
-    # ----- 1. 高温预警 -----
+    # ----- 1. 高温预警（含连续事件检测）-----
     hot = dmax_t[dmax_t >= 35]
+    # 连续高温检测
+    consecutive_hot = 0
+    max_consec_hot = 0
+    hot_streak_dates = []
+    for d, val in dmax_t.items():
+        if val >= 35:
+            consecutive_hot += 1
+            if consecutive_hot > max_consec_hot:
+                max_consec_hot = consecutive_hot
+                hot_streak_dates = list(dmax_t.index)[max(0, dmax_t.index.get_loc(d) - consecutive_hot + 1):dmax_t.index.get_loc(d) + 1]
+        else:
+            consecutive_hot = 0
+    results["precision"]["consecutive_hot"] = max_consec_hot
+    results["precision"]["hot_streak"] = [str(d) for d in hot_streak_dates]
+
     if len(hot) > 0:
         peak = hot.max()
         peak_date = str(hot.idxmax())
@@ -591,21 +610,44 @@ def _analyze_forecast(fdf):
             level, lv_num, icon_ = "橙色", "II级", "[橙]"
         else:
             level, lv_num, icon_ = "黄色", "III级", "[黄]"
+        hot_detail = f"未来{ndays}天中{len(hot)}天日最高气温>=35C，峰值{peak:.1f}C ({peak_date})"
+        if max_consec_hot >= 3:
+            hot_detail += f"，其中连续{max_consec_hot}天高温（"
+            hot_detail += "~".join(hot_streak_dates[:2]) if len(hot_streak_dates) >= 2 else hot_streak_dates[0]
+            hot_detail += "）"
+        hot_detail += "。"
         results["warnings"].append({
             "type": "高温", "level": level, "level_num": lv_num,
-            "detail": f"未来{ndays}天中{len(hot)}天日最高气温>=35C，峰值{peak:.1f}C ({peak_date})。",
-            "icon": icon_,
+            "detail": hot_detail, "icon": icon_,
         })
 
-    # ----- 2. 暴雨预警 -----
-    heavy = dprecip[dprecip >= 50]
-    for d, val in heavy.items():
+    # ----- 2. 暴雨预警（含连续降水检测 + 强度分类）-----
+    # 降水强度分类
+    precip_cats = {"大雨(25-50mm)": 0, "暴雨(50-100mm)": 0, "大暴雨(>=100mm)": 0}
+    heavy = dprecip[dprecip >= 25]
+    consecutive_rain = 0
+    max_consec_rain = 0
+    for d, val in dprecip.items():
+        if val >= 0.1:
+            consecutive_rain += 1
+            max_consec_rain = max(max_consec_rain, consecutive_rain)
+        else:
+            consecutive_rain = 0
+    results["precision"]["consecutive_rain"] = max_consec_rain
+
+    for d, val in dprecip.items():
         if val >= 100:
+            precip_cats["大暴雨(>=100mm)"] += 1
             lv, lnum = "红色", "I级"
         elif val >= 75:
+            precip_cats["暴雨(50-100mm)"] += 1
             lv, lnum = "橙色", "II级"
         elif val >= 50:
+            precip_cats["暴雨(50-100mm)"] += 1
             lv, lnum = "黄色", "III级"
+        elif val >= 25:
+            precip_cats["大雨(25-50mm)"] += 1
+            continue
         else:
             continue
         results["warnings"].append({
@@ -613,6 +655,10 @@ def _analyze_forecast(fdf):
             "detail": f"{d} 日降水量 {val:.1f} mm，需关注短时强降水。",
             "icon": "[暴]",
         })
+    results["precision"]["precip_cats"] = precip_cats
+    # 6h 最大降水片段
+    if len(h6_precip) > 0:
+        results["precision"]["max_6h_precip"] = (float(h6_precip.max()), str(h6_precip.idxmax()))
 
     # ----- 3. 大风预警 -----
     windy = dmax_ws[dmax_ws >= 10.8]
@@ -631,7 +677,7 @@ def _analyze_forecast(fdf):
             "icon": "[风]",
         })
 
-    # ----- 4. 极端值 -----
+    # ----- 4. 极端值 + 日较差 -----
     results["extremes"] = {
         "max_temp": (float(dmax_t.max()), str(dmax_t.idxmax())),
         "min_temp": (float(dmin_t.min()), str(dmin_t.idxmin())),
@@ -640,23 +686,44 @@ def _analyze_forecast(fdf):
         "max_wind": (float(dmax_ws.max()), str(dmax_ws.idxmax())),
         "ndays": ndays,
     }
+    results["precision"]["diurnal"] = {
+        "max_range": (float(diurnal.max()), str(diurnal.idxmax())),
+        "mean_range": float(diurnal.mean()),
+        "warm_nights": int((dmin_t >= 25).sum()),  # 热带夜
+    }
 
-    # ----- 5. 趋势 -----
-    first3 = dmax_t.iloc[:min(3, ndays)].mean()
-    last3 = dmax_t.iloc[-min(3, ndays):].mean()
-    diff = last3 - first3
-    if diff > 3:
-        t_trend = "明显升温"
-    elif diff > 1:
-        t_trend = "小幅升温"
-    elif diff < -3:
-        t_trend = "明显降温"
-    elif diff < -1:
-        t_trend = "小幅降温"
+    # ----- 5. 趋势（含置信区间 + 波动） -----
+    first3 = dmax_t.iloc[:min(3, ndays)]
+    last3 = dmax_t.iloc[-min(3, ndays):]
+    diff_mean = last3.mean() - first3.mean()
+    diff_std = np.sqrt(first3.std() ** 2 + last3.std() ** 2)
+    t_parts = []
+    if abs(diff_mean) > 3:
+        t_parts.append("明显" + ("升温" if diff_mean > 0 else "降温"))
+    elif abs(diff_mean) > 1:
+        t_parts.append("小幅" + ("升温" if diff_mean > 0 else "降温"))
     else:
-        t_trend = "基本平稳"
+        t_parts.append("基本平稳")
+    t_trend = t_parts[0]
+    # 波动程度
+    overall_std = float(dmax_t.std())
+    if overall_std > 5:
+        t_volatility = "剧烈波动"
+    elif overall_std > 3:
+        t_volatility = "波动较大"
+    elif overall_std > 1.5:
+        t_volatility = "小幅波动"
+    else:
+        t_volatility = "变化平缓"
     results["trends"]["temperature"] = t_trend
-    # 降水趋势
+    results["precision"]["temp_trend"] = {
+        "diff_mean": float(diff_mean),
+        "diff_std": float(diff_std),
+        "overall_std": overall_std,
+        "volatility": t_volatility,
+    }
+
+    # 降水趋势（含强度分布）
     precip_days = int((dprecip > 0.1).sum())
     results["trends"]["precip_days"] = precip_days
     if precip_days == 0:
@@ -665,9 +732,15 @@ def _analyze_forecast(fdf):
         results["trends"]["precip"] = "降水日数较少"
     else:
         results["trends"]["precip"] = "降水日数偏多"
+    # 降水强度摘要
+    results["precision"]["precip_summary"] = (
+        f"大雨{precip_cats.get('大雨(25-50mm)', 0)}天，"
+        f"暴雨{precip_cats.get('暴雨(50-100mm)', 0)}天，"
+        f"大暴雨{precip_cats.get('大暴雨(>=100mm)', 0)}天。"
+        if any(precip_cats.values()) else None
+    )
 
-    # ----- 6. 耦合分析 -----
-    # 高温+高湿 → 热应激
+    # ----- 6. 耦合分析（同前）-----
     if len(hot) > 0:
         hot_dates = list(hot.index)
         hot_rh = davg_rh.loc[[d for d in hot_dates if d in davg_rh.index]]
@@ -677,7 +750,6 @@ def _analyze_forecast(fdf):
                 "detail": f"高温({hot.max():.1f}C)叠加高湿({hot_rh.mean():.0f}%)，体感温度显著升高，户外活动需防范中暑。",
                 "icon": "[热]",
             })
-    # 大风+降水
     if len(windy) > 0 and len(heavy) > 0:
         overlap = set(windy.index) & set(heavy.index)
         if overlap:
@@ -686,11 +758,28 @@ def _analyze_forecast(fdf):
                 "detail": f"{len(overlap)} 天同时出现大风和强降水，出行风险加剧。",
                 "icon": "[风]",
             })
+    # 昼夜温差过大
+    if diurnal.max() >= 15:
+        results["coupling"].append({
+            "type": "温差过大", "severity": "注意",
+            "detail": f"日较差最大达 {diurnal.max():.1f}C ({diurnal.idxmax()})，昼夜温差显著，注意适时增减衣物。",
+            "icon": "[差]",
+        })
+    # 热带夜
+    warm_nights = int((dmin_t >= 25).sum())
+    if warm_nights > 0:
+        results["coupling"].append({
+            "type": "夜间闷热", "severity": "注意",
+            "detail": f"{warm_nights} 天夜间最低温 >=25C（热带夜），影响睡眠质量，注意通风降温。",
+            "icon": "[夜]",
+        })
 
-    # ----- 7. 总述 -----
-    parts = [f"未来{ndays}天气温趋势{t_trend}"]
+    # ----- 7. 总述（更精准） -----
+    parts = [f"未来{ndays}天气温{t_trend} ({diff_mean:+.1f}C, 波动 {t_volatility}, 标准差 {overall_std:.1f}C)"]
     if precip_days > 0:
         parts.append(f"共{precip_days}个降水日，累计{results['extremes']['total_precip']:.0f} mm")
+        if max_consec_rain >= 3:
+            parts.append(f"最长连续{max_consec_rain}天有降水")
     else:
         parts.append("全程无明显降水")
     if len(results["warnings"]) > 0:
@@ -700,17 +789,24 @@ def _analyze_forecast(fdf):
         parts.append("无预警风险")
     results["summary"] = "。".join(parts) + "。"
 
-    # ----- 8. 建议 -----
+    # ----- 8. 建议（比原有更细） -----
     t = {"travel": results["recommendations"]["travel"],
          "agri": results["recommendations"]["agri"]}
 
     if len(hot) > 0:
         t["travel"].append(f"未来{len(hot)}天有高温 ({hot.max():.0f}C)，外出避开 11:00-15:00 时段，备足饮水。")
-        t["agri"].append(f"高温天气 ({len(hot)} 天 ≥35C)：及时灌溉降温；设施大棚覆盖遮阳网；禽畜采取喷淋降温。")
+        t["agri"].append(f"高温天气 ({len(hot)} 天 >=35C, 连续最多{max_consec_hot}天)：及时灌溉降温；设施大棚覆盖遮阳网；禽畜采取喷淋降温。")
+
+    if max_consec_hot >= 5:
+        t["travel"].append(f"连续{max_consec_hot}天高温将形成热浪，老人/儿童/慢性病患者避免户外活动。")
+        t["agri"].append(f"热浪持续{max_consec_hot}天：增加灌溉频次至每日2-3次；大棚强制通风降温。")
 
     if len(heavy) > 0:
-        t["travel"].append(f"强降水日外出备雨具，低洼路段注意内涝；涉水谨慎。")
-        t["agri"].append(f"注意清沟排水；加固大棚基础；鱼塘检查防逃设施。")
+        t["travel"].append("强降水日外出备雨具，低洼路段注意内涝；涉水谨慎。")
+        t["agri"].append("注意清沟排水；加固大棚基础；鱼塘检查防逃设施。")
+
+    if precip_cats.get("大暴雨(>=100mm)", 0) > 0:
+        t["travel"].append("预报有大暴雨：尽量避免出行；远离河道和低洼地区。")
 
     if len(windy) > 0:
         t["travel"].append("大风天气远离广告牌/临时搭建物；高空作业暂停。")
@@ -719,9 +815,16 @@ def _analyze_forecast(fdf):
     if precip_days == 0 and len(hot) > 0:
         t["agri"].append("高温少雨天气：增加灌溉频次，严防干旱；旱地作物覆盖保墒。")
 
+    if warm_nights > 0:
+        t["travel"].append(f"{warm_nights}天热带夜(夜间>=25C)：睡前通风，空调温度不宜过低。")
+
+    if diurnal.max() >= 15:
+        t["travel"].append(f"昼夜温差大 ({diurnal.max():.0f}C)：早晚凉午间热，建议叠穿方便增减。")
+
     if len(results["coupling"]) > 0:
         for c in results["coupling"]:
-            t["travel"].append(f"[{c['type']}] {c['detail']}")
+            if c["severity"] == "危险":
+                t["travel"].append(f"[{c['type']}] {c['detail']}")
 
     # 去重 + 限制条数
     for k in ("travel", "agri"):
@@ -731,7 +834,7 @@ def _analyze_forecast(fdf):
             if s not in seen:
                 seen.add(s)
                 uniq.append(s)
-        results["recommendations"][k] = uniq[:6]
+        results["recommendations"][k] = uniq[:8]
 
     return results
 
@@ -772,6 +875,41 @@ def _render_forecast_advice(analysis):
 <br><span style="color:#555">{warn['level_num']} | {warn['detail']}</span></div>""", unsafe_allow_html=True)
     else:
         st.success("[OK] 未来预报期内未触发预警信号")
+
+    # 精度增强面板
+    prec = analysis.get("precision", {})
+    if prec:
+        st.write("#### 预报精度详情")
+        # 趋势数值
+        tt = prec.get("temp_trend", {})
+        if tt:
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.metric("趋势变化", f"{tt['diff_mean']:+.1f}C", f"±{tt['diff_std']:.1f}C")
+            with c2:
+                st.metric("波动程度", tt.get("volatility", ""), f"标准差 {tt['overall_std']:.1f}C")
+            with c3:
+                st.metric("连续高温", f"{prec.get('consecutive_hot', 0)} 天",
+                          f"最长 {prec.get('consecutive_hot', 0)} 天" if prec.get('consecutive_hot', 0) > 0 else None)
+        # 降水精度
+        pcat = prec.get("precip_cats", {})
+        mp = prec.get("max_6h_precip")
+        if pcat and any(pcat.values()):
+            st.caption(f"降水强度分布：{prec.get('precip_summary', '')}"
+                       + (f" | 最狂6h降水 {mp[0]:.1f} mm ({mp[1]})" if mp else ""))
+        # 昼夜温差
+        diur = prec.get("diurnal", {})
+        if diur:
+            dr = diur.get("max_range", (0, ""))
+            wn = diur.get("warm_nights", 0)
+            parts = []
+            if dr[0] >= 15:
+                parts.append(f"日较差最大 {dr[0]:.0f}C ({dr[1]})")
+            else:
+                parts.append(f"平均日较差 {diur.get('mean_range', 0):.1f}C")
+            if wn > 0:
+                parts.append(f"{wn} 天热带夜 (夜间>=25C)")
+            st.caption(" | ".join(parts))
 
     # 耦合分析
     if analysis["coupling"]:
