@@ -7,6 +7,7 @@
 # 一、字段映射：常见气象数据列名 → 标准字段名
 # ============================================================
 FIELD_ALIASES = {
+    # ---- 时间戳 (扩展) ----
     "时间": "timestamp",
     "日期": "timestamp",
     "时刻": "timestamp",
@@ -14,6 +15,16 @@ FIELD_ALIASES = {
     "date": "timestamp",
     "time": "timestamp",
     "观测时间": "timestamp",
+    "观测时次": "timestamp",
+    "记录时间": "timestamp",
+    "采集时间": "timestamp",
+    "数据时间": "timestamp",
+    "资料时间": "timestamp",
+    "年月日": "timestamp",
+    "TIMESTAMP": "timestamp",
+    "obs_time": "timestamp",
+    "record_time": "timestamp",
+    "t": "timestamp",
     "温度": "temperature",
     "气温": "temperature",
     "temp": "temperature",

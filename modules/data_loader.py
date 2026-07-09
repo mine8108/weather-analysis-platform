@@ -57,19 +57,60 @@ def load_excel(file) -> pd.DataFrame:
 
 
 def parse_timestamp(df):
-    """尝试解析时间列"""
+    """尝试解析时间列（多级降级策略）"""
+
+    # ---- 第1级：精确名称匹配 ----
     ts_col = None
+    exact_candidates = [
+        "timestamp", "时间", "日期", "时刻", "datetime", "date", "time",
+        "观测时间", "观测时次", "记录时间", "采集时间", "数据时间",
+        "资料时间", "年月日", "TIMESTAMP", "obs_time", "record_time",
+    ]
     for c in df.columns:
-        if c.lower() in ["timestamp", "时间", "日期", "时刻", "datetime", "date", "time"]:
+        if c.strip().lower() in [e.lower() for e in exact_candidates]:
             ts_col = c
             break
 
+    # ---- 第2级：子串/关键词模糊匹配 ----
     if ts_col is None:
-        return df
+        for c in df.columns:
+            cl = c.strip().lower()
+            if any(kw in cl for kw in ["时间", "时刻", "date", "time", "timestamp", "obs"]):
+                ts_col = c
+                break
 
-    # 尝试多种格式
+    # ---- 第3级：pandas dtype 推断（自动检测 datetime64 列）----
+    if ts_col is None:
+        for c in df.columns:
+            if pd.api.types.is_datetime64_any_dtype(df[c]):
+                ts_col = c
+                break
+
+    # ---- 第4级：尝试逐列解析为 datetime（取第一个能成功转为 datetime 的列）----
+    if ts_col is None and len(df.columns) > 0:
+        for c in df.columns:
+            try:
+                parsed = pd.to_datetime(df[c], errors="coerce")
+                if parsed.notna().sum() >= len(df) * 0.5:  # 至少50%能解析为有效时间
+                    ts_col = c
+                    break
+            except Exception:
+                continue
+
+    # ---- 全部失败：用索引生成伪时间戳（每小时递增，从今天0点起）----
+    if ts_col is None:
+        import streamlit as st
+        st.warning(
+            "**未检测到时间列** — 已自动按行号生成时间序列（从今日00:00起，逐小时）。"
+            "如需真实时间轴，请确保数据中包含含「时间」/「date」/「time」的列名。"
+        )
+        base = pd.Timestamp.now().normalize()
+        df["timestamp"] = [base + pd.Timedelta(hours=i) for i in range(len(df))]
+        return df.sort_values("timestamp").reset_index(drop=True)
+
+    # ---- 成功定位到时间列：尝试多种格式解析 ----
     formats = [
-        None,  # pandas自动推断
+        None,  # pandas 自动推断
         "%Y-%m-%d %H:%M:%S",
         "%Y-%m-%d %H:%M",
         "%Y/%m/%d %H:%M:%S",
@@ -78,6 +119,12 @@ def parse_timestamp(df):
         "%Y%m%d%H",
         "%Y-%m-%d",
         "%Y/%m/%d",
+        "%Y年%m月%d日%H时%M分",
+        "%Y年%m月%d日",
+        "%m/%d/%Y %H:%M:%S",
+        "%m/%d/%Y",
+        "%d-%m-%Y %H:%M:%S",
+        "%d/%m/%Y %H:%M",
     ]
 
     for fmt in formats:

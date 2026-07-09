@@ -14,14 +14,22 @@ from config import (
 )
 
 
+def _safe_xaxis(df):
+    """安全获取 X 轴数据：优先 timestamp 列，降级为 DataFrame 索引"""
+    if "timestamp" in df.columns:
+        return df["timestamp"]
+    return df.index
+
+
 def time_series_chart(df, field, title, color, y_label, unit=""):
     """通用时间序列折线图"""
     if field not in df.columns or df[field].dropna().empty:
         return None
 
+    x_data = _safe_xaxis(df)
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=df["timestamp"],
+        x=x_data,
         y=df[field],
         mode="lines+markers",
         name=title,
@@ -123,8 +131,10 @@ def wind_rose_chart(df):
 def dashboard_view(df):
     """综合看板：多要素 2x2 布局"""
     if "timestamp" not in df.columns:
-        return None
+        # 降级：无时间列仍可尝试用索引渲染
+        pass
 
+    x_data = _safe_xaxis(df)
     fig = make_subplots(
         rows=2, cols=2,
         subplot_titles=("气温 (℃)", "气压 (hPa)", "相对湿度 (%)", "风速 (m/s)"),
@@ -135,7 +145,7 @@ def dashboard_view(df):
     # 气温
     if "temperature" in df.columns:
         fig.add_trace(
-            go.Scatter(x=df["timestamp"], y=df["temperature"], mode="lines+markers",
+            go.Scatter(x=x_data, y=df["temperature"], mode="lines+markers",
                        line=dict(color=COLORS["temp_color"], width=2), marker=dict(size=3),
                        name="气温"),
             row=1, col=1,
@@ -144,7 +154,7 @@ def dashboard_view(df):
     # 气压
     if "pressure" in df.columns:
         fig.add_trace(
-            go.Scatter(x=df["timestamp"], y=df["pressure"], mode="lines+markers",
+            go.Scatter(x=x_data, y=df["pressure"], mode="lines+markers",
                        line=dict(color=COLORS["pres_color"], width=2), marker=dict(size=3),
                        name="气压"),
             row=1, col=2,
@@ -153,7 +163,7 @@ def dashboard_view(df):
     # 湿度
     if "humidity" in df.columns:
         fig.add_trace(
-            go.Scatter(x=df["timestamp"], y=df["humidity"], mode="lines+markers",
+            go.Scatter(x=x_data, y=df["humidity"], mode="lines+markers",
                        line=dict(color=COLORS["humid_color"], width=2), marker=dict(size=3),
                        name="湿度"),
             row=2, col=1,
@@ -162,7 +172,7 @@ def dashboard_view(df):
     # 风速
     if "wind_speed" in df.columns:
         fig.add_trace(
-            go.Bar(x=df["timestamp"], y=df["wind_speed"],
+            go.Bar(x=x_data, y=df["wind_speed"],
                    marker_color=COLORS["wind_color"], name="风速", opacity=0.7),
             row=2, col=2,
         )
@@ -268,7 +278,7 @@ def multi_station_comparison(df):
             continue
         color = palette[idx % len(palette)]
         fig.add_trace(go.Scatter(
-            x=station_df["timestamp"],
+            x=_safe_xaxis(station_df),
             y=station_df[field],
             mode="lines+markers",
             name=str(station),
