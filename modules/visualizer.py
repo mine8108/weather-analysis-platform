@@ -320,9 +320,20 @@ def render_visualization_tab(df):
     ])
 
     with viz_tab1:
+        # 显示缺失字段提示
+        dashboard_fields = ["temperature", "pressure", "humidity", "wind_speed"]
+        missing = [f for f in dashboard_fields if f not in df.columns or df[f].dropna().empty]
+        if missing:
+            field_names = {
+                "temperature": "气温", "pressure": "气压",
+                "humidity": "湿度", "wind_speed": "风速"
+            }
+            missing_names = [field_names.get(f, f) for f in missing]
+            st.info(f"当前数据中缺少以下字段，对应图表将显示为空白：{', '.join(missing_names)}")
+        
         dashboard = dashboard_view(df)
         if dashboard:
-            st.plotly_chart(dashboard, use_container_width=True)
+            st.plotly_chart(dashboard, use_container_width=True, key="viz_dashboard")
         else:
             st.warning("缺少可视化所需的时间序列数据")
 
@@ -331,7 +342,7 @@ def render_visualization_tab(df):
         with col_a:
             wind_rose = wind_rose_chart(df)
             if wind_rose:
-                st.plotly_chart(wind_rose, use_container_width=True)
+                st.plotly_chart(wind_rose, use_container_width=True, key="viz_wind_rose")
             else:
                 st.info("缺少风向风速数据，无法绘制玫瑰图")
 
@@ -343,7 +354,7 @@ def render_visualization_tab(df):
                     COLORS["wind_color"], "风速", "m/s"
                 )
                 if ts_wind:
-                    st.plotly_chart(ts_wind, use_container_width=True)
+                    st.plotly_chart(ts_wind, use_container_width=True, key="viz_ts_wind")
 
             # 风要素统计
             if "wind_speed" in df.columns:
@@ -362,7 +373,7 @@ def render_visualization_tab(df):
     with viz_tab3:
         scatter = scatter_matrix(df)
         if scatter:
-            st.plotly_chart(scatter, use_container_width=True)
+            st.plotly_chart(scatter, use_container_width=True, key="viz_scatter")
         else:
             st.info("至少需要两个以上有效要素字段")
 
@@ -385,7 +396,7 @@ def render_visualization_tab(df):
                 title, color, unit = ts_config[selected_ts]
                 ts_fig = time_series_chart(df, selected_ts, f"{title}时间序列", color, title, unit)
                 if ts_fig:
-                    st.plotly_chart(ts_fig, use_container_width=True)
+                    st.plotly_chart(ts_fig, use_container_width=True, key="viz_ts_single")
 
     with viz_tab4:
         # 统计摘要
