@@ -10,7 +10,7 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 from config import (
     COLORS, WIND_DIRECTIONS,
-    get_beaufort_level, get_wind_direction_name,
+    get_beaufort_level, get_wind_direction_name, get_dominant_wind_direction,
     safe_chart,
 )
 
@@ -428,9 +428,11 @@ def render_visualization_tab(df):
                     if "wind_direction" in df.columns:
                         wd = df["wind_direction"].dropna()
                         if len(wd) > 0:
-                            dom_dir = get_wind_direction_name(wd.mean())
+                            dom_dir, dom_freq, dom_count = get_dominant_wind_direction(wd)
+                            dom_pct = dom_freq * 100
+                            dom_dir_label = f"{dom_dir} ({dom_count}/{len(wd)}={dom_pct:.0f}%)"
                     st.metric("平均风速", f"{avg_ws:.1f} m/s", f"{bf_name} ({bf_level}级)")
-                    st.metric("主导风向", dom_dir)
+                    st.metric("主导风向", dom_dir_label)
 
     with viz_tab3:
         scatter = scatter_matrix(df)

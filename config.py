@@ -271,6 +271,21 @@ def get_wind_direction_name(deg):
     return WIND_DIRECTIONS[idx]
 
 
+def get_dominant_wind_direction(deg_series):
+    """计算频率主导风向（与 get_wind_direction_name 同分区，与玫瑰图一致）。
+    返回 (主导方向名, 频率, 次数)。"""
+    if deg_series is None or len(deg_series) == 0:
+        return None, 0, 0
+    counts = {}
+    for d in deg_series:
+        d_name = get_wind_direction_name(d)
+        counts[d_name] = counts.get(d_name, 0) + 1
+    n = len(deg_series)
+    dominant = max(counts, key=counts.get)
+    freq = counts[dominant] / n
+    return dominant, freq, counts[dominant]
+
+
 # ============================================================
 # 四、防御指南文本库（公众出行 + 农业生产）
 # ============================================================
