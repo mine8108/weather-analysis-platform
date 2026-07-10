@@ -456,6 +456,8 @@ def _render_era5_guide():
 4. CDS 后台处理完成后邮件通知，前往下载 NetCDF 文件
 5. 将下载的 `.nc` 文件导入本平台的「数据导入」Tab 即可
 
+> **提示**：国内网络访问 CDS 官网时，浏览器可能会提示 "证书不被信任"。这是欧盟官方数据门户，点击「高级」→「继续前往」即可安全访问，不影响下载功能。
+
 ### 方式二：Python 代码本地运行（高级）
 1. 注册 CDS 账号后，在个人资料页获取 API Key
 2. 本地终端执行 `pip install cdsapi`
@@ -506,7 +508,7 @@ def _render_era5_guide():
     cds_url = _ERA5_PRODUCTS[product]["url"] + "?tab=download"
     st.link_button("去 CDS 官网下载", cds_url, use_container_width=True,
                    help=f"在新标签页打开 {product} 的下载页面")
-    st.caption("CDS 需要登录。下载完成后将 NetCDF 文件导入本平台的「数据导入」Tab 即可分析。")
+    st.caption("CDS 需要登录。若浏览器提示证书问题，请点击「高级」→「继续前往」。下载完成后将 NetCDF 文件导入本平台的「数据导入」Tab 即可分析。")
 
     # 高级选项：生成 Python 代码
     with st.expander("高级：生成 Python 下载代码", expanded=False):
