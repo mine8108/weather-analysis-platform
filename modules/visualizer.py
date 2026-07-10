@@ -455,12 +455,12 @@ def precipitation_timeline(df):
         title = f"时序降水量{agg_sel}"
 
     fig.update_layout(
-        title=title,
+        title=dict(text=title, x=0.5, xanchor="center", y=0.97, yanchor="top", font=dict(size=14)),
         xaxis_title="时间",
         height=460,
-        margin=dict(l=50, r=50, t=50, b=50),
+        margin=dict(l=50, r=50, t=50, b=80),
         hovermode="x unified",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+        legend=dict(orientation="h", yanchor="top", y=-0.22, xanchor="center", x=0.5),
     )
     fig.update_xaxes(tickangle=-45, nticks=12)
 
