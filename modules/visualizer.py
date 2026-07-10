@@ -603,6 +603,47 @@ def _render_pollution_panel(df):
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
+def correlation_heatmap(df):
+    """全要素 Pearson 相关性热力图"""
+    # 选取所有数值型标准字段
+    num_fields = [
+        "temperature", "pressure", "humidity", "wind_speed", "visibility",
+        "precipitation", "cloud_cover", "so2", "nox", "pm25", "pm10"
+    ]
+    available = [f for f in num_fields if f in df.columns and not df[f].dropna().empty]
+    if len(available) < 2:
+        return None
+
+    corr = df[available].corr()
+    labels_map = {
+        "temperature": "气温", "pressure": "气压", "humidity": "湿度",
+        "wind_speed": "风速", "visibility": "能见度", "precipitation": "降水",
+        "cloud_cover": "云量", "so2": "SO₂", "nox": "NOx", "pm25": "PM2.5", "pm10": "PM10",
+    }
+    display_labels = [labels_map.get(f, f) for f in available]
+
+    fig = go.Figure(data=go.Heatmap(
+        z=corr.values,
+        x=display_labels,
+        y=display_labels,
+        colorscale="RdBu_r",
+        zmid=0,
+        text=[[f"{v:.2f}" for v in row] for row in corr.values],
+        texttemplate="%{text}",
+        textfont={"size": 11},
+        hoverongaps=False,
+        colorbar=dict(title="Pearson r"),
+    ))
+
+    fig.update_layout(
+        title=dict(text="要素相关性矩阵 | 红=正相关 蓝=负相关", font=dict(size=14), x=0),
+        height=480,
+        margin=dict(l=20, r=20, t=40, b=20),
+        xaxis=dict(side="top"),
+    )
+    return fig
+
+
 def render_visualization_tab(df):
     """渲染可视化 Tab 全部内容"""
     st.subheader("[图表] 可视化分析")
@@ -703,6 +744,15 @@ def render_visualization_tab(df):
                 ts_fig = time_series_chart(df, selected_ts, f"{title}时间序列", color, title, unit)
                 if ts_fig:
                     safe_chart(ts_fig, f"{title}时间序列", key="viz_ts_single")
+
+        # 相关性热力图
+        st.write("---")
+        st.write("**全要素相关性热力图**")
+        heatmap = correlation_heatmap(df)
+        if heatmap:
+            safe_chart(heatmap, "相关性热力图", key="viz_corr_heatmap")
+        else:
+            st.info("至少需要两个以上有效数值要素")
 
     with viz_tab4:
         # 统计摘要

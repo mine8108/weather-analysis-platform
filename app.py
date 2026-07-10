@@ -65,6 +65,32 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# ---- 暗色模式 CSS ----
+if st.session_state["dark_mode"]:
+    st.markdown("""
+    <style>
+        .stApp { background: #0f172a; }
+        .main-header { color: #e2e8f0 !important; }
+        .sub-header { color: #94a3b8 !important; }
+        h1, h2, h3, h4 { color: #e2e8f0 !important; }
+        p, span, label, .stMarkdown { color: #cbd5e1 !important; }
+        [data-testid="stExpander"] { background: #1e293b; border-color: #334155; }
+        [data-testid="stMetric"] { background: #1e293b; border-color: #334155; }
+        [data-testid="stMetric"] label { color: #94a3b8 !important; }
+        [data-testid="stMetricValue"] { color: #e2e8f0 !important; }
+        [data-testid="stDataFrame"] { border-color: #334155; }
+        [data-testid="stDataFrame"] thead th { background: #1e3a5f !important; }
+        [data-testid="stDataFrame"] tbody tr:nth-child(even) { background: #1a2332; }
+        [data-testid="stDataFrame"] tbody td { color: #cbd5e1 !important; }
+        .stTabs [data-baseweb="tab"] { color: #94a3b8 !important; }
+        .stTabs [data-baseweb="tab"][aria-selected="true"] { color: #60a5fa !important; }
+        .stTabs [data-baseweb="tab-list"] { border-bottom-color: #334155; }
+        [data-testid="stSidebar"] { background: #0a0f1a; }
+        button[kind="primary"] { background: #2563eb !important; }
+        ::-webkit-scrollbar-thumb { background: #475569; }
+    </style>
+    """, unsafe_allow_html=True)
+
 # 头部
 st.markdown('<div class="main-header">[天气] 气象数据交互分析平台</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-header">数据导入 · 可视化分析 · 国家预警标准检测 · 智能建议 · 数值预报 · 报告导出</div>',
@@ -133,6 +159,11 @@ with st.sidebar:
     st.divider()
     st.checkbox("[调试] 显示详细错误信息", value=False, key="debug_mode",
                 help="开启后，图表渲染失败时会展示完整的 Python 报错堆栈，便于排查问题。")
+    dark = st.checkbox("[显示] 暗色模式", value=st.session_state["dark_mode"], key="dark_toggle",
+                       help="切换深色/浅色主题")
+    if dark != st.session_state["dark_mode"]:
+        st.session_state["dark_mode"] = dark
+        st.rerun()
     st.divider()
     st.caption("[资料] 中国气象局第16号令 · 气象灾害预警信号发布与传播办法")
     st.caption("© 气象数据交互分析平台 v1.0")

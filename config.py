@@ -612,6 +612,17 @@ def safe_chart(fig, section_label, *, use_container_width=True, key=None):
         if key:
             kwargs["key"] = key
         st.plotly_chart(fig, **kwargs)
+        # 导出按钮
+        export_key = f"export_{key}" if key else None
+        if export_key:
+            html_bytes = fig.to_html(include_plotlyjs="cdn", full_html=False).encode("utf-8")
+            st.download_button(
+                label="📥 导出 HTML",
+                data=html_bytes,
+                file_name=f"{section_label}.html",
+                mime="text/html",
+                key=export_key,
+            )
     except Exception as e:
         debug = get_debug_mode()
         err_type = type(e).__name__

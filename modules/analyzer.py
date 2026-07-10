@@ -461,6 +461,118 @@ def _render_air_quality_section(df):
             st.write(f"- {e['label']}: 均 {e['avg']} μg/m³ / 峰 {e['max']} μg/m³ (超过{e['limit']} 的{limit_type}限值)")
 
 
+def _render_trend_section(df):
+    """趋势分析与异常检测"""
+    st.write("### [趋势] 要素趋势与异常检测")
+
+    trend_fields = ["temperature", "humidity", "pressure", "wind_speed",
+                   "pm25", "pm10", "so2", "nox"]
+    available = [f for f in trend_fields if f in df.columns and not df[f].dropna().empty]
+    if not available:
+        st.info("暂无足够数据用于趋势分析")
+        return
+
+    labels = {
+        "temperature": "气温", "humidity": "湿度", "pressure": "气压",
+        "wind_speed": "风速", "pm25": "PM2.5", "pm10": "PM10",
+        "so2": "SO₂", "nox": "NOx",
+    }
+
+    results = []
+    import numpy as np
+
+    for field in available[:6]:  # 最多6个要素
+        vals = df[field].dropna()
+        if len(vals) < 10:
+            continue
+
+        # 简单线性趋势 (按索引序号)
+        x = np.arange(len(vals))
+        slope, intercept = np.polyfit(x, vals.values, 1)
+        trend_line = slope * x + intercept
+        change_rate = slope * len(vals)  # 全程变化量
+
+        # 异常检测 (IQR)
+        q1, q3 = np.percentile(vals, [25, 75])
+        iqr = q3 - q1
+        lower = q1 - 1.5 * iqr
+        upper = q3 + 1.5 * iqr
+        anomalies = vals[(vals < lower) | (vals > upper)]
+        n_anomalies = len(anomalies)
+
+        trend_dir = "↑ 上升" if slope > 0 else "↓ 下降" if slope < 0 else "→ 平稳"
+        results.append({
+            "要素": labels.get(field, field),
+            "均值": f"{vals.mean():.1f}",
+            "趋势": trend_dir,
+            "变化量": f"{change_rate:+.2f}",
+            "异常点": f"{n_anomalies}/{len(vals)}",
+            "状态": "⚠️ 关注" if abs(change_rate) > vals.std() * 2 or n_anomalies > len(vals) * 0.05 else "✓ 正常",
+        })
+
+    if results:
+        st.dataframe(pd.DataFrame(results), use_container_width=True, hide_index=True)
+        st.caption("趋势基于线性回归斜率，异常点基于 IQR 方法 (Q1-1.5IQR ~ Q3+1.5IQR)")
+
+
+def _render_smart_advice(df):
+    """智能综合分析建议"""
+    st.write("### [建议] 智能综合分析建议")
+
+    advices = []
+    has_temp = "temperature" in df.columns
+    has_precip = "precipitation" in df.columns
+    has_pm25 = "pm25" in df.columns
+
+    if has_temp:
+        temps = df["temperature"].dropna()
+        if len(temps) >= 24:
+            avg_temp = temps.mean()
+            max_temp = temps.max()
+            if max_temp >= 35:
+                advices.append(f"🔥 高温预警: 最高气温达 {max_temp:.1f}℃，建议做好防暑降温，户外工作者注意防护。")
+            elif avg_temp > 30:
+                advices.append(f"☀️ 气温偏高: 平均 {avg_temp:.1f}℃，注意补水防晒。")
+
+    if has_precip:
+        precip = df["precipitation"].dropna()
+        total_p = precip.sum()
+        if total_p > 50:
+            advices.append(f"🌧️ 累计降水量 {total_p:.1f}mm，需关注城市内涝和地质灾害风险。")
+        elif total_p < 5 and len(precip) >= 24:
+            advices.append(f"🏜️ 累计降水仅 {total_p:.1f}mm，存在干旱风险，注意节水灌溉。")
+
+    if has_pm25:
+        pm25 = df["pm25"].dropna()
+        avg_pm25 = pm25.mean()
+        exceed_rate = (pm25 > 50).sum() / len(pm25) * 100
+        if avg_pm25 > 50:
+            advices.append(f"😷 PM2.5 均值 {avg_pm25:.1f}μg/m³ (超标率 {exceed_rate:.0f}%)，建议减少户外活动，敏感人群佩戴口罩。")
+        elif avg_pm25 > 35:
+            advices.append(f"🟡 PM2.5 偏高达 {avg_pm25:.1f}μg/m³，敏感人群注意防护。")
+
+    # 温湿耦合
+    if has_temp and "humidity" in df.columns:
+        temps = df["temperature"].dropna()
+        humids = df["humidity"].dropna()
+        if len(temps) >= 10 and len(humids) >= 10:
+            hi = temps.mean() + 0.05 * humids.mean()  # 简化热指数
+            if hi > 35:
+                advices.append(f"🥵 高温高湿 (热指数≈{hi:.0f})，中暑风险高，避免长时间户外活动。")
+
+    # 风-污染物耦合
+    if has_pm25 and "wind_speed" in df.columns and len(df) >= 10:
+        corr = df[["pm25", "wind_speed"]].corr().iloc[0, 1]
+        if corr < -0.3:
+            advices.append(f"💨 风速与 PM2.5 呈负相关 (r={corr:.2f})，大风天气有利于污染物扩散。")
+
+    if advices:
+        for a in advices:
+            st.write(f"- {a}")
+    else:
+        st.info("当前数据未触发特殊建议，各项指标均在正常范围。")
+
+
 def multi_factor_coupling(df):
     """多要素耦合分析"""
     alerts = []
@@ -660,7 +772,11 @@ def render_analysis_tab(df):
                 if len(series) > 0:
                     val = func(series)
                     col.metric(label, f"{val:.1f} {unit}")
-            series = df[field].dropna()
-            if len(series) > 0:
-                val = func(series)
-                col.metric(label, f"{val:.1f} {unit}")
+
+    # ----- 趋势分析与异常检测 -----
+    st.write("---")
+    _render_trend_section(df)
+
+    # ----- 综合建议 -----
+    st.write("---")
+    _render_smart_advice(df)
