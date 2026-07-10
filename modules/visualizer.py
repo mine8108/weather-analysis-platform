@@ -459,6 +459,9 @@ def precipitation_timeline(df):
     fig.update_xaxes(tickangle=-45, nticks=12)
 
     return fig
+
+
+def render_visualization_tab(df):
     """渲染可视化 Tab 全部内容"""
     st.subheader("[图表] 可视化分析")
 
