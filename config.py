@@ -156,12 +156,36 @@ FIELD_ALIASES = {
     "时刻": "timestamp",
     "时间": "timestamp",
     "日期": "timestamp",
+
+    # ---- 大气污染物 ----
+    "二氧化硫": "so2",
+    "so2": "so2",
+    "SO2": "so2",
+    "硫氧化物": "so2",
+    "氮氧化物": "nox",
+    "nox": "nox",
+    "NOx": "nox",
+    "NOX": "nox",
+    "总悬浮颗粒物": "tsp",
+    "tsp": "tsp",
+    "TSP": "tsp",
+    "pm2.5": "pm25",
+    "PM2.5": "pm25",
+    "pm2_5": "pm25",
+    "PM2_5": "pm25",
+    "细颗粒物": "pm25",
+    "pm10": "pm10",
+    "PM10": "pm10",
+    "pm_10": "pm10",
+    "PM_10": "pm10",
+    "可吸入颗粒物": "pm10",
 }
 
 STANDARD_FIELDS = [
     "timestamp", "temperature", "pressure", "humidity",
     "wind_speed", "wind_direction", "cloud_cover", "visibility",
-    "weather_code", "precipitation", "station_id", "longitude", "latitude"
+    "weather_code", "precipitation", "station_id", "longitude", "latitude",
+    "so2", "nox", "tsp", "pm25", "pm10",
 ]
 
 REQUIRED_FIELDS = ["timestamp"]
@@ -176,6 +200,12 @@ FIELD_RANGES = {
     "cloud_cover": (0, 10),
     "visibility": (0, 100),
     "precipitation": (0, 500),
+    # 大气污染物
+    "so2": (0, 500),       # SO₂ μg/m³
+    "nox": (0, 500),       # NOx μg/m³
+    "tsp": (0, 1000),      # TSP μg/m³
+    "pm25": (0, 500),      # PM2.5 μg/m³
+    "pm10": (0, 1000),     # PM10 μg/m³
 }
 
 # ============================================================
@@ -445,6 +475,12 @@ COLORS = {
     "wind_color": "#f39c12",
     "vis_color": "#9b59b6",
     "rain_color": "#2980b9",
+    # 大气污染物色系
+    "so2_color": "#d4a017",    # SO₂ 硫磺黄
+    "nox_color": "#c0504d",    # NOx 铁锈红棕
+    "tsp_color": "#8b7355",    # TSP 灰棕
+    "pm25_color": "#5b7a9e",   # PM2.5 灰蓝
+    "pm10_color": "#6b5b7a",   # PM10 灰紫
 }
 
 # 预警级别样式

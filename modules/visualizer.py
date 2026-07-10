@@ -194,7 +194,8 @@ def dashboard_view(df):
 
 def scatter_matrix(df):
     """散点矩阵分析要素间关系"""
-    plot_fields = ["temperature", "pressure", "humidity", "wind_speed"]
+    plot_fields = ["temperature", "pressure", "humidity", "wind_speed",
+                  "so2", "nox", "pm25", "pm10"]
     available = [f for f in plot_fields if f in df.columns and not df[f].dropna().empty]
 
     if len(available) < 2:
@@ -205,6 +206,10 @@ def scatter_matrix(df):
         "pressure": "气压 (hPa)",
         "humidity": "相对湿度 (%)",
         "wind_speed": "风速 (m/s)",
+        "so2": "SO₂ (μg/m³)",
+        "nox": "NOx (μg/m³)",
+        "pm25": "PM2.5 (μg/m³)",
+        "pm10": "PM10 (μg/m³)",
     }
 
     n = len(available)
@@ -312,7 +317,8 @@ def multi_station_comparison(df):
 def distribution_histogram(df):
     """要素分布直方图（默认含降水量），支持多选要素叠加对比"""
     fields = ["precipitation", "temperature", "humidity", "wind_speed",
-              "pressure", "visibility", "cloud_cover"]
+              "pressure", "visibility", "cloud_cover",
+              "so2", "nox", "tsp", "pm25", "pm10"]
     available = [f for f in fields if f in df.columns and not df[f].dropna().empty]
     if not available:
         return None
@@ -325,6 +331,11 @@ def distribution_histogram(df):
         "pressure": "气压 (hPa)",
         "visibility": "能见度 (km)",
         "cloud_cover": "总云量",
+        "so2": "SO₂ (μg/m³)",
+        "nox": "NOx (μg/m³)",
+        "tsp": "TSP (μg/m³)",
+        "pm25": "PM2.5 (μg/m³)",
+        "pm10": "PM10 (μg/m³)",
     }
     colors = {
         "precipitation": COLORS["rain_color"],
@@ -334,6 +345,11 @@ def distribution_histogram(df):
         "pressure": COLORS["pres_color"],
         "visibility": COLORS["vis_color"],
         "cloud_cover": COLORS["purple"],
+        "so2": COLORS["so2_color"],
+        "nox": COLORS["nox_color"],
+        "tsp": COLORS["tsp_color"],
+        "pm25": COLORS["pm25_color"],
+        "pm10": COLORS["pm10_color"],
     }
 
     default = ["precipitation"] if "precipitation" in available else [available[0]]
@@ -384,6 +400,11 @@ def precipitation_timeline(df):
         "wind_speed":    ("风速 (m/s)",  COLORS["wind_color"], "m/s", "bar", "mean"),
         "visibility":    ("能见度 (km)", COLORS["vis_color"],   "km",  "line", "mean"),
         "cloud_cover":   ("总云量",      COLORS["purple"],     "",    "line", "mean"),
+        "so2":           ("SO₂ (μg/m³)", COLORS["so2_color"],  "μg/m³", "line", "mean"),
+        "nox":           ("NOx (μg/m³)", COLORS["nox_color"],  "μg/m³", "line", "mean"),
+        "tsp":           ("TSP (μg/m³)", COLORS["tsp_color"],  "μg/m³", "line", "mean"),
+        "pm25":          ("PM2.5 (μg/m³)", COLORS["pm25_color"], "μg/m³", "line", "mean"),
+        "pm10":          ("PM10 (μg/m³)", COLORS["pm10_color"], "μg/m³", "line", "mean"),
     }
 
     available_fields = [f for f in field_config if f in df.columns and not df[f].dropna().empty]
@@ -578,7 +599,8 @@ def render_visualization_tab(df):
         # 单要素时间序列选择
         st.write("---")
         st.write("**单要素时间序列**")
-        ts_fields = ["temperature", "pressure", "humidity", "wind_speed", "visibility", "precipitation"]
+        ts_fields = ["temperature", "pressure", "humidity", "wind_speed", "visibility", "precipitation",
+                    "so2", "nox", "tsp", "pm25", "pm10"]
         available_ts = [f for f in ts_fields if f in df.columns and not df[f].dropna().empty]
         if available_ts:
             selected_ts = st.selectbox("选择要素", available_ts, key="ts_select")
@@ -589,6 +611,11 @@ def render_visualization_tab(df):
                 "wind_speed": ("风速", COLORS["wind_color"], "m/s"),
                 "visibility": ("能见度", COLORS["vis_color"], "km"),
                 "precipitation": ("降水量", COLORS["rain_color"], "mm"),
+                "so2": ("SO₂", COLORS["so2_color"], "μg/m³"),
+                "nox": ("NOx", COLORS["nox_color"], "μg/m³"),
+                "tsp": ("TSP", COLORS["tsp_color"], "μg/m³"),
+                "pm25": ("PM2.5", COLORS["pm25_color"], "μg/m³"),
+                "pm10": ("PM10", COLORS["pm10_color"], "μg/m³"),
             }
             if selected_ts in ts_config:
                 title, color, unit = ts_config[selected_ts]
@@ -598,7 +625,8 @@ def render_visualization_tab(df):
 
     with viz_tab4:
         # 统计摘要
-        stats_fields = ["temperature", "pressure", "humidity", "wind_speed", "visibility", "precipitation", "cloud_cover"]
+        stats_fields = ["temperature", "pressure", "humidity", "wind_speed", "visibility",
+                       "precipitation", "cloud_cover", "so2", "nox", "tsp", "pm25", "pm10"]
         available_stats = [f for f in stats_fields if f in df.columns]
 
         if available_stats:
