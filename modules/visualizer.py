@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 from config import (
-    COLORS, WIND_DIRECTIONS, DESIGN_TOKENS,
+    COLORS, WIND_DIRECTIONS,
     get_beaufort_level, get_wind_direction_name, get_dominant_wind_direction,
     safe_chart,
 )
@@ -23,7 +23,7 @@ def _safe_xaxis(df):
 
 
 def time_series_chart(df, field, title, color, y_label, unit=""):
-    """通用时间序列折线图 — 新气象色板"""
+    """通用时间序列折线图"""
     if field not in df.columns or df[field].dropna().empty:
         return None
 
@@ -34,26 +34,19 @@ def time_series_chart(df, field, title, color, y_label, unit=""):
         y=df[field],
         mode="lines+markers",
         name=title,
-        line=dict(color=color, width=2.2),
-        marker=dict(size=4, color=color),
+        line=dict(color=color, width=2),
+        marker=dict(size=4),
         hovertemplate=f"时间: %{{x}}<br>{title}: %{{y:.1f}}{unit}<extra></extra>",
     ))
 
     fig.update_layout(
-        title=dict(text=title, font=dict(size=15, color=DESIGN_TOKENS["navy_900"]), x=0),
+        title=title,
         xaxis_title="时间",
         yaxis_title=f"{title}{f' ({unit})' if unit else ''}",
         hovermode="x unified",
-        height=380,
+        height=350,
         margin=dict(l=40, r=20, t=40, b=40),
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
-        font=dict(color=DESIGN_TOKENS["text"]),
     )
-    fig.update_xaxes(gridcolor=DESIGN_TOKENS["border"], zeroline=False,
-                     showline=True, linecolor=DESIGN_TOKENS["border_light"])
-    fig.update_yaxes(gridcolor=DESIGN_TOKENS["border"], zeroline=False,
-                     showline=True, linecolor=DESIGN_TOKENS["border_light"])
     return fig
 
 
@@ -137,9 +130,12 @@ def wind_rose_chart(df):
 
 
 def dashboard_view(df):
-    """综合看板：多要素 2x2 布局 — 新气象专业色板"""
-    x_data = _safe_xaxis(df)
+    """综合看板：多要素 2x2 布局"""
+    if "timestamp" not in df.columns:
+        # 降级：无时间列仍可尝试用索引渲染
+        pass
 
+    x_data = _safe_xaxis(df)
     fig = make_subplots(
         rows=2, cols=2,
         subplot_titles=("气温 (℃)", "气压 (hPa)", "相对湿度 (%)", "风速 (m/s)"),
@@ -151,8 +147,8 @@ def dashboard_view(df):
     if "temperature" in df.columns:
         fig.add_trace(
             go.Scatter(x=x_data, y=df["temperature"], mode="lines+markers",
-                       line=dict(color=COLORS["temp_color"], width=2.2), marker=dict(size=3, color=COLORS["temp_color"]),
-                       name="气温", hovertemplate="%{y:.1f}℃"),
+                       line=dict(color=COLORS["temp_color"], width=2), marker=dict(size=3),
+                       name="气温"),
             row=1, col=1,
         )
 
@@ -160,8 +156,8 @@ def dashboard_view(df):
     if "pressure" in df.columns:
         fig.add_trace(
             go.Scatter(x=x_data, y=df["pressure"], mode="lines+markers",
-                       line=dict(color=COLORS["pres_color"], width=2.2), marker=dict(size=3, color=COLORS["pres_color"]),
-                       name="气压", hovertemplate="%{y:.2f}hPa"),
+                       line=dict(color=COLORS["pres_color"], width=2), marker=dict(size=3),
+                       name="气压"),
             row=1, col=2,
         )
 
@@ -169,8 +165,8 @@ def dashboard_view(df):
     if "humidity" in df.columns:
         fig.add_trace(
             go.Scatter(x=x_data, y=df["humidity"], mode="lines+markers",
-                       line=dict(color=COLORS["humid_color"], width=2.2), marker=dict(size=3, color=COLORS["humid_color"]),
-                       name="湿度", hovertemplate="%{y:.1f}%"),
+                       line=dict(color=COLORS["humid_color"], width=2), marker=dict(size=3),
+                       name="湿度"),
             row=2, col=1,
         )
 
@@ -178,25 +174,19 @@ def dashboard_view(df):
     if "wind_speed" in df.columns:
         fig.add_trace(
             go.Bar(x=x_data, y=df["wind_speed"],
-                   marker_color=COLORS["wind_color"], name="风速", opacity=0.75,
-                   hovertemplate="%{y:.1f}m/s"),
+                   marker_color=COLORS["wind_color"], name="风速", opacity=0.7),
             row=2, col=2,
         )
 
     fig.update_layout(
-        title=dict(text="气象要素综合看板", font=dict(size=18, color=DESIGN_TOKENS["navy_900"]), x=0),
+        title="气象要素综合看板",
         height=720,
         showlegend=False,
         hovermode="x unified",
         margin=dict(l=40, r=20, t=90, b=60),
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
-        font=dict(color=DESIGN_TOKENS["text"]),
+        title_y=0.98,
     )
-    fig.update_xaxes(tickangle=-45, nticks=8, gridcolor=DESIGN_TOKENS["border"],
-                     zeroline=False, showline=True, linecolor=DESIGN_TOKENS["border_light"])
-    fig.update_yaxes(gridcolor=DESIGN_TOKENS["border"], zeroline=False,
-                     showline=True, linecolor=DESIGN_TOKENS["border_light"])
+    fig.update_xaxes(tickangle=-45, nticks=8)
     fig.update_xaxes(title_text="时间", row=2, col=1)
     fig.update_xaxes(title_text="时间", row=2, col=2)
     return fig
@@ -464,8 +454,7 @@ def precipitation_timeline(df):
         # 右轴
         r_name, r_color, r_unit, r_chart, r_agg = field_config[right_field]
         _add_dual_trace(fig, dff, right_field, r_name, r_color, r_unit, r_chart, True)
-        fig.update_yaxes(title_text=f"{l_name} ({l_unit})", secondary_y=False,
-                         title_font_color=l_color, tickfont_color=l_color)
+        fig.update_yaxes(title_text=f"{l_name} ({l_unit})", secondary_y=False, gridcolor="#e0e0e0")
         fig.update_yaxes(title_text=f"{r_name} ({r_unit})", secondary_y=True,
                          title_font_color=r_color, tickfont_color=r_color)
         title = f"{l_name} + {r_name}（双轴）{agg_sel}"
@@ -474,24 +463,18 @@ def precipitation_timeline(df):
         a_name, a_color, a_unit, a_chart, a_agg = field_config[active]
         fig = go.Figure()
         _add_dual_trace(fig, dff, active, a_name, a_color, a_unit, a_chart)
-        fig.update_yaxes(title_text=f"{a_name} ({a_unit})", title_font_color=a_color)
+        fig.update_yaxes(title_text=f"{a_name} ({a_unit})", gridcolor="#e0e0e0")
         title = f"{a_name} 时序{agg_sel}"
 
     fig.update_layout(
-        title=dict(text=title, x=0, font=dict(size=16, color=DESIGN_TOKENS["navy_900"])),
+        title=dict(text=title, x=0.5, xanchor="center", y=0.97, yanchor="top", font=dict(size=14)),
         xaxis_title="时间",
         height=460,
         margin=dict(l=50, r=50, t=50, b=80),
         hovermode="x unified",
-        legend=dict(orientation="h", yanchor="top", y=-0.22, xanchor="center", x=0.5,
-                    font=dict(color=DESIGN_TOKENS["text_muted"])),
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
-        font=dict(color=DESIGN_TOKENS["text"]),
+        legend=dict(orientation="h", yanchor="top", y=-0.22, xanchor="center", x=0.5),
     )
-    fig.update_xaxes(tickangle=-45, nticks=12, gridcolor=DESIGN_TOKENS["border"],
-                     zeroline=False, showline=True, linecolor=DESIGN_TOKENS["border_light"])
-    fig.update_yaxes(gridcolor=DESIGN_TOKENS["border"], secondary_y=False)
+    fig.update_xaxes(tickangle=-45, nticks=12)
 
     return fig
 

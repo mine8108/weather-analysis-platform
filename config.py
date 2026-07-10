@@ -424,101 +424,35 @@ AGRI_ADVICE = {
 # ============================================================
 # 五、配色方案
 # ============================================================
-# ============================================================
-# 五、设计系统 — 气象专业色板
-# 美学方向：技术风气象站 — 深海军蓝权威感 + 冰蓝数据色 + 琥珀警示
-# 遵循 impeccable 原则：避免 AI 青紫、纯黑/纯白、过饱和, 单一强调色
-# ============================================================
-
-# ---- 基础设计 tokens ----
-DESIGN_TOKENS = {
-    # 品牌色
-    "navy_900": "#0f1a2e",     # 最深海军蓝（头栏底色）
-    "navy_700": "#1a365d",     # 深海军蓝（主色）
-    "navy_500": "#2d5a8e",     # 中海蓝
-    "navy_300": "#5b8bb3",     # 浅海蓝
-    "ice_600":  "#2563eb",     # 冰川蓝（强调色）
-    "ice_500":  "#3b8bc9",     # 冰蓝
-    "ice_300":  "#7eb8da",     # 浅冰蓝
-    "ice_100":  "#dceefb",     # 冰蓝浅底
-    "ice_50":   "#f0f7fd",     # 极浅冰蓝
-
-    # 语义色
-    "amber_500": "#e8943a",    # 琥珀（预警/警示）
-    "amber_100": "#fef3e2",    # 琥珀浅底
-    "emerald_500": "#2d9f4e",  # 翡翠绿（安全/通过）
-    "emerald_100": "#e6f7ec",  # 翡翠浅底
-    "coral_500": "#c53030",    # 珊瑚红（危险/错误）
-    "coral_100": "#fef0f0",    # 珊瑚浅底
-
-    # 界面基础色
-    "surface":   "#f4f6f9",    # 页面底色
-    "card":      "#ffffff",    # 卡片表面
-    "card_hover":"#f8fafc",    # 卡片悬浮
-    "text":      "#1a202c",    # 主文本
-    "text_muted":"#64748b",    # 次级文本
-    "text_light": "#94a3b8",   # 提示文本
-    "border":    "#e2e8f0",    # 边框/分割线
-    "border_light":"#f1f5f9",  # 浅分割线
-
-    # 阴影
-    "shadow_sm": "0 1px 2px rgba(15, 26, 46, 0.04)",
-    "shadow_md": "0 4px 12px rgba(15, 26, 46, 0.06)",
-    "shadow_lg": "0 8px 24px rgba(15, 26, 46, 0.08)",
-}
-
-# ---- 图表色系（基于 design tokens） ----
 COLORS = {
-    "primary":   DESIGN_TOKENS["navy_700"],
-    "secondary": DESIGN_TOKENS["amber_500"],
-    "success":   DESIGN_TOKENS["emerald_500"],
-    "danger":    DESIGN_TOKENS["coral_500"],
-    "warning":   DESIGN_TOKENS["amber_500"],
-    "info":      DESIGN_TOKENS["ice_500"],
-    "purple":    DESIGN_TOKENS["navy_500"],
-    "pink":      DESIGN_TOKENS["coral_500"],
-
+    "primary": "#1f77b4",
+    "secondary": "#ff7f0e",
+    "success": "#2ca02c",
+    "danger": "#d62728",
+    "warning": "#ffbb00",
+    "info": "#17becf",
+    "purple": "#9467bd",
+    "pink": "#e377c2",
     # 预警颜色
-    "warn_blue":   DESIGN_TOKENS["ice_600"],
-    "warn_yellow": DESIGN_TOKENS["amber_500"],
-    "warn_orange": "#e07b2c",
-    "warn_red":    DESIGN_TOKENS["coral_500"],
-
-    # 图表要素色
-    "temp_color": DESIGN_TOKENS["coral_500"],  # 温度 — 珊瑚红
-    "pres_color": DESIGN_TOKENS["emerald_500"], # 气压 — 翡翠绿
-    "humid_color":DESIGN_TOKENS["ice_500"],     # 湿度 — 冰蓝
-    "wind_color": DESIGN_TOKENS["amber_500"],   # 风速 — 琥珀
-    "vis_color":  DESIGN_TOKENS["navy_500"],    # 能见度 — 海蓝
-    "rain_color": DESIGN_TOKENS["ice_600"],     # 降水 — 冰川蓝
+    "warn_blue": "#0066cc",
+    "warn_yellow": "#f5a623",
+    "warn_orange": "#f26522",
+    "warn_red": "#d0021b",
+    # 图表色系
+    "temp_color": "#e74c3c",
+    "pres_color": "#27ae60",
+    "humid_color": "#3498db",
+    "wind_color": "#f39c12",
+    "vis_color": "#9b59b6",
+    "rain_color": "#2980b9",
 }
 
-# ---- 预警级别样式 ----
+# 预警级别样式
 WARN_STYLES = {
-    "蓝色": {
-        "color": DESIGN_TOKENS["ice_600"],
-        "bg": DESIGN_TOKENS["ice_50"],
-        "text_color": DESIGN_TOKENS["ice_600"],
-        "icon": "🔵",
-    },
-    "黄色": {
-        "color": DESIGN_TOKENS["amber_500"],
-        "bg": DESIGN_TOKENS["amber_100"],
-        "text_color": "#92400e",
-        "icon": "🟡",
-    },
-    "橙色": {
-        "color": "#e07b2c",
-        "bg": "#fff7ed",
-        "text_color": "#9a3412",
-        "icon": "🟠",
-    },
-    "红色": {
-        "color": DESIGN_TOKENS["coral_500"],
-        "bg": DESIGN_TOKENS["coral_100"],
-        "text_color": DESIGN_TOKENS["coral_500"],
-        "icon": "🔴",
-    },
+    "蓝色": {"color": "#0066cc", "bg": "#e6f0ff", "text_color": "white"},
+    "黄色": {"color": "#f5a623", "bg": "#fff8e6", "text_color": "#333"},
+    "橙色": {"color": "#f26522", "bg": "#fff0e6", "text_color": "white"},
+    "红色": {"color": "#d0021b", "bg": "#ffe6e6", "text_color": "white"},
 }
 
 # ============================================================
