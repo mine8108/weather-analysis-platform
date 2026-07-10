@@ -105,13 +105,6 @@ def _render_data_summary_card():
                     st.session_state["active_tab"] = 3
                     st.rerun()
 
-    # 向导确认按钮直接跳转到可视化
-                if st.button("✅ 确认数据，前往可视化分析", use_container_width=True, key="wiz_confirm"):
-                    st.session_state["import_step"] = 0
-                    st.session_state["active_tab"] = 1
-                    st.rerun()
-
-
 def _render_progress_bar():
     """P3: 任务流进度条（面包屑风格）"""
     steps = [
@@ -467,9 +460,17 @@ if st.session_state["active_tab"] == 0:
             with col_c:
                 outlier_count = 0
                 if "temperature" in df.columns:
-                    outlier_count += ((df["temperature"] > 55) | (df["temperature"] < -50)).sum()
+                    try:
+                        temp = pd.to_numeric(df["temperature"], errors="coerce")
+                        outlier_count += int(((temp > 55) | (temp < -50)).sum())
+                    except Exception:
+                        pass
                 if "humidity" in df.columns:
-                    outlier_count += ((df["humidity"] > 100) | (df["humidity"] < 0)).sum()
+                    try:
+                        hum = pd.to_numeric(df["humidity"], errors="coerce")
+                        outlier_count += int(((hum > 100) | (hum < 0)).sum())
+                    except Exception:
+                        pass
                 st.metric("疑似异常值", f"{outlier_count} 个" if outlier_count > 0 else "0")
 
             st.dataframe(df.head(10), use_container_width=True)
