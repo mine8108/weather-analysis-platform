@@ -38,6 +38,152 @@ from modules.codec import render_codec_tab
 from modules.reporter import render_export_tab
 from modules.nwp_forecast import render_forecast_tab
 
+# ============================================================
+# 通用 UI 辅助函数
+# ============================================================
+
+def _render_data_summary_card():
+    """P0: 数据导入完成后显示摘要卡片 + 快捷跳转"""
+    df = st.session_state.get("df")
+    if df is None or df.empty:
+        return
+
+    n = len(df)
+    time_info = ""
+    if "timestamp" in df.columns and not df["timestamp"].dropna().empty:
+        ts = df["timestamp"].dropna()
+        time_info = f"{ts.min().strftime('%Y-%m-%d %H:%M')} ~ {ts.max().strftime('%Y-%m-%d %H:%M')}"
+    else:
+        time_info = f"{n} 条记录"
+
+    # 字段分类
+    weather_fields = ["temperature", "pressure", "humidity", "wind_speed",
+                       "wind_direction", "precipitation", "visibility", "cloud_cover"]
+    pollution_fields = ["so2", "nox", "tsp", "pm25", "pm10"]
+    weather_present = [f for f in weather_fields if f in df.columns]
+    pollution_present = [f for f in pollution_fields if f in df.columns]
+
+    weather_labels = {"temperature": "气温", "pressure": "气压", "humidity": "湿度",
+                       "wind_speed": "风速", "wind_direction": "风向", "precipitation": "降水",
+                       "visibility": "能见度", "cloud_cover": "云量"}
+    pollution_labels = {"so2": "SO₂", "nox": "NOx", "tsp": "TSP", "pm25": "PM2.5", "pm10": "PM10"}
+
+    weather_text = " · ".join([weather_labels.get(f, f) for f in weather_present[:5]])
+    if len(weather_present) > 5:
+        weather_text += f" 等{len(weather_present)}项"
+    if not weather_text:
+        weather_text = "—"
+
+    pollution_text = ""
+    if pollution_present:
+        pollution_text = " · ".join([pollution_labels.get(f, f) for f in pollution_present])
+        pollution_text = f" | 污染物: {pollution_text}"
+
+    src = st.session_state.get("data_source", "未知来源")
+
+    st.markdown(f"""
+    <div style="
+        background: linear-gradient(135deg, #f0f7ff 0%, #e8f4e8 100%);
+        border: 1px solid #b8d4e8;
+        border-radius: 12px;
+        padding: 16px 20px;
+        margin: 8px 0 16px 0;
+    ">
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <span style="font-size: 24px;">&#x2705;</span>
+            <div style="flex: 1;">
+                <div style="font-weight: 700; font-size: 0.95rem; color: #1a365d; margin-bottom: 4px;">
+                    数据已就绪 — {src}
+                </div>
+                <div style="font-size: 0.85rem; color: #4a6a8a;">
+                    {time_info} | {n}条 | {weather_text}{pollution_text}
+                </div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def _render_progress_bar():
+    """P3: 任务流进度条（面包屑风格）"""
+    steps = [
+        ("[导入]", "f0"),
+        ("[质控]", "f1"),
+        ("[图表]", "f2"),
+        ("[预警]", "f3"),
+        ("[导出]", "f4"),
+    ]
+    # 根据当前 session 数据状态判断进度
+    has_data = st.session_state.get("df") is not None
+    has_analysis = bool(st.session_state.get("warnings_list") or False)
+
+    current = 0
+    if has_data:
+        current = 1
+    if has_analysis:
+        current = 3
+
+    cols = st.columns(len(steps))
+    for i, (label, icon) in enumerate(steps):
+        with cols[i]:
+            if i <= current:
+                color = "#1a365d"
+                bg = "#e8f0fe"
+                mark = "✓"
+            else:
+                color = "#b0b8c4"
+                bg = "#f5f6f8"
+                mark = "·"
+            st.markdown(f"""
+            <div style="
+                background: {bg};
+                border-radius: 8px;
+                padding: 6px 10px;
+                text-align: center;
+                font-size: 0.78rem;
+                font-weight: {600 if i <= current else 400};
+                color: {color};
+            ">
+                {mark} {label}
+            </div>
+            """, unsafe_allow_html=True)
+    st.write("")
+
+
+def _render_next_step_hint():
+    """P2: 根据当前阶段显示下一步推荐"""
+    df = st.session_state.get("df")
+    has_data = df is not None and not df.empty
+    has_forecast = st.session_state.get("fc_df") is not None
+
+    hints = []
+
+    if not has_data:
+        hints.append(("&#x1F4C2;", "请先导入数据：上传 CSV/Excel 文件，或使用 API 获取在线数据"))
+    elif has_forecast and "fc_analysis" in st.session_state:
+        hints.append(("&#x26A1;", "数值预报已生成，前往 [预警] 查看预报驱动的智能分析建议"))
+
+    # 只在有数据时显示
+    if has_data and not has_forecast:
+        hints.append(("&#x1F4CA;", "下一步推荐：进入 [图表] 查看数据可视化"))
+    if has_data and has_forecast:
+        hints.append(("&#x1F4CB;", "下一步推荐：进入 [导出] 生成分析报告"))
+
+    for icon, text in hints:
+        st.markdown(f"""
+        <div style="
+            background: #fef9e7;
+            border-left: 3px solid #e8943a;
+            padding: 8px 14px;
+            border-radius: 0 8px 8px 0;
+            margin-bottom: 6px;
+            font-size: 0.85rem;
+            color: #5c4a1f;
+        ">
+            <span style="margin-right: 6px;">{icon}</span> {text}
+        </div>
+        """, unsafe_allow_html=True)
+
 # 页面配置
 st.set_page_config(**PAGE_CONFIG)
 
@@ -169,8 +315,12 @@ with st.sidebar:
     st.caption("© 气象数据交互分析平台 v1.0")
 
 # ============================================================
-# 主内容区：Tab 导航
+# 主内容区：进度条 + 下一步提示 + Tab 导航
 # ============================================================
+_render_progress_bar()
+_render_next_step_hint()
+_render_data_summary_card()
+
 tabs = st.tabs([
     "[导入] 数据导入",
     "[实验] 数据质控",
@@ -270,3 +420,26 @@ with tabs[6]:
 # ---- Tab 8: 数值预报 ----
 with tabs[7]:
     render_forecast_tab()
+
+    # P1: 预报完成后自动传递到智能分析
+    fc_df = st.session_state.get("fc_df", None)
+    fc_analysis = st.session_state.get("fc_analysis", "")
+    if fc_df is not None:
+        st.write("---")
+        st.write("### [联动] 预报驱动的智能分析")
+        if st.button("[分析] 基于预报数据生成智能建议", use_container_width=True, key="nwp_analyze"):
+            # 将预报数据转为分析用的 DataFrame
+            if "temperature" not in fc_df.columns and "temperature_2m" in fc_df.columns:
+                fc_df = fc_df.rename(columns={"temperature_2m": "temperature",
+                                               "precipitation_sum": "precipitation"})
+            st.session_state["nwp_combined"] = True
+            st.session_state["nwp_forecast_for_analysis"] = fc_df
+            st.success("预报数据已传递给智能分析模块！请前往 [预警] Tab 查看基于预报的建议。")
+            st.info("提示：在 [预警] Tab 中，系统将自动结合预报数据生成：\n"
+                    "- 未来气温趋势与高温预警\n"
+                    "- 降水量预测与暴雨风险评估\n"
+                    "- 风速预报与大风预警")
+
+        if fc_analysis:
+            with st.expander("[报告] 预报分析摘要", expanded=True):
+                st.markdown(fc_analysis)

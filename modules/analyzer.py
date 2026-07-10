@@ -461,6 +461,63 @@ def _render_air_quality_section(df):
             st.write(f"- {e['label']}: 均 {e['avg']} μg/m³ / 峰 {e['max']} μg/m³ (超过{e['limit']} 的{limit_type}限值)")
 
 
+def _render_nwp_analysis_section(nwp_df):
+    """P1: 基于数值预报数据的智能分析"""
+    if nwp_df is None or nwp_df.empty:
+        return
+
+    advices = []
+
+    # 温度分析
+    temp_col = "temperature" if "temperature" in nwp_df.columns else "temperature_2m" if "temperature_2m" in nwp_df.columns else None
+    if temp_col:
+        temps = nwp_df[temp_col].dropna()
+        max_temp = temps.max()
+        avg_temp = temps.mean()
+        hot_count = (temps >= 35).sum()
+        cold_count = (temps <= 0).sum()
+
+        st.markdown(f"""
+        **温度预报**：最高 {max_temp:.1f}℃ | 平均 {avg_temp:.1f}℃ | {len(temps)} 小时预报
+        """)
+        if hot_count > 0:
+            advices.append(f"高温预警：预报期内有 {hot_count} 小时≥35℃，做好防暑准备。")
+        if cold_count > 0:
+            advices.append(f"低温预警：预报期内有 {cold_count} 小时≤0℃，注意防寒保暖。")
+
+    # 降水分析
+    precip_col = "precipitation" if "precipitation" in nwp_df.columns else "precipitation_sum" if "precipitation_sum" in nwp_df.columns else None
+    if precip_col:
+        precip = nwp_df[precip_col].dropna()
+        total_p = precip.sum()
+        heavy_p = (precip > 10).sum()
+
+        st.markdown(f"**降水预报**：累计 {total_p:.1f}mm")
+        if total_p > 100:
+            advices.append(f"暴雨风险：预报累计降水 {total_p:.1f}mm，可能引发城市内涝，请关注。")
+        elif total_p > 50:
+            advices.append(f"大雨预警：预报累计降水 {total_p:.1f}mm，注意防汛。")
+        elif total_p < 1:
+            advices.append("干旱趋势：预报期内几乎无降水，注意节水。")
+
+    # 风速分析
+    wind_col = "wind_speed" if "wind_speed" in nwp_df.columns else "wind_speed_10m" if "wind_speed_10m" in nwp_df.columns else None
+    if wind_col:
+        winds = nwp_df[wind_col].dropna()
+        max_wind = winds.max()
+        gale = (winds > 10.7).sum()
+        st.markdown(f"**风速预报**：最大 {max_wind:.1f} m/s | 强风时段 {gale} 小时")
+        if gale > 0:
+            advices.append(f"大风注意：预报有 {gale} 小时风速≥六级，户外作业注意安全。")
+
+    if advices:
+        st.write("---")
+        for a in advices:
+            st.warning(a)
+    else:
+        st.success("预报期内无明显极端天气风险。")
+
+
 def _render_trend_section(df):
     """趋势分析与异常检测"""
     st.write("### [趋势] 要素趋势与异常检测")
@@ -776,6 +833,14 @@ def render_analysis_tab(df):
     # ----- 趋势分析与异常检测 -----
     st.write("---")
     _render_trend_section(df)
+
+    # ----- 数值预报驱动分析 (P1) -----
+    nwp_df = st.session_state.get("nwp_forecast_for_analysis")
+    if nwp_df is not None:
+        st.write("---")
+        st.write("### [预报] 数值预报驱动分析")
+        st.caption("以下分析基于 Open-Meteo 数值预报模型数据")
+        _render_nwp_analysis_section(nwp_df)
 
     # ----- 综合建议 -----
     st.write("---")
