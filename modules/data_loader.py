@@ -183,140 +183,262 @@ def load_excel(file) -> pd.DataFrame:
 
 
 def parse_timestamp(df):
-    """尝试解析时间列（多级降级策略）"""
+    """智能时间列检测与解析（L1-L5 全面方案）
+    L1: 扩展名称匹配 (5 级优先级)
+    L2: 多列拼接 (year/month/day/hour)
+    L3: 内容模式扫描 (不依赖列名)
+    L4: 质量报告 (解析后反馈)
+    L5: 交互式确认 (找不到时让用户选)
+    """
+    import re
 
-    # ---- 第1级：精确名称匹配 ----
     ts_col = None
-    exact_candidates = [
-        "timestamp", "时间", "日期", "时刻", "datetime", "date", "time",
-        "观测时间", "观测时次", "记录时间", "采集时间", "数据时间",
-        "资料时间", "年月日", "TIMESTAMP", "obs_time", "record_time",
-        "t", "Unnamed: 0", "unnamed",
+    report_method = ""
+
+    # ---- L1: 扩展名称匹配（5 级优先级） ----
+    L1_TIERS = [
+        ["timestamp", "时间", "日期", "datetime", "date", "time", "datetime_str"],
+        ["观测时间", "观测时次", "记录时间", "采集时间", "数据时间", "资料时间",
+         "观测日期", "记录日期", "report_time", "forecast_time", "fcst_time",
+         "analysis_time", "init_time", "valid_time", "obs_time", "obs_date"],
+        ["time_utc", "date_utc", "local_time", "datetime_utc", "utc_time",
+         "record_time", "year_month_day", "yyyymmdd", "yyyymmddhh",
+         "date_str", "time_str", "TIMESTAMP", "UNIXTIME"],
+        ["年月日", "时刻", "开始时间", "结束时间", "起始时间", "终止时间",
+         "timestamps", "date_time", "obs_time_utc", "base_time"],
+        ["day", "hour", "month", "year"],  # 最低优先级：可能是数值列
     ]
-    for c in df.columns:
-        if c.strip().lower() in [e.lower() for e in exact_candidates]:
-            ts_col = c
+    for tier in L1_TIERS:
+        for c in df.columns:
+            if c.strip().lower() in [t.lower() for t in tier]:
+                ts_col = c
+                report_method = f"L1 名称: {c}"
+                break
+        if ts_col:
             break
 
-    # ---- 第2级：子串/关键词模糊匹配 ----
+    # ---- L2: 多列拼接检测 ----
     if ts_col is None:
-        for c in df.columns:
-            cl = c.strip().lower()
-            if any(kw in cl for kw in ["时间", "时刻", "date", "time", "timestamp", "obs"]):
-                ts_col = c
-                break
-
-    # ---- 第3级：pandas dtype 推断（自动检测 datetime64 列）----
-    if ts_col is None:
-        for c in df.columns:
-            if pd.api.types.is_datetime64_any_dtype(df[c]):
-                ts_col = c
-                break
-
-    # ---- 第4级：逐列尝试解析为 datetime（取第一个能成功转为 datetime 的列）----
-    # 但需过滤：数值列被 pd.to_datetime 误解析为 Unix 纳秒时间戳的情况
-    if ts_col is None:
-        for c in df.columns:
+        multi = _detect_multi_col_date(df)
+        if multi:
+            cols, fmt_str = multi
             try:
-                parsed = pd.to_datetime(df[c], errors="coerce")
-                valid_count = parsed.notna().sum()
-                if valid_count >= len(df) * 0.5:
-                    # 过滤：如果解析结果全部在 1970-1980 年之间，且原始数据是数值类型，则视为误解析
-                    if valid_count > 0:
-                        min_ts = parsed[parsed.notna()].min()
-                        max_ts = parsed[parsed.notna()].max()
-                        if min_ts.year >= 1970 and max_ts.year <= 1980 and pd.api.types.is_numeric_dtype(df[c]):
-                            continue  # 拒绝：误解析为 Unix 纳秒时间戳
-                    ts_col = c
-                    break
-            except Exception:
-                continue
-
-    # ---- 第5级：尝试解析数值型 HMMSS / HHMMSS 格式（如 81829 = 8:18:29）----
-    if ts_col is None:
-        for c in df.columns:
-            if pd.api.types.is_numeric_dtype(df[c]):
-                vals = df[c].dropna()
-                if len(vals) > 0 and vals.min() >= 0 and vals.max() <= 240000:
-                    # 尝试解析为 HMMSS / HHMMSS
-                    try:
-                        str_vals = vals.astype(int).astype(str).str.zfill(6)
-                        parsed = pd.to_datetime(str_vals, format="%H%M%S", errors="coerce")
-                        if parsed.notna().sum() >= len(df) * 0.5:
-                            # 使用今天的日期拼接
-                            today = pd.Timestamp.now().strftime("%Y-%m-%d")
-                            df["timestamp"] = pd.to_datetime(
-                                today + " " + str_vals,
-                                format="%Y-%m-%d %H%M%S",
-                                errors="coerce"
-                            )
-                            return df.sort_values("timestamp").reset_index(drop=True)
-                    except Exception:
-                        pass
-
-    # ---- 全部失败：用索引生成伪时间戳（每小时递增，从今天0点起）----
-    if ts_col is None:
-        import streamlit as st
-        st.warning(
-            "**未检测到时间列** — 已自动按行号生成时间序列（从今日00:00起，逐小时）。"
-            "如需真实时间轴，请确保数据中包含含「时间」/「date」/「time」的列名。"
-        )
-        base = pd.Timestamp.now().normalize()
-        df["timestamp"] = [base + pd.Timedelta(hours=i) for i in range(len(df))]
-        return df.sort_values("timestamp").reset_index(drop=True)
-
-    # ---- 成功定位到时间列：尝试多种格式解析 ----
-    # 特殊处理：如果列是数值型且值在 0-240000 之间，尝试 HMMSS 格式
-    if pd.api.types.is_numeric_dtype(df[ts_col]):
-        vals = df[ts_col].dropna()
-        if len(vals) > 0 and vals.min() >= 0 and vals.max() <= 240000:
-            try:
-                str_vals = vals.astype(int).astype(str).str.zfill(6)
-                parsed = pd.to_datetime(str_vals, format="%H%M%S", errors="coerce")
-                if parsed.notna().sum() >= len(df) * 0.5:
-                    today = pd.Timestamp.now().strftime("%Y-%m-%d")
-                    df["timestamp"] = pd.to_datetime(
-                        today + " " + str_vals,
-                        format="%Y-%m-%d %H%M%S",
-                        errors="coerce"
-                    )
-                    return df.sort_values("timestamp").reset_index(drop=True)
+                df["timestamp"] = pd.to_datetime(
+                    df[cols].astype(str).apply(lambda r: fmt_str.format(**r.to_dict()), axis=1),
+                    errors="coerce"
+                )
+                valid = df["timestamp"].notna().sum()
+                if valid >= len(df) * 0.5:
+                    report_method = f"L2 多列拼接: {cols}"
+                    ts_col = "timestamp__generated"
+                    df = df.sort_values("timestamp").reset_index(drop=True)
+                    _show_time_report(df, report_method, valid, len(df))
+                    return df
             except Exception:
                 pass
 
-    formats = [
-        None,  # pandas 自动推断
-        "%Y-%m-%d %H:%M:%S",
-        "%Y-%m-%d %H:%M",
-        "%Y/%m/%d %H:%M:%S",
-        "%Y/%m/%d %H:%M",
-        "%Y%m%d%H%M",
-        "%Y%m%d%H",
-        "%Y-%m-%d",
-        "%Y/%m/%d",
-        "%Y年%m月%d日%H时%M分",
-        "%Y年%m月%d日",
-        "%m/%d/%Y %H:%M:%S",
-        "%m/%d/%Y",
-        "%d-%m-%Y %H:%M:%S",
-        "%d/%m/%Y %H:%M",
-        "%H%M%S",  # HMMSS / HHMMSS 纯时间格式
-        "%H:%M:%S",
-        "%H:%M",
-    ]
+    # ---- L3: 内容模式扫描 ----
+    if ts_col is None:
+        ts_col, score = _scan_content_pattern(df)
+        if ts_col:
+            report_method = f"L3 内容模式: {ts_col} ({score:.0%})"
 
-    for fmt in formats:
-        try:
-            if fmt is None:
-                df["timestamp"] = pd.to_datetime(df[ts_col])
-            else:
-                df["timestamp"] = pd.to_datetime(df[ts_col], format=fmt)
-            break
-        except Exception:
-            continue
+    # ---- L5: 交互式确认 ----
+    if ts_col is None:
+        ts_col = _interactive_time_picker(df)
+        if ts_col:
+            report_method = f"L5 手动: {ts_col}"
+    if ts_col is None:
+        return _fallback_synthetic_time(df)
+
+    # ---- 解析时间列 ----
+    df["timestamp"] = _smart_parse_datetime(df[ts_col])
+    valid = df["timestamp"].notna().sum()
+
+    # 低质量回退
+    if valid < len(df) * 0.3 and ts_col != "timestamp__generated":
+        st.warning(f"时间列 `{ts_col}` 仅识别 {valid}/{len(df)} 条有效值，请核对数据格式")
+        fallback = _interactive_time_picker(df, default_col=ts_col)
+        if fallback and fallback != ts_col:
+            df["timestamp"] = _smart_parse_datetime(df[fallback])
+            valid = df["timestamp"].notna().sum()
+            report_method = f"L5 重选: {fallback}"
 
     df = df.sort_values("timestamp").reset_index(drop=True)
+
+    # ---- L4: 质量报告 ----
+    _show_time_report(df, report_method, valid, len(df))
+
     return df
+
+
+# ---- 辅助函数 ----
+
+def _detect_multi_col_date(df):
+    """检测是否存在 year/month/day/hour 多列组合，返回 (cols, fmt_str) 或 None"""
+    col_map = {}
+    for c in df.columns:
+        cl = c.strip().lower()
+        if cl in ("year", "年", "yyyy"):
+            col_map["year"] = c
+        elif cl in ("month", "月", "mm"):
+            col_map["month"] = c
+        elif cl in ("day", "日", "dd"):
+            col_map["day"] = c
+        elif cl in ("hour", "时", "hh"):
+            col_map["hour"] = c
+
+    # 至少需要 year + month
+    if "year" not in col_map or "month" not in col_map:
+        return None
+
+    cols = [col_map["year"], col_map["month"]]
+    fmt = "{year}-{month:0>2}"
+    if "day" in col_map:
+        cols.append(col_map["day"])
+        fmt += "-{day:0>2}"
+    if "hour" in col_map:
+        cols.append(col_map["hour"])
+        fmt += " {hour:0>2}:00"
+
+    return cols, fmt
+
+
+_DATE_PATTERNS = [
+    (re.compile(r'^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}'), "ISO 日期时间"),
+    (re.compile(r'^\d{4}-\d{2}-\d{2}$'), "ISO 日期"),
+    (re.compile(r'^\d{4}/\d{2}/\d{2}[T ]?\d{2}:\d{2}'), "斜线日期时间"),
+    (re.compile(r'^\d{4}/\d{2}/\d{2}$'), "斜线日期"),
+    (re.compile(r'^\d{12}$'), "紧凑日期时间 YYYYMMDDHHMM"),
+    (re.compile(r'^\d{10}$'), "紧凑日期时间 YYYYMMDDHH"),
+    (re.compile(r'^\d{8}$'), "紧凑日期 YYYYMMDD"),
+]
+
+
+def _scan_content_pattern(df):
+    """扫描所有列的内容，返回 (col_name, 置信度) 或 (None, 0)"""
+    best_col, best_score = None, 0
+    sample_size = min(30, len(df))
+
+    for c in df.columns:
+        # 跳过已经检测过的
+        vals = df[c].dropna().head(sample_size).astype(str)
+        if len(vals) == 0:
+            continue
+
+        matched = 0
+        for v in vals:
+            v = v.strip().strip("'\"")
+            if any(p.search(v) for p, _ in _DATE_PATTERNS):
+                matched += 1
+
+        score = matched / len(vals) if len(vals) > 0 else 0
+        if score > best_score and score >= 0.6:
+            best_score = score
+            best_col = c
+
+    return best_col, best_score
+
+
+def _interactive_time_picker(df, default_col=None):
+    """让用户从列表中选择时间列"""
+    # 按「日期可能性」排序候选列
+    candidates = _rank_date_columns(df)
+
+    if not candidates:
+        st.info("未检测到任何可能的时间列。将使用自动生成的序号作为时间轴。")
+        return None
+
+    options = ["（不使用时间轴）"] + candidates
+    default_idx = candidates.index(default_col) + 1 if default_col in candidates else 0
+
+    choice = st.radio(
+        "请选择包含时间/日期的列：",
+        options, index=default_idx, key="ts_picker",
+        horizontal=True,
+    )
+    return None if choice == "（不使用时间轴）" else choice
+
+
+def _rank_date_columns(df):
+    """对列按「看起来像日期」的程度排序"""
+    scored = []
+    sample_size = min(20, len(df))
+    for c in df.columns:
+        vals = df[c].dropna().head(sample_size).astype(str)
+        if len(vals) == 0:
+            continue
+        score = 0
+        for v in vals:
+            v = v.strip()
+            if any(p.search(v) for p, _ in _DATE_PATTERNS):
+                score += 1
+        # 日期列名加额外分
+        cl = c.lower()
+        if any(kw in cl for kw in ("time", "date", "时间", "日期", "时刻")):
+            score += 3
+        # datetime64 dtype
+        if pd.api.types.is_datetime64_any_dtype(df[c]):
+            score += 5
+        scored.append((c, score / len(vals)))
+    scored.sort(key=lambda x: -x[1])
+    return [s[0] for s in scored if s[1] > 0.1]
+
+
+def _smart_parse_datetime(series):
+    """智能解析时间序列：优先自动推断，失败后尝试多种格式"""
+    # 先试自动推断
+    parsed = pd.to_datetime(series, errors="coerce", infer_datetime_format=True)
+    if parsed.notna().sum() >= len(series) * 0.5:
+        return parsed
+
+    # 常见格式逐个尝试
+    for fmt in [
+        "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y/%m/%d %H:%M:%S",
+        "%Y/%m/%d %H:%M", "%Y%m%d%H%M", "%Y%m%d%H", "%Y-%m-%d", "%Y/%m/%d",
+        "%Y年%m月%d日%H时%M分", "%Y年%m月%d日",
+        "%m/%d/%Y %H:%M:%S", "%m/%d/%Y", "%d-%m-%Y %H:%M:%S",
+        "%d/%m/%Y %H:%M", "%H:%M:%S", "%H:%M",
+    ]:
+        try:
+            p = pd.to_datetime(series, format=fmt, errors="coerce")
+            if p.notna().sum() > parsed.notna().sum():
+                parsed = p
+        except Exception:
+            continue
+    return parsed
+
+
+def _fallback_synthetic_time(df):
+    """无法找到时间列时，生成序号时间轴并警告"""
+    st.warning(
+        "未检测到时间列，已用序号生成时间轴。若数据包含时间信息，请在上方选择器中选择对应列。"
+    )
+    df["timestamp"] = [pd.Timestamp.now().normalize() + pd.Timedelta(hours=i) for i in range(len(df))]
+    return df.sort_values("timestamp").reset_index(drop=True)
+
+
+def _show_time_report(df, method, valid, total):
+    """L4: 时间解析质量报告"""
+    timestamps = df["timestamp"].dropna()
+    if len(timestamps) == 0:
+        st.warning(f"时间解析失败（{method}），已降级使用序号")
+        return
+
+    gap_str = ""
+    if len(timestamps) >= 2:
+        diffs = timestamps.diff().dropna()
+        most_common = diffs.mode()
+        if len(most_common) > 0:
+            gap_str = f"，步长 {most_common[0]}"
+
+    missing = total - valid
+    missing_str = f"，{missing} 条缺失" if missing > 0 else ""
+    span = f"（{timestamps.min().strftime('%Y-%m-%d %H:%M')} ~ {timestamps.max().strftime('%Y-%m-%d %H:%M')}）" if len(timestamps) > 0 else ""
+
+    st.success(
+        f"[时间] {method} | {valid}/{total} 条有效{missing_str}{gap_str} {span}"
+    )
 
 
 def render_file_upload_section():
