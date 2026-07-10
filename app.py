@@ -66,7 +66,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---- 暗色模式 CSS ----
-if st.session_state["dark_mode"]:
+if st.session_state.get("dark_mode", False):
     st.markdown("""
     <style>
         .stApp { background: #0f172a; }
@@ -159,9 +159,9 @@ with st.sidebar:
     st.divider()
     st.checkbox("[调试] 显示详细错误信息", value=False, key="debug_mode",
                 help="开启后，图表渲染失败时会展示完整的 Python 报错堆栈，便于排查问题。")
-    dark = st.checkbox("[显示] 暗色模式", value=st.session_state["dark_mode"], key="dark_toggle",
+    dark = st.checkbox("[显示] 暗色模式", value=st.session_state.get("dark_mode", False), key="dark_toggle",
                        help="切换深色/浅色主题")
-    if dark != st.session_state["dark_mode"]:
+    if dark != st.session_state.get("dark_mode", False):
         st.session_state["dark_mode"] = dark
         st.rerun()
     st.divider()
