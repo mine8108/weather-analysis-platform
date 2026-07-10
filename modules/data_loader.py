@@ -1,8 +1,9 @@
 """
-数据导入模块：CSV/Excel 文件上传、手动录入、API 获取、模板下载
+数据导入模块：CSV/Excel 文件上传、NetCDF 解析、手动录入、API 获取、模板下载
 """
 
 import pandas as pd
+import numpy as np
 import streamlit as st
 from datetime import datetime, timedelta
 from io import BytesIO, StringIO
@@ -27,6 +28,131 @@ def detect_field_types(df):
     recognized = [c for c in df.columns if c in STANDARD_FIELDS]
     unrecognized = [c for c in df.columns if c not in STANDARD_FIELDS and c not in recognized]
     return recognized, unrecognized
+
+
+# ---- NetCDF 通用解析器 ----
+
+# 维度名称候选集（小写匹配）
+_TIME_DIM_NAMES = {"time", "valid_time", "t", "forecast_time", "step"}
+_VERTICAL_DIM_NAMES = {"level", "pressure_level", "isobaricinhpa", "model_level",
+                        "hybrid", "depth", "height", "plev", "soil_level"}
+_SPATIAL_DIM_NAMES = {"latitude", "longitude", "lat", "lon", "x", "y", "nx", "ny"}
+
+
+def _classify_dim(dim_name):
+    """根据维度名称推断维度类型"""
+    key = dim_name.lower().replace(" ", "_")
+    if key in _TIME_DIM_NAMES:
+        return "time"
+    if key in _VERTICAL_DIM_NAMES:
+        return "vertical"
+    if key in _SPATIAL_DIM_NAMES:
+        return "spatial"
+    return "other"
+
+
+def load_netcdf(file):
+    """
+    解析 NetCDF 文件，返回 (ds, dims_info, variables, error)。
+
+    ds: xarray Dataset
+    dims_info: {dim_name: {"type": "time"|"vertical"|"spatial"|"other",
+                            "size": N, "label": 中文标签}}
+    variables: {var_name: {"dims": [...], "ndim": N, "units": "", "long_name": ""}}
+    """
+    try:
+        import xarray as xr
+    except ImportError:
+        return None, None, None, "xarray 未安装。请执行: pip install xarray netCDF4"
+
+    try:
+        ds = xr.open_dataset(BytesIO(file.read()), engine="netcdf4")
+    except Exception:
+        try:
+            file.seek(0)
+            ds = xr.open_dataset(BytesIO(file.read()), engine="h5netcdf")
+        except Exception as e:
+            return None, None, None, f"无法解析 NetCDF 文件: {e}"
+
+    # 分类所有维度
+    dims_info = {}
+    time_dims = []
+    vertical_dims = []
+    spatial_dims = []
+
+    for dim_name, dim_size in ds.sizes.items():
+        d_type = _classify_dim(dim_name)
+        coord = ds.coords.get(dim_name)
+        nvals = len(coord.values) if coord is not None else dim_size
+
+        if d_type == "time":
+            label = f"时间维度 ({nvals} 步)"
+            time_dims.append(dim_name)
+        elif d_type == "vertical":
+            label = f"垂直维度: {dim_name} ({nvals} 层)"
+            vertical_dims.append(dim_name)
+        elif d_type == "spatial":
+            label = f"空间维度: {dim_name} ({nvals})"
+            spatial_dims.append(dim_name)
+        else:
+            label = f"其他维度: {dim_name} ({dim_size})"
+
+        dims_info[dim_name] = {"type": d_type, "size": nvals, "label": label}
+
+    # 枚举数据变量
+    variables = {}
+    for var_name in ds.data_vars:
+        var = ds[var_name]
+        attrs = dict(var.attrs)
+        variables[var_name] = {
+            "dims": list(var.dims),
+            "ndim": len(var.dims),
+            "units": attrs.get("units", ""),
+            "long_name": attrs.get("long_name", var_name),
+        }
+
+    return ds, dims_info, variables, None
+
+
+def extract_netcdf_to_df(ds, lat_dim, lon_dim, spatial_mode, lat_val, lon_val,
+                         vertical_dim=None, level_val=None, time_dim=None):
+    """
+    从 xarray Dataset 中提取指定站点/区域的数据转为 DataFrame。
+
+    spatial_mode: "point" (最近邻) 或 "area_mean" (空间平均)
+    """
+    import xarray as xr
+
+    try:
+        if spatial_mode == "point":
+            # 最近邻站点提取
+            if lat_dim in ds.coords and lon_dim in ds.coords:
+                ds_sel = ds.sel({lat_dim: lat_val, lon_dim: lon_val}, method="nearest")
+            else:
+                # 如果 dim 名就是 coordinate 名
+                ds_sel = ds.isel({lat_dim: 0, lon_dim: 0})
+        else:
+            # 空间平均
+            dims_to_mean = [d for d in [lat_dim, lon_dim] if d in ds.dims]
+            ds_sel = ds.mean(dim=dims_to_mean)
+
+        # 垂直层切片
+        if vertical_dim and level_val is not None:
+            if vertical_dim in ds_sel.coords:
+                ds_sel = ds_sel.sel({vertical_dim: level_val}, method="nearest")
+
+        # 转为 DataFrame
+        df = ds_sel.to_dataframe().reset_index()
+
+        # 清理多级索引
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = ["_".join(str(c) for c in col if c).strip("_") for col in df.columns]
+
+        # 从 attrs 自动给列名加中文备注（不做强制重命名）
+        return df, None
+    except Exception as e:
+        return None, f"提取失败: {e}"
+
 
 
 def load_csv(file) -> pd.DataFrame:
@@ -194,10 +320,10 @@ def parse_timestamp(df):
 
 
 def render_file_upload_section():
-    """渲染文件上传区域"""
+    """渲染文件上传区域（CSV / Excel / NetCDF）"""
     st.subheader("[文件] 文件导入")
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
 
     with col1:
         uploaded_csv = st.file_uploader(
@@ -213,19 +339,180 @@ def render_file_upload_section():
             key="xlsx_upload"
         )
 
+    with col3:
+        uploaded_nc = st.file_uploader(
+            "上传 NetCDF (.nc)",
+            type=["nc", "nc4", "cdf"],
+            key="nc_upload"
+        )
+
     df = None
     source = ""
 
+    # ---- CSV ----
     if uploaded_csv is not None:
         with st.spinner("正在解析 CSV 文件..."):
             df = load_csv(uploaded_csv)
             source = f"CSV: {uploaded_csv.name}"
 
+    # ---- Excel ----
     elif uploaded_xlsx is not None:
         with st.spinner("正在解析 Excel 文件..."):
             df = load_excel(uploaded_xlsx)
             source = f"Excel: {uploaded_xlsx.name}"
 
+    # ---- NetCDF ----
+    elif uploaded_nc is not None:
+        nc_key = f"nc_{uploaded_nc.name}"
+        # 解析文件（仅首次或文件变化时）
+        if nc_key not in st.session_state or st.session_state.get("nc_last_file") != uploaded_nc.name:
+            with st.spinner("正在解析 NetCDF 文件..."):
+                ds, dims_info, vars_info, err = load_netcdf(uploaded_nc)
+            if err:
+                st.error(err)
+            else:
+                st.session_state[nc_key] = {"ds": ds, "dims_info": dims_info, "vars_info": vars_info}
+                st.session_state["nc_last_file"] = uploaded_nc.name
+                st.session_state["nc_extracted_df"] = None  # 重置提取结果
+
+        # 获取已解析的数据
+        nc_data = st.session_state.get(nc_key, {})
+        ds = nc_data.get("ds")
+        dims_info = nc_data.get("dims_info", {})
+        vars_info = nc_data.get("vars_info", {})
+
+        if ds is None:
+            return None, ""
+
+        # 显示解析结果
+        st.success(f"[OK] NetCDF 文件已解析: {uploaded_nc.name}")
+
+        with st.expander("[维度] 文件结构预览", expanded=True):
+            c_dim, c_var = st.columns(2)
+            with c_dim:
+                st.caption("**检测到的维度**")
+                for dn, di in dims_info.items():
+                    st.write(f"- {di['label']}")
+            with c_var:
+                st.caption(f"**数据变量 ({len(vars_info)} 个)**")
+                for vn, vi in vars_info.items():
+                    unit_str = f" ({vi['units']})" if vi['units'] else ""
+                    st.write(f"- `{vn}`{unit_str}: {vi['long_name']} [{vi['ndim']}D]")
+
+        # ---- 提取选项 ----
+        st.write("---")
+        st.caption("**选择提取方式**（将多维数据转为站点时间序列）")
+
+        # 找空间和垂直维度
+        spatial_dims = {k: v for k, v in dims_info.items() if v["type"] == "spatial"}
+        vertical_dims = {k: v for k, v in dims_info.items() if v["type"] == "vertical"}
+        time_dims = {k: v for k, v in dims_info.items() if v["type"] == "time"}
+
+        lat_dim = None
+        lon_dim = None
+        for dn in spatial_dims:
+            dn_lower = dn.lower()
+            if dn_lower in ("latitude", "lat", "y"):
+                lat_dim = dn
+            elif dn_lower in ("longitude", "lon", "x"):
+                lon_dim = dn
+
+        # 如果没有找到明确的 lat/lon，用前两个
+        sdim_keys = list(spatial_dims.keys())
+        if lat_dim is None and len(sdim_keys) >= 2:
+            lat_dim = sdim_keys[0]
+            lon_dim = sdim_keys[1]
+        elif lat_dim is None and len(sdim_keys) == 1:
+            lat_dim = sdim_keys[0]
+
+        # 垂直维度
+        vdim_keys = list(vertical_dims.keys())
+        vertical_dim = vdim_keys[0] if vdim_keys else None
+
+        ex1, ex2, ex3 = st.columns(3)
+        with ex1:
+            if spatial_dims:
+                spatial_mode = st.radio("空间提取", ["单点（最近邻）", "区域平均"],
+                                       key="nc_spatial_mode")
+                if spatial_mode == "单点（最近邻）":
+                    # 尝试获取坐标范围
+                    lat_vals = None
+                    lon_vals = None
+                    if lat_dim and lon_dim and lat_dim in ds.coords and lon_dim in ds.coords:
+                        lat_vals = ds.coords[lat_dim].values
+                        lon_vals = ds.coords[lon_dim].values
+
+                    lat_default = float(np.median(lat_vals)) if lat_vals is not None and len(lat_vals) > 0 else 39.9
+                    lon_default = float(np.median(lon_vals)) if lon_vals is not None and len(lon_vals) > 0 else 116.4
+                    lat_val = st.number_input("纬度", value=lat_default,
+                                              min_value=-90.0, max_value=90.0, step=0.01, key="nc_lat")
+                    lon_val = st.number_input("经度", value=lon_default,
+                                              min_value=-180.0, max_value=180.0, step=0.01, key="nc_lon")
+                    if lat_vals is not None:
+                        st.caption(f"范围: {lat_vals[0]:.2f}-{lat_vals[-1]:.2f}N, "
+                                   f"{float(lon_vals[0]):.2f}-{float(lon_vals[-1]):.2f}E")
+                else:
+                    lat_val = None
+                    lon_val = None
+            else:
+                st.info("未检测到空间维度")
+                spatial_mode = "area_mean"
+                lat_val, lon_val = None, None
+
+        with ex2:
+            if vertical_dim and vertical_dim in ds.coords:
+                level_vals = ds.coords[vertical_dim].values
+                level_display = [f"{v} hPa" if float(v) > 50 else f"{v}" for v in level_vals]
+                level_sel = st.selectbox("选择层", options=list(range(len(level_vals))),
+                                         format_func=lambda i: str(level_display[i]),
+                                         key="nc_level")
+                level_val = float(level_vals[level_sel])
+            elif vertical_dims:
+                st.caption(f"垂直维度: {', '.join(vertical_dims.keys())}（默认全层）")
+                level_val = None
+            else:
+                level_val = None
+
+        with ex3:
+            tdim_keys = list(time_dims.keys())
+            if tdim_keys:
+                st.caption(f"时间维度: {tdim_keys[0]} ({dims_info[tdim_keys[0]]['size']} 步)" +
+                           " - 完整保留")
+            st.metric("原始数据量", f"{np.prod([dim['size'] for dim in dims_info.values()]):,.0f} 格点")
+
+        # 提取按钮
+        if st.button("[提取] 提取为站点数据", use_container_width=True, key="nc_extract"):
+            if not spatial_dims or (spatial_mode == "单点（最近邻）" and lat_val is None):
+                st.warning("请先指定提取方式")
+            else:
+                with st.spinner("正在提取数据..."):
+                    df_extracted, err = extract_netcdf_to_df(
+                        ds, lat_dim, lon_dim,
+                        "point" if spatial_mode == "单点（最近邻）" else "area_mean",
+                        lat_val, lon_val,
+                        vertical_dim, level_val,
+                        tdim_keys[0] if tdim_keys else None
+                    )
+                if err:
+                    st.error(err)
+                else:
+                    st.session_state["nc_extracted_df"] = df_extracted
+                    st.rerun()
+
+        # 已提取的结果
+        extracted = st.session_state.get("nc_extracted_df")
+        if extracted is not None:
+            df = extracted
+            # 列名标准化
+            df = normalize_columns(df)
+            df = parse_timestamp(df)
+            source = f"NetCDF: {uploaded_nc.name}"
+
+            st.success(f"[OK] 提取完成: {len(df)} 条记录 | {len(df.columns)} 个字段")
+            with st.expander("[列表] 数据预览"):
+                st.dataframe(df.head(20), use_container_width=True)
+
+    # ---- 公共：标准化 + 时间解析 ----
     if df is not None:
         df = normalize_columns(df)
         df = parse_timestamp(df)
