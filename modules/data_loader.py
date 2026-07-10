@@ -894,8 +894,13 @@ def render_api_section():
                     st.success(f"[OK] 气象数据: {len(df)} 条记录")
                     with st.expander("[列表] 气象数据预览"):
                         st.dataframe(df.head(20), use_container_width=True)
+                    # 清除旧数据，避免混淆
                     st.session_state["api_fetched_weather"] = df
                     st.session_state["api_weather_source"] = f"Open-Meteo 气象 ({lat:.1f}N, {lon:.1f}E)"
+                    # 如果之前有空气质量数据，提示用户
+                    if st.session_state.get("api_fetched_pollution") is not None:
+                        st.info("已清除之前获取的空气质量数据，如需合并请重新获取")
+                        st.session_state["api_fetched_pollution"] = None
 
                     # P0: 立即使用按钮
                     c_use, c_keep = st.columns(2)
@@ -938,8 +943,12 @@ def render_api_section():
                         st.info(f"部分字段无数据: {', '.join(err)}")
                     with st.expander("[列表] 空气质量数据预览"):
                         st.dataframe(df.head(20), use_container_width=True)
+                    # 清除旧数据，避免混淆
                     st.session_state["api_fetched_pollution"] = df
                     st.session_state["api_aq_source"] = f"Open-Meteo 空气质量 ({lat_aq:.1f}N, {lon_aq:.1f}E)"
+                    if st.session_state.get("api_fetched_weather") is not None:
+                        st.info("已清除之前获取的气象数据，如需合并请重新获取")
+                        st.session_state["api_fetched_weather"] = None
 
                     # P0: 立即使用按钮
                     c_use, c_keep = st.columns(2)

@@ -43,12 +43,15 @@ from modules.nwp_forecast import render_forecast_tab
 # ============================================================
 
 def _render_data_summary_card():
-    """P0: 数据导入完成后显示摘要卡片 + 快捷跳转"""
+    """P0: 数据导入完成后显示摘要卡片 + 快捷跳转按钮"""
     df = st.session_state.get("df")
     if df is None or df.empty:
         return
 
     n = len(df)
+    src = st.session_state.get("source", "未知来源")
+
+    # 时间范围
     time_info = ""
     if "timestamp" in df.columns and not df["timestamp"].dropna().empty:
         ts = df["timestamp"].dropna()
@@ -79,29 +82,37 @@ def _render_data_summary_card():
         pollution_text = " · ".join([pollution_labels.get(f, f) for f in pollution_present])
         pollution_text = f" | 污染物: {pollution_text}"
 
-    src = st.session_state.get("source", "未知来源")
+    # 使用原生 Streamlit 组件确保刷新正确
+    with st.container(border=True):
+        c1, c2 = st.columns([6, 4])
+        with c1:
+            st.success(f"数据已就绪 — {src}")
+            st.caption(f"{time_info} | {n}条 | {weather_text}{pollution_text}")
+        with c2:
+            st.write("")
+            # 按钮组：使用 st.session_state 标记推荐 Tab
+            b_col1, b_col2, b_col3 = st.columns(3)
+            with b_col1:
+                if st.button("📊 图表", use_container_width=True, key="jump_viz",
+                             help="切换到可视化分析 Tab"):
+                    st.session_state["show_tab_hint"] = "[图表] 可视化分析"
+            with b_col2:
+                if st.button("🔔 预警", use_container_width=True, key="jump_alert",
+                             help="切换到智能分析 Tab"):
+                    st.session_state["show_tab_hint"] = "[预警] 智能分析与建议"
+            with b_col3:
+                if st.button("📤 导出", use_container_width=True, key="jump_export",
+                             help="切换到报告导出 Tab"):
+                    st.session_state["show_tab_hint"] = "[导出] 报告导出"
 
-    st.markdown(f"""
-    <div style="
-        background: linear-gradient(135deg, #f0f7ff 0%, #e8f4e8 100%);
-        border: 1px solid #b8d4e8;
-        border-radius: 12px;
-        padding: 16px 20px;
-        margin: 8px 0 16px 0;
-    ">
-        <div style="display: flex; align-items: center; gap: 12px;">
-            <span style="font-size: 24px;">&#x2705;</span>
-            <div style="flex: 1;">
-                <div style="font-weight: 700; font-size: 0.95rem; color: #1a365d; margin-bottom: 4px;">
-                    数据已就绪 — {src}
-                </div>
-                <div style="font-size: 0.85rem; color: #4a6a8a;">
-                    {time_info} | {n}条 | {weather_text}{pollution_text}
-                </div>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+        # 显示 Tab 切换提示
+        hint = st.session_state.get("show_tab_hint")
+        if hint:
+            st.info(f"请切换到 「{hint}」 Tab 查看分析结果")
+            # 清除提示（避免重复显示）
+            if st.button("✕ 关闭提示", key="clear_hint"):
+                st.session_state["show_tab_hint"] = None
+                st.rerun()
 
 
 def _render_progress_bar():
