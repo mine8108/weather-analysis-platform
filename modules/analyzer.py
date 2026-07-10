@@ -308,7 +308,7 @@ def check_haze(df):
 
 
 # ============================================================
-# 大气环境质量评估 (GB 3095-2012 + HJ 633-2012)
+# 大气环境质量评估 (GB 3095-2026 + HJ 633-2026)
 # ============================================================
 
 def _calc_single_aqi(conc, pollutant):
@@ -366,7 +366,7 @@ def check_air_quality(df):
             max_iaqi = iaqi
             primary_pollutant = label
 
-        # 达标判断 (GB 3095-2012 二级标准)
+        # 达标判断 (GB 3095-2026 二级标准)
         limits = AIR_POLLUTANT_LIMITS.get(field, {})
         daily_limit = limits.get("daily")
 
@@ -455,7 +455,7 @@ def _render_air_quality_section(df):
     # ---- 超标警告 ----
     exceeded = [d for d in result["details"] if d["exceed_daily"] or d["exceed_hourly"]]
     if exceeded:
-        st.warning("⚠️ 以下污染物超过 GB 3095-2012 二级标准限值：")
+        st.warning("⚠️ 以下污染物超过 GB 3095-2026 二级标准限值：")
         for e in exceeded:
             limit_type = "日均值" if e["exceed_daily"] else "小时值"
             st.write(f"- {e['label']}: 均 {e['avg']} μg/m³ / 峰 {e['max']} μg/m³ (超过{e['limit']} 的{limit_type}限值)")
@@ -600,7 +600,7 @@ def render_analysis_tab(df):
     has_pollution = any(f in df.columns for f in ["so2", "nox", "pm10", "pm25"])
     if has_pollution:
         st.write("---")
-        st.write("### [大气] 空气质量评估 (GB 3095-2012)")
+        st.write("### [大气] 空气质量评估 (GB 3095-2026)")
         _render_air_quality_section(df)
 
     # ----- 建议 -----
