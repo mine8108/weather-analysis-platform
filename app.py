@@ -79,7 +79,7 @@ def _render_data_summary_card():
         pollution_text = " · ".join([pollution_labels.get(f, f) for f in pollution_present])
         pollution_text = f" | 污染物: {pollution_text}"
 
-    src = st.session_state.get("data_source", "未知来源")
+    src = st.session_state.get("source", "未知来源")
 
     st.markdown(f"""
     <div style="
@@ -242,6 +242,26 @@ st.markdown('<div class="main-header">[天气] 气象数据交互分析平台</d
 st.markdown('<div class="sub-header">数据导入 · 可视化分析 · 国家预警标准检测 · 智能建议 · 数值预报 · 报告导出</div>',
             unsafe_allow_html=True)
 
+# 使用手册（标题行右侧链接）
+with st.expander("📖 使用手册", expanded=False):
+    st.markdown("""
+### 快速入门
+1. **导入数据**：支持 CSV / Excel / NetCDF 格式，或通过 API 获取在线气象/空气质量数据
+2. **列名自动识别**：系统支持中英文别名，如 `SO2`→`so2`、`二氧化硫`→`so2`、`时间`→`timestamp`
+3. **可视化**：7 个子面板，覆盖时间序列、双轴对比、散点矩阵、相关性热力图、风场分析
+4. **智能分析**：基于国家预警标准（第16号令）及 GB 3095-2026 空气质量标准生成建议
+
+### 数据格式
+- **气象站数据**：无名时间列（HHMMSS 格式）自动识别
+- **污染物数据**：支持 `PM2.5 / pm2.5 / SO2 / so2 / NOx` 等 21 种别名
+- **API 获取**：Open-Meteo 全球免费 API，无需注册
+
+### 标准引用
+- GB 3095-2026《环境空气质量标准》（2026年3月1日实施）
+- HJ 633-2026《AQI 技术规定》
+- 中国气象局第16号令《气象灾害预警信号发布与传播办法》
+""")
+
 
 # 初始化 session_state
 def init_session():
@@ -313,6 +333,8 @@ with st.sidebar:
     st.divider()
     st.caption("[资料] 中国气象局第16号令 · 气象灾害预警信号发布与传播办法")
     st.caption("© 气象数据交互分析平台 v1.0")
+    st.divider()
+    st.caption("※ 本平台分析结果仅供学习参考，不替代国家气象部门权威预报。")
 
 # ============================================================
 # 主内容区：进度条 + 下一步提示 + Tab 导航

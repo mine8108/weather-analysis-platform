@@ -843,8 +843,12 @@ def fetch_open_meteo_air_quality(lat, lon, start_date, end_date):
 
 def _merge_weather_pollution(weather_df, pollution_df):
     """合并气象数据和污染物数据（按 timestamp 对齐）"""
-    if weather_df is None or pollution_df is None:
-        return weather_df or pollution_df
+    if weather_df is None and pollution_df is None:
+        return None
+    if weather_df is None:
+        return pollution_df
+    if pollution_df is None:
+        return weather_df
     merged = pd.merge(weather_df, pollution_df, on="timestamp", how="left")
     return merged
 
@@ -891,6 +895,17 @@ def render_api_section():
                     with st.expander("[列表] 气象数据预览"):
                         st.dataframe(df.head(20), use_container_width=True)
                     st.session_state["api_fetched_weather"] = df
+                    st.session_state["api_weather_source"] = f"Open-Meteo 气象 ({lat:.1f}N, {lon:.1f}E)"
+
+                    # P0: 立即使用按钮
+                    c_use, c_keep = st.columns(2)
+                    with c_use:
+                        if st.button("[使用] 使用气象数据", use_container_width=True, key="api_use_weather"):
+                            st.session_state["api_df"] = df
+                            st.session_state["api_source"] = st.session_state["api_weather_source"]
+                            st.rerun()
+                    with c_keep:
+                        st.caption("或前往「合并」区域与其他数据组合")
             else:
                 st.warning("请选择起止日期")
 
@@ -919,11 +934,22 @@ def render_api_section():
                     st.error(err)
                 elif df is not None:
                     st.success(f"[OK] 空气数据: {len(df)} 条记录")
-                    if err:  # err is now the missing fields list
+                    if err:
                         st.info(f"部分字段无数据: {', '.join(err)}")
                     with st.expander("[列表] 空气质量数据预览"):
                         st.dataframe(df.head(20), use_container_width=True)
                     st.session_state["api_fetched_pollution"] = df
+                    st.session_state["api_aq_source"] = f"Open-Meteo 空气质量 ({lat_aq:.1f}N, {lon_aq:.1f}E)"
+
+                    # P0: 立即使用按钮
+                    c_use, c_keep = st.columns(2)
+                    with c_use:
+                        if st.button("[使用] 使用空气质量数据", use_container_width=True, key="api_use_aq"):
+                            st.session_state["api_df"] = df
+                            st.session_state["api_source"] = st.session_state["api_aq_source"]
+                            st.rerun()
+                    with c_keep:
+                        st.caption("或前往「合并」区域与气象数据组合")
             else:
                 st.warning("请选择起止日期")
 
@@ -933,25 +959,37 @@ def render_api_section():
 
     if weather is not None or pollution is not None:
         st.write("---")
-        if st.button("[合并] 合并气象 + 空气质量数据", use_container_width=True, key="api_merge"):
-            merged = _merge_weather_pollution(weather, pollution)
-            if merged is not None:
-                n_fields = len(merged.columns)
-                n_poll = len([c for c in merged.columns
-                             if c in ["so2", "nox", "tsp", "pm25", "pm10"]])
-                source_parts = []
-                if weather is not None:
-                    source_parts.append(f"Open-Meteo 气象 ({lat:.1f}N, {lon:.1f}E)")
-                if pollution is not None:
-                    source_parts.append(f"Open-Meteo 空气质量 ({lat_aq:.1f}N, {lon_aq:.1f}E)")
-                st.success(f"[OK] 合并完成: {len(merged)} 条记录 | {n_fields} 个字段 | {n_poll} 个污染物")
-                with st.expander("[列表] 合并数据预览"):
-                    st.dataframe(merged.head(20), use_container_width=True)
-                st.session_state["api_df"] = merged
-                st.session_state["api_source"] = " + ".join(source_parts)
-                # 清理缓存
-                st.session_state["api_fetched_weather"] = None
-                st.session_state["api_fetched_pollution"] = None
+        st.caption("组合数据（可选）：如需合并气象+空气质量数据，点击下方按钮")
+        merge_label = "[合并] 合并气象 + 空气质量数据"
+        if weather is not None and pollution is not None:
+            if st.button(merge_label, use_container_width=True, key="api_merge",
+                      help="按时间戳对齐合并两个数据源"):
+                merged = _merge_weather_pollution(weather, pollution)
+                if merged is not None:
+                    n_fields = len(merged.columns)
+                    n_poll = len([c for c in merged.columns
+                                 if c in ["so2", "nox", "tsp", "pm25", "pm10"]])
+                    source_parts = []
+                    if weather is not None:
+                        source_parts.append(f"Open-Meteo 气象 ({lat:.1f}N, {lon:.1f}E)")
+                    if pollution is not None:
+                        source_parts.append(f"Open-Meteo 空气质量 ({lat_aq:.1f}N, {lon_aq:.1f}E)")
+                    st.success(f"[OK] 合并完成: {len(merged)} 条记录 | {n_fields} 个字段 | {n_poll} 个污染物")
+                    with st.expander("[列表] 合并数据预览"):
+                        st.dataframe(merged.head(20), use_container_width=True)
+                    st.session_state["api_df"] = merged
+                    st.session_state["api_source"] = " + ".join(source_parts)
+                    st.rerun()
+        elif weather is not None:
+            if st.button("[合并] 使用气象数据（无空气质量数据可合并）", use_container_width=True, key="api_merge_solo_w"):
+                st.session_state["api_df"] = weather
+                st.session_state["api_source"] = st.session_state.get("api_weather_source", "")
+                st.rerun()
+        elif pollution is not None:
+            if st.button("[合并] 使用空气质量数据（无气象数据可合并）", use_container_width=True, key="api_merge_solo_a"):
+                st.session_state["api_df"] = pollution
+                st.session_state["api_source"] = st.session_state.get("api_aq_source", "")
+                st.rerun()
 
     # ===== Tab 3: ERA5 CDS 引导 =====
     with api_tab3:
