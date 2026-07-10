@@ -443,35 +443,29 @@ _ERA5_PRODUCTS = {
 
 
 def _render_era5_guide():
-    """ERA5 CDS 数据获取引导页"""
-    st.caption("ERA5 数据由 Copernicus Climate Data Store (CDS) 提供，需个人账号。本页生成下载请求代码，请复制到本地运行。")
+    """ERA5 CDS 数据获取引导页（混合分层：官网为主入口，代码为高级选项）"""
+    st.caption("ERA5 数据由 Copernicus Climate Data Store (CDS) 提供。推荐直接前往 CDS 官网下载，也可生成 Python 代码本地运行。")
 
     # 注册提示
-    with st.expander("[说明] 如何获取 CDS 凭证并下载 ERA5 数据", expanded=False):
+    with st.expander("[说明] 如何获取 ERA5 数据", expanded=False):
         st.markdown("""
-### 一、注册 CDS 账号 (免费)
-1. 访问 [Copernicus CDS](https://cds.climate.copernicus.eu/) 点击右上角 "Login/Register"
-2. 填写邮件和基本信息完成注册（欧盟开放数据项目，完全免费）
-3. 登录后，点击右上角你的用户名 → "**Your profile**"
+### 方式一：CDS 官网下载（推荐）
+1. 访问 [Copernicus CDS](https://cds.climate.copernicus.eu/) 注册免费账号
+2. 在本页选择数据产品和参数后，点击「去 CDS 官网下载」
+3. 在 CDS 官网的 Download 页面配置参数并提交请求
+4. CDS 后台处理完成后邮件通知，前往下载 NetCDF 文件
+5. 将下载的 `.nc` 文件导入本平台的「数据导入」Tab 即可
 
-### 二、获取 UID 和 API Key
-1. 在个人资料页往下滚动到 "**API**" 区域
-2. 你会看到两行关键信息：
-   - **UID**: 一串纯数字（如 `123456`）-- 这就是本平台的"CDS UID"
-   - **API Key**: 一串 UUID 格式字符串（如 `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`）-- 这就是"CDS API Key"
-3. 如果 Key 区域显示为空或"未生成"，点击旁边的刷新/生成按钮获取新 Key
-
-### 三、在本应用配置凭证
-1. 在下方 ERA5 引导页的凭证输入框中填入 UID 和 API Key
-2. 点击"保存凭证" -- 自动写入 `~/.cdsapirc` 文件（格式: `key: UID:API-KEY`）
-
-### 四、安装 cdsapi
-- 命令行执行: `pip install cdsapi`
-- 或在应用内直接点击"检查运行环境"按钮自动安装
-
-### 五、获取数据
-- 选择参数 → 生成代码 → 点击"直接运行"（推荐）或复制代码手动执行
-- CDS 下载需要排队，请留意邮件通知
+### 方式二：Python 代码本地运行（高级）
+1. 注册 CDS 账号后，在个人资料页获取 API Key
+2. 本地终端执行 `pip install cdsapi`
+3. 创建 `~/.cdsapirc` 文件，内容为：
+   ```
+   url: https://cds-beta.climate.copernicus.eu/api
+   key: 你的API-Key
+   ```
+4. 在本页「高级选项」中生成下载代码，复制到本地运行
+5. CDS 下载需要排队，请留意邮件通知
 """)
         st.link_button("[打开] Copernicus CDS 官网", "https://cds.climate.copernicus.eu/")
 
@@ -507,16 +501,26 @@ def _render_era5_guide():
         area_w = st.number_input("区域西界 (W)", value=116.0, min_value=-180.0, max_value=180.0, step=0.1, key="era5_w")
         area_e = st.number_input("区域东界 (E)", value=117.0, min_value=-180.0, max_value=180.0, step=0.1, key="era5_e")
 
-    if st.button("[生成] 生成 CDS 下载请求代码", use_container_width=True, key="era5_gen"):
-        if not years or not months or not variables:
-            st.warning("请至少选择年份、月份和变量")
-            return
+    # 主按钮：跳转 CDS 官网下载
+    st.write("---")
+    cds_url = _ERA5_PRODUCTS[product]["url"] + "?tab=download"
+    st.link_button("去 CDS 官网下载", cds_url, use_container_width=True,
+                   help=f"在新标签页打开 {product} 的下载页面")
+    st.caption("CDS 需要登录。下载完成后将 NetCDF 文件导入本平台的「数据导入」Tab 即可分析。")
 
-        ds = _ERA5_PRODUCTS[product]["dataset"]
-        code = f'''import cdsapi
+    # 高级选项：生成 Python 代码
+    with st.expander("高级：生成 Python 下载代码", expanded=False):
+        st.caption("适合需要批量下载或自动化处理的用户。生成前请确保已本地安装 cdsapi 并配置好凭证。")
+        if st.button("生成代码", key="era5_gen"):
+            if not years or not months or not variables:
+                st.warning("请至少选择年份、月份和变量")
+                return
+
+            ds = _ERA5_PRODUCTS[product]["dataset"]
+            code = f'''import cdsapi
 
 # 请确保已安装 cdsapi: pip install cdsapi
-# 并配置 ~/.cdsapirc (UID 和 API Key)
+# 并配置 ~/.cdsapirc (API Key)
 
 c = cdsapi.Client()
 
@@ -543,137 +547,14 @@ c.retrieve(
     'era5_{ds.split("-")[-1]}_download.nc'
 )
 '''
-        st.session_state["era5_code"] = code
-        st.rerun()
-
-    # ---- 代码已生成时，持久化展示（不受 rerun 影响）----
-    code = st.session_state.get("era5_code", None)
-    if code:
-        st.success("代码已生成。您可以选择以下两种方式运行：")
-
-        # 方式一：直接运行
-        st.write("**方式一：直接运行 (推荐)**")
-        _render_era5_direct_run(code)
-
-        # 方式二：手动复制
-        st.write("**方式二：手动复制代码**")
-        st.text_area("复制代码", value=code, height=200, key="era5_code_copy")
-
-        st.link_button("[打开] 对应 CDS 数据集页面", _ERA5_PRODUCTS[product]["url"])
-        st.caption("提示：CDS 下载需要排队，请留意邮件通知。下载完成后可用 xarray 读取 NetCDF，或导入本平台的文件导入Tab。")
-
-
-def _render_era5_direct_run(code):
-    """ERA5 直接运行：配置凭证 + 安装依赖 + 子进程执行"""
-    import os, subprocess, sys, tempfile
-
-    cdsapirc = os.path.join(os.path.expanduser("~"), ".cdsapirc")
-
-    # 1. 凭证检查
-    if not os.path.exists(cdsapirc):
-        st.warning("未检测到 CDS 凭证文件 (~/.cdsapirc)，请输入你的 CDS API Key。")
-        st.caption("新版 CDS beta 使用单一 Token（UUID 格式，如 xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx）；旧版格式为 UID:API-Key（如 123456:xxxxx），冒号前面是纯数字UID。本平台自动识别。")
-        api_val = st.text_input("CDS API Key", type="password", key="era5_apikey",
-                                placeholder="复制完整的 key 到这里")
-        if st.button("[保存] 保存凭证", key="era5_save_cred"):
-            if api_val:
-                try:
-                    # 自动识别新旧格式
-                    if ":" in api_val:
-                        # 旧版: UID:API-Key
-                        uid_part = api_val.split(":")[0]
-                        if uid_part.isdigit():
-                            # 确认 UID 是纯数字 → 使用旧版 API URL
-                            api_url = "https://cds.climate.copernicus.eu/api"
-                        else:
-                            api_url = "https://cds-beta.climate.copernicus.eu/api"
-                    else:
-                        # 新版 beta: 纯 Token
-                        api_url = "https://cds-beta.climate.copernicus.eu/api"
-                    with open(cdsapirc, "w") as f:
-                        f.write(f"url: {api_url}\n")
-                        f.write(f"key: {api_val}\n")
-                    os.chmod(cdsapirc, 0o600)
-                    st.session_state["era5_api_url"] = api_url
-                    st.success(f"凭证已保存 (API: {api_url})")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"保存失败: {e}")
-            else:
-                st.warning("请填入 API Key")
-        if not os.path.exists(cdsapirc):
-            return
-    else:
-        st.success("CDS 凭证就绪 (~/.cdsapirc)")
-
-    # 2. 检查 cdsapi + 依赖
-    if "cdsapi_checked" not in st.session_state:
-        st.session_state["cdsapi_checked"] = False
-    if not st.session_state["cdsapi_checked"]:
-        if st.button("[检查] 检查运行环境并安装依赖", key="era5_check_env"):
-            try:
-                import cdsapi  # noqa: F401
-                st.success("cdsapi 已安装")
-                st.session_state["cdsapi_ready"] = True
-            except ImportError:
-                st.info("cdsapi 未安装，正在自动安装...")
-                # 尝试用当前 Python 安装
-                py = sys.executable
-                try:
-                    result = subprocess.run(
-                        [py, "-m", "pip", "install", "cdsapi"],
-                        capture_output=True, text=True, timeout=120,
-                    )
-                    if result.returncode == 0:
-                        st.success("cdsapi 安装成功")
-                        st.session_state["cdsapi_ready"] = True
-                    else:
-                        st.error(f"安装失败:\n{result.stderr[:500]}")
-                        st.session_state["cdsapi_ready"] = False
-                except Exception as e:
-                    st.error(f"安装异常: {e}")
-                    st.session_state["cdsapi_ready"] = False
-            st.session_state["cdsapi_checked"] = True
+            st.session_state["era5_code"] = code
             st.rerun()
-        return
 
-    cdsapi_ready = st.session_state.get("cdsapi_ready", False)
-
-    # 3. 直接运行按钮
-    if cdsapi_ready:
-        if st.button("[运行] 直接运行下载代码", use_container_width=True, key="era5_run"):
-            # 写入临时文件
-            tmpdir = tempfile.gettempdir()
-            script_path = os.path.join(tmpdir, "era5_download.py")
-            with open(script_path, "w", encoding="utf-8") as f:
-                f.write(code)
-
-            py = sys.executable
-            st.info(f"正在使用 {py} 执行下载脚本...")
-            with st.spinner("CDS 正在处理请求 (可能排队，请耐心等待)..."):
-                try:
-                    result = subprocess.run(
-                        [py, script_path],
-                        capture_output=True, text=True,
-                        timeout=600,  # 10 分钟超时
-                        cwd=tmpdir,
-                    )
-                    if result.returncode == 0:
-                        st.success("下载完成!")
-                        if result.stdout:
-                            st.caption("标准输出:")
-                            st.code(result.stdout[-2000:] if len(result.stdout) > 2000 else result.stdout, language="text")
-                    else:
-                        st.error("执行失败。")
-                        err_text = result.stderr[-2000:] if len(result.stderr) > 2000 else result.stderr
-                        st.code(err_text or "无错误输出", language="text")
-                except subprocess.TimeoutExpired:
-                    st.warning("执行超时 (10分钟)。CDS 请求可能仍在排队，请稍后在 ~/era5_download.nc 检查结果。")
-                except Exception as e:
-                    st.error(f"运行异常: {e}")
-    else:
-        st.warning("请先检查运行环境并安装 cdsapi 依赖")
-
+        # 已生成过代码时持久化展示
+        code = st.session_state.get("era5_code", None)
+        if code:
+            st.text_area("复制代码到本地运行", value=code, height=240, key="era5_code_copy")
+            st.caption("本地运行: `python era5_download.py`，CDS 下载需要排队，完成后可用 xarray 读取 NetCDF。")
 
 def render_template_download():
     """渲染模板下载区域"""
