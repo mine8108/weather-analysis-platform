@@ -139,8 +139,8 @@ def dashboard_view(df):
     fig = make_subplots(
         rows=2, cols=2,
         subplot_titles=("气温 (℃)", "气压 (hPa)", "相对湿度 (%)", "风速 (m/s)"),
-        vertical_spacing=0.12,
-        horizontal_spacing=0.10,
+        vertical_spacing=0.18,
+        horizontal_spacing=0.14,
     )
 
     # 气温
@@ -180,11 +180,13 @@ def dashboard_view(df):
 
     fig.update_layout(
         title="气象要素综合看板",
-        height=600,
+        height=720,
         showlegend=False,
         hovermode="x unified",
-        margin=dict(l=40, r=20, t=60, b=40),
+        margin=dict(l=40, r=20, t=90, b=60),
+        title_y=0.98,
     )
+    fig.update_xaxes(tickangle=-45, nticks=8)
     fig.update_xaxes(title_text="时间", row=2, col=1)
     fig.update_xaxes(title_text="时间", row=2, col=2)
     return fig
