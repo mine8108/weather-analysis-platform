@@ -5,6 +5,7 @@
 import pandas as pd
 import numpy as np
 import streamlit as st
+import re
 from datetime import datetime, timedelta
 from io import BytesIO, StringIO
 from config import FIELD_ALIASES, STANDARD_FIELDS
@@ -190,8 +191,6 @@ def parse_timestamp(df):
     L4: 质量报告 (解析后反馈)
     L5: 交互式确认 (找不到时让用户选)
     """
-    import re
-
     ts_col = None
     report_method = ""
 
