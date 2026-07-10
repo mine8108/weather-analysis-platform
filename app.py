@@ -11,7 +11,7 @@ import pandas as pd
 # 确保模块路径可导入
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from config import PAGE_CONFIG
+from config import PAGE_CONFIG, DESIGN_TOKENS
 from modules.data_loader import (
     render_file_upload_section,
     render_manual_input_section,
@@ -41,34 +41,433 @@ from modules.nwp_forecast import render_forecast_tab
 # 页面配置
 st.set_page_config(**PAGE_CONFIG)
 
-# 自定义CSS
-st.markdown("""
+# ---- 自定义 CSS：Level 1+2 视觉升级 ----
+# 设计方向：技术风气象站 — 深海军蓝权威感 + 冰蓝数据色 + 琥珀警示
+# 美学选择：高对比度浅色主题、bento-grid 布局、玻璃态卡片、流体间距
+st.markdown(f"""
 <style>
-    .main-header {
-        font-size: 2rem;
+    /* ========== 0. Google Fonts 注入 ========== */
+    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+    /* ========== 1. CSS 设计 tokens ========== */
+    :root {{
+        --navy-900: {DESIGN_TOKENS["navy_900"]};
+        --navy-700: {DESIGN_TOKENS["navy_700"]};
+        --navy-500: {DESIGN_TOKENS["navy_500"]};
+        --ice-600: {DESIGN_TOKENS["ice_600"]};
+        --ice-500: {DESIGN_TOKENS["ice_500"]};
+        --ice-100: {DESIGN_TOKENS["ice_100"]};
+        --ice-50: {DESIGN_TOKENS["ice_50"]};
+        --amber-500: {DESIGN_TOKENS["amber_500"]};
+        --emerald-500: {DESIGN_TOKENS["emerald_500"]};
+        --coral-500: {DESIGN_TOKENS["coral_500"]};
+        --surface: {DESIGN_TOKENS["surface"]};
+        --card: {DESIGN_TOKENS["card"]};
+        --text: {DESIGN_TOKENS["text"]};
+        --text-muted: {DESIGN_TOKENS["text_muted"]};
+        --border: {DESIGN_TOKENS["border"]};
+        --shadow-sm: {DESIGN_TOKENS["shadow_sm"]};
+        --shadow-md: {DESIGN_TOKENS["shadow_md"]};
+        --shadow-lg: {DESIGN_TOKENS["shadow_lg"]};
+        --radius-sm: 8px;
+        --radius-md: 12px;
+        --radius-lg: 20px;
+        --radius-xl: 28px;
+    }}
+
+    /* ========== 2. 全局排版与背景 ========== */
+    .stApp {{
+        background: var(--surface);
+    }}
+
+    html, body, [class*="st-"], .stMarkdown, p, span, div {{
+        font-family: 'Noto Sans SC', 'Outfit', -apple-system, sans-serif !important;
+    }}
+
+    h1, h2, h3, h4, .main-header {{
+        font-family: 'Outfit', 'Noto Sans SC', -apple-system, sans-serif !important;
         font-weight: 700;
-        color: #1f77b4;
-        margin-bottom: 0.5rem;
-    }
-    .sub-header {
-        font-size: 1rem;
-        color: #888;
+        letter-spacing: -0.02em;
+        color: var(--navy-900);
+    }}
+
+    code, pre, .stCodeBlock, [data-testid="stCodeBlock"] {{
+        font-family: 'JetBrains Mono', 'Consolas', monospace !important;
+    }}
+
+    /* ========== 3. 顶部装饰栏 ========== */
+    [data-testid="stDecoration"] {{
+        background: linear-gradient(90deg, var(--navy-900) 0%, var(--navy-700) 40%, var(--ice-600) 100%);
+        height: 3px;
+    }}
+
+    /* ========== 4. 主头部 ========== */
+    .main-header {{
+        font-size: 2.2rem;
+        font-weight: 800;
+        background: linear-gradient(135deg, var(--navy-900) 0%, var(--ice-600) 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        margin-bottom: 0.4rem;
+        letter-spacing: -0.03em;
+    }}
+
+    .sub-header {{
+        font-size: 0.95rem;
+        color: var(--text-muted);
         margin-bottom: 1.5rem;
-    }
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 4px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        padding: 8px 16px;
-        border-radius: 4px 4px 0 0;
-    }
+        font-weight: 400;
+        letter-spacing: 0.01em;
+    }}
+
+    /* ========== 5. 侧边栏：深色主题 ========== */
+    [data-testid="stSidebar"] {{
+        background: linear-gradient(180deg, #0f1a2e 0%, #162544 100%);
+        border-right: 1px solid rgba(255,255,255,0.06);
+    }}
+
+    [data-testid="stSidebar"] .stMarkdown,
+    [data-testid="stSidebar"] h1,
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3,
+    [data-testid="stSidebar"] h4 {{
+        color: #e8ecf1 !important;
+    }}
+
+    [data-testid="stSidebar"] .stMarkdown p {{
+        color: #94a3b8 !important;
+    }}
+
+    [data-testid="stSidebar"] [data-testid="stExpander"] {{
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: var(--radius-md);
+    }}
+
+    [data-testid="stSidebar"] .stButton button {{
+        background: var(--ice-600) !important;
+        color: white !important;
+        border: none !important;
+        border-radius: var(--radius-sm) !important;
+        font-weight: 600 !important;
+        transition: all 0.2s ease;
+    }}
+
+    [data-testid="stSidebar"] .stButton button:hover {{
+        background: var(--ice-500) !important;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+    }}
+
+    [data-testid="stSidebar"] input[type="number"] {{
+        background: rgba(255,255,255,0.06) !important;
+        border: 1px solid rgba(255,255,255,0.12) !important;
+        color: #e8ecf1 !important;
+        border-radius: var(--radius-sm) !important;
+    }}
+
+    [data-testid="stSidebar"] hr {{
+        border-color: rgba(255,255,255,0.08);
+    }}
+
+    /* ========== 6. Tab 导航栏 ========== */
+    .stTabs [data-baseweb="tab-list"] {{
+        gap: 2px;
+        background: transparent;
+        border-bottom: 2px solid var(--border);
+        padding: 0;
+    }}
+
+    .stTabs [data-baseweb="tab"] {{
+        padding: 10px 20px;
+        border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+        font-size: 0.9rem;
+        font-weight: 500;
+        color: var(--text-muted);
+        background: transparent;
+        transition: all 0.2s ease;
+        border: none;
+        position: relative;
+    }}
+
+    .stTabs [data-baseweb="tab"]:hover {{
+        color: var(--navy-700);
+        background: var(--ice-50);
+    }}
+
+    .stTabs [data-baseweb="tab"][aria-selected="true"] {{
+        color: var(--ice-600) !important;
+        font-weight: 600;
+        background: transparent;
+    }}
+
+    .stTabs [data-baseweb="tab"][aria-selected="true"]::after {{
+        content: '';
+        position: absolute;
+        bottom: -2px;
+        left: 0;
+        right: 0;
+        height: 2.5px;
+        background: linear-gradient(90deg, var(--navy-700), var(--ice-600));
+        border-radius: 2px 2px 0 0;
+    }}
+
+    /* ========== 7. 卡片容器 ========== */
+    [data-testid="stExpander"] {{
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        box-shadow: var(--shadow-sm);
+        transition: box-shadow 0.2s ease;
+    }}
+
+    [data-testid="stExpander"]:hover {{
+        box-shadow: var(--shadow-md);
+    }}
+
+    /* ========== 8. 指标卡 ========== */
+    [data-testid="stMetric"] {{
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        padding: 16px 20px;
+        box-shadow: var(--shadow-sm);
+        transition: all 0.25s ease;
+        border-left: 3px solid var(--ice-500);
+    }}
+
+    [data-testid="stMetric"]:hover {{
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-md);
+        border-left-color: var(--ice-600);
+    }}
+
+    [data-testid="stMetric"] label {{
+        font-size: 0.8rem;
+        font-weight: 500;
+        color: var(--text-muted);
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+    }}
+
+    [data-testid="stMetric"] [data-testid="stMetricValue"] {{
+        font-size: 1.8rem;
+        font-weight: 700;
+        color: var(--text);
+        font-family: 'Outfit', 'Noto Sans SC', sans-serif;
+    }}
+
+    /* ========== 9. 按钮 ========== */
+    .stButton button {{
+        font-weight: 600 !important;
+        border-radius: var(--radius-sm) !important;
+        transition: all 0.2s ease !important;
+        letter-spacing: 0.01em;
+    }}
+
+    .stButton button[kind="primary"] {{
+        background: var(--ice-600) !important;
+        border: none !important;
+        color: white !important;
+    }}
+
+    .stButton button[kind="primary"]:hover {{
+        background: var(--navy-500) !important;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
+    }}
+
+    .stButton button[kind="secondary"] {{
+        background: var(--card) !important;
+        border: 1px solid var(--border) !important;
+        color: var(--text) !important;
+    }}
+
+    .stButton button[kind="secondary"]:hover {{
+        border-color: var(--ice-500) !important;
+        color: var(--ice-600) !important;
+    }}
+
+    /* ========== 10. 数据表格 ========== */
+    [data-testid="stDataFrame"] {{
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        overflow: hidden;
+        box-shadow: var(--shadow-sm);
+    }}
+
+    [data-testid="stDataFrame"] thead th {{
+        background: var(--navy-700) !important;
+        color: white !important;
+        font-weight: 600;
+        font-size: 0.82rem;
+        letter-spacing: 0.02em;
+        padding: 10px 14px !important;
+    }}
+
+    [data-testid="stDataFrame"] tbody tr:nth-child(even) {{
+        background: var(--surface);
+    }}
+
+    [data-testid="stDataFrame"] tbody tr:hover {{
+        background: var(--ice-50);
+    }}
+
+    [data-testid="stDataFrame"] tbody td {{
+        padding: 8px 14px !important;
+        font-size: 0.88rem;
+    }}
+
+    /* ========== 11. 提示框 ========== */
+    .stAlert {{
+        border-radius: var(--radius-md) !important;
+        border: none !important;
+        font-weight: 400;
+    }}
+
+    [data-testid="stSuccess"] {{
+        background: {DESIGN_TOKENS["emerald_100"]} !important;
+        color: {DESIGN_TOKENS["emerald_500"]} !important;
+    }}
+
+    [data-testid="stWarning"] {{
+        background: {DESIGN_TOKENS["amber_100"]} !important;
+        color: #92400e !important;
+    }}
+
+    [data-testid="stError"] {{
+        background: {DESIGN_TOKENS["coral_100"]} !important;
+        color: {DESIGN_TOKENS["coral_500"]} !important;
+    }}
+
+    [data-testid="stInfo"] {{
+        background: var(--ice-50) !important;
+        color: var(--ice-600) !important;
+    }}
+
+    /* ========== 12. 滚动条 ========== */
+    ::-webkit-scrollbar {{
+        width: 6px;
+        height: 6px;
+    }}
+
+    ::-webkit-scrollbar-track {{
+        background: transparent;
+    }}
+
+    ::-webkit-scrollbar-thumb {{
+        background: #cbd5e1;
+        border-radius: 3px;
+    }}
+
+    ::-webkit-scrollbar-thumb:hover {{
+        background: #94a3b8;
+    }}
+
+    /* ========== 13. Bento-Grid 仪表盘容器 ========== */
+    .bento-grid {{
+        display: grid;
+        grid-template-columns: 1.2fr 0.8fr;
+        grid-template-rows: auto auto;
+        gap: clamp(12px, 2vw, 20px);
+        margin: 0 0 1rem 0;
+    }}
+
+    .bento-tile {{
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        padding: clamp(14px, 2vw, 22px);
+        box-shadow: var(--shadow-sm);
+        transition: box-shadow 0.25s ease;
+    }}
+
+    .bento-tile:hover {{
+        box-shadow: var(--shadow-md);
+    }}
+
+    .bento-tile.large {{
+        grid-row: span 2;
+    }}
+
+    .bento-tile-header {{
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 12px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid var(--border);
+    }}
+
+    .bento-tile-header h4 {{
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: var(--navy-700);
+        margin: 0;
+    }}
+
+    .bento-tile-header .tile-icon {{
+        width: 28px;
+        height: 28px;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+    }}
+
+    /* ========== 14. 预警卡片 ========== */
+    .warn-card {{
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 14px 16px;
+        border-radius: var(--radius-md);
+        margin-bottom: 8px;
+        border-left: 4px solid;
+        transition: transform 0.15s ease;
+    }}
+
+    .warn-card:hover {{
+        transform: translateX(4px);
+    }}
+
+    .warn-card .warn-icon {{
+        font-size: 1.5rem;
+        line-height: 1;
+    }}
+
+    .warn-card .warn-content h5 {{
+        margin: 0 0 3px 0;
+        font-size: 0.9rem;
+        font-weight: 600;
+    }}
+
+    .warn-card .warn-content p {{
+        margin: 0;
+        font-size: 0.82rem;
+        color: var(--text-muted);
+    }}
+
+    /* ========== 15. 响应式 ========== */
+    @media (max-width: 768px) {{
+        .bento-grid {{
+            grid-template-columns: 1fr;
+            grid-template-rows: auto;
+        }}
+        .bento-tile.large {{
+            grid-row: span 1;
+        }}
+    }}
 </style>
 """, unsafe_allow_html=True)
 
 # 头部
-st.markdown('<div class="main-header">[天气] 气象数据交互分析平台</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">数据导入 · 可视化分析 · 国家预警标准检测 · 智能建议 · 数值预报 · 报告导出</div>',
-            unsafe_allow_html=True)
+st.markdown("""
+<div class="main-header">气象数据交互分析平台</div>
+<div class="sub-header">数据导入 · 可视化分析 · 国家预警标准检测 · 智能建议 · 数值预报 · 报告导出</div>
+""", unsafe_allow_html=True)
 
 
 # 初始化 session_state
