@@ -447,19 +447,32 @@ def _render_era5_guide():
     st.caption("ERA5 数据由 Copernicus Climate Data Store (CDS) 提供，需个人账号。本页生成下载请求代码，请复制到本地运行。")
 
     # 注册提示
-    with st.expander("[说明] 如何使用 CDS 下载 ERA5 数据", expanded=False):
+    with st.expander("[说明] 如何获取 CDS 凭证并下载 ERA5 数据", expanded=False):
         st.markdown("""
-        1. **注册账号**: 访问 [Copernicus CDS](https://cds.climate.copernicus.eu/) 注册免费账号
-        2. **获取 API Key**: 登录后在个人资料页查看 UID 和 API Key
-        3. **安装 cdsapi**: `pip install cdsapi`
-        4. **配置凭证**: 在用户目录创建 `~/.cdsapirc` 文件，写入：
-           ```
-           url: https://cds.climate.copernicus.eu/api
-           key: {UID}:{API-KEY}
-           ```
-        5. **运行代码**: 复制下方生成的 Python 代码，保存为 `.py` 文件并运行
-        6. **导入数据**: 下载的 NetCDF 文件可通过 `xarray` 读取，或导入本平台的"文件导入"Tab
-        """)
+### 一、注册 CDS 账号 (免费)
+1. 访问 [Copernicus CDS](https://cds.climate.copernicus.eu/) 点击右上角 "Login/Register"
+2. 填写邮件和基本信息完成注册（欧盟开放数据项目，完全免费）
+3. 登录后，点击右上角你的用户名 → "**Your profile**"
+
+### 二、获取 UID 和 API Key
+1. 在个人资料页往下滚动到 "**API**" 区域
+2. 你会看到两行关键信息：
+   - **UID**: 一串纯数字（如 `123456`）-- 这就是本平台的"CDS UID"
+   - **API Key**: 一串 UUID 格式字符串（如 `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`）-- 这就是"CDS API Key"
+3. 如果 Key 区域显示为空或"未生成"，点击旁边的刷新/生成按钮获取新 Key
+
+### 三、在本应用配置凭证
+1. 在下方 ERA5 引导页的凭证输入框中填入 UID 和 API Key
+2. 点击"保存凭证" -- 自动写入 `~/.cdsapirc` 文件（格式: `key: UID:API-KEY`）
+
+### 四、安装 cdsapi
+- 命令行执行: `pip install cdsapi`
+- 或在应用内直接点击"检查运行环境"按钮自动安装
+
+### 五、获取数据
+- 选择参数 → 生成代码 → 点击"直接运行"（推荐）或复制代码手动执行
+- CDS 下载需要排队，请留意邮件通知
+""")
         st.link_button("[打开] Copernicus CDS 官网", "https://cds.climate.copernicus.eu/")
 
     # 参数选择
