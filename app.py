@@ -93,26 +93,23 @@ def _render_data_summary_card():
             # 按钮组：使用 st.session_state 标记推荐 Tab
             b_col1, b_col2, b_col3 = st.columns(3)
             with b_col1:
-                if st.button("📊 图表", use_container_width=True, key="jump_viz",
-                             help="切换到可视化分析 Tab"):
-                    st.session_state["show_tab_hint"] = "[图表] 可视化分析"
+                if st.button("📊 图表", use_container_width=True, key="jump_viz"):
+                    st.session_state["active_tab"] = 1
+                    st.rerun()
             with b_col2:
-                if st.button("🔔 预警", use_container_width=True, key="jump_alert",
-                             help="切换到智能分析 Tab"):
-                    st.session_state["show_tab_hint"] = "[预警] 智能分析与建议"
+                if st.button("🔔 预警", use_container_width=True, key="jump_alert"):
+                    st.session_state["active_tab"] = 2
+                    st.rerun()
             with b_col3:
-                if st.button("📤 导出", use_container_width=True, key="jump_export",
-                             help="切换到报告导出 Tab"):
-                    st.session_state["show_tab_hint"] = "[导出] 报告导出"
+                if st.button("📤 导出", use_container_width=True, key="jump_export"):
+                    st.session_state["active_tab"] = 3
+                    st.rerun()
 
-        # 显示 Tab 切换提示
-        hint = st.session_state.get("show_tab_hint")
-        if hint:
-            st.info(f"请切换到 「{hint}」 Tab 查看分析结果")
-            # 清除提示（避免重复显示）
-            if st.button("✕ 关闭提示", key="clear_hint"):
-                st.session_state["show_tab_hint"] = None
-                st.rerun()
+    # 向导确认按钮直接跳转到可视化
+                if st.button("✅ 确认数据，前往可视化分析", use_container_width=True, key="wiz_confirm"):
+                    st.session_state["import_step"] = 0
+                    st.session_state["active_tab"] = 1
+                    st.rerun()
 
 
 def _render_progress_bar():
@@ -354,7 +351,11 @@ _render_progress_bar()
 _render_next_step_hint()
 _render_data_summary_card()
 
-tabs = st.tabs([
+# ---- 标签页导航（支持编程跳转） ----
+if "active_tab" not in st.session_state:
+    st.session_state["active_tab"] = 0
+
+tab_labels = [
     "[导入] 数据导入",
     "[图表] 可视化分析",
     "[预警] 智能分析与建议",
@@ -362,7 +363,23 @@ tabs = st.tabs([
     "[日期] 气候态参照",
     "[雷达] 报文解码",
     "[预报] 数值预报",
-])
+]
+
+# 使用 radio 替代 tabs，支持 index 参数实现编程跳转
+# 当 session_state["active_tab"] 被外部修改时，radio 会自动跟随
+selected = st.radio(
+    "",
+    tab_labels,
+    index=st.session_state["active_tab"],
+    horizontal=True,
+    label_visibility="collapsed",
+    key="tab_selector",
+)
+# 同步：用户手动切换时更新 session_state
+active_idx = tab_labels.index(selected) if selected in tab_labels else 0
+if active_idx != st.session_state["active_tab"]:
+    st.session_state["active_tab"] = active_idx
+    st.rerun()
 
 # ---- 导入向导初始化 ----
 if "import_step" not in st.session_state:
@@ -371,7 +388,7 @@ if "import_method" not in st.session_state:
     st.session_state["import_method"] = None
 
 # ---- Tab 0: 数据导入向导 ----
-with tabs[0]:
+if st.session_state["active_tab"] == 0:
     step = st.session_state["import_step"]
 
     col_w, col_s = st.columns([5, 1])
@@ -461,7 +478,7 @@ with tabs[0]:
             with c1:
                 if st.button("✅ 确认数据，前往可视化分析", use_container_width=True, key="wiz_confirm"):
                     st.session_state["import_step"] = 0
-                    st.session_state["show_tab_hint"] = "[图表] 可视化分析"
+                    st.session_state["active_tab"] = 1
                     st.rerun()
             with c2:
                 if st.button("🔄 重新导入", use_container_width=True, key="wiz_retry"):
@@ -513,11 +530,11 @@ with tabs[0]:
                 st.rerun()
 
 # ---- Tab 1: 可视化 ----
-with tabs[1]:
+if st.session_state["active_tab"] == 1:
     render_visualization_tab(st.session_state["df"])
 
 # ---- Tab 2: 智能分析与建议 ----
-with tabs[2]:
+if st.session_state["active_tab"] == 2:
     warnings_result = render_analysis_tab(st.session_state["df"])
     if st.session_state["df"] is not None:
         all_w = []
@@ -532,7 +549,7 @@ with tabs[2]:
         st.session_state["warnings_list"] = all_w
 
 # ---- Tab 3: 报告导出 ----
-with tabs[3]:
+if st.session_state["active_tab"] == 3:
     render_export_tab(
         st.session_state["df"],
         st.session_state.get("warnings_list", []),
@@ -541,15 +558,15 @@ with tabs[3]:
     )
 
 # ---- Tab 4: 气候态参照 ----
-with tabs[4]:
+if st.session_state["active_tab"] == 4:
     render_climate_ref_tab(st.session_state["df"])
 
 # ---- Tab 5: 报文解码 ----
-with tabs[5]:
+if st.session_state["active_tab"] == 5:
     render_codec_tab()
 
 # ---- Tab 6: 数值预报 ----
-with tabs[6]:
+if st.session_state["active_tab"] == 6:
     render_forecast_tab()
 
     # P1: 预报完成后自动传递到智能分析
