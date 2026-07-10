@@ -438,6 +438,12 @@ def precipitation_timeline(df):
     # ---- 构建图形 ----
     has_left = left_field is not None
     has_right = right_field is not None
+
+    # 左右轴不能选择同一要素（会导致 DataFrame 列名重复）
+    if has_left and has_right and left_field == right_field:
+        st.warning("左轴和右轴不能选择同一要素，请选择两个不同的气象要素进行对比")
+        return None
+
     use_dual = has_left and has_right
 
     if use_dual:
