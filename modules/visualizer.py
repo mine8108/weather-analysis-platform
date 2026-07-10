@@ -370,7 +370,95 @@ def distribution_histogram(df):
     return fig
 
 
-def render_visualization_tab(df):
+def precipitation_timeline(df):
+    """时序降水图：柱状降水量 + 可选双y轴叠加折线要素"""
+    if "timestamp" not in df.columns or "precipitation" not in df.columns:
+        return None
+
+    import numpy as np
+
+    # ---- 聚合选项 ----
+    agg_map = {"原始（不聚合）": None, "3小时": "3h", "6小时": "6h", "12小时": "12h", "日累积": "1D"}
+    overlay_map = {
+        "无（仅降水柱状图）": None, "气温 (℃)": "temperature",
+        "气压 (hPa)": "pressure", "相对湿度 (%)": "humidity",
+        "风速 (m/s)": "wind_speed",
+    }
+    # 过滤可用的叠加要素
+    avail_overlay = {k: v for k, v in overlay_map.items() if v is None or v in df.columns}
+
+    c1, c2 = st.columns(2)
+    with c1:
+        agg_sel = st.selectbox("时间聚合", list(agg_map.keys()), index=0, key="precip_agg")
+    with c2:
+        overlay_sel = st.selectbox("叠加要素（双y轴）", list(avail_overlay.keys()), index=0, key="precip_overlay")
+
+    agg_freq = agg_map[agg_sel]
+    overlay_field = avail_overlay.get(overlay_sel)
+
+    # 聚合数据
+    dff = df.set_index("timestamp").copy()
+    if agg_freq:
+        dff = dff.resample(agg_freq).agg(
+            {"precipitation": "sum", **{k: "mean" for k in dff.columns if k != "precipitation"}}
+        ).dropna(how="all").reset_index()
+    else:
+        dff = dff.reset_index()
+
+    x_data = dff["timestamp"]
+    y_precip = dff["precipitation"]
+    has_overlay = overlay_field is not None and overlay_field in dff.columns
+
+    # ---- 构建图形 ----
+    if has_overlay:
+        overlay_labels = {
+            "temperature": ("气温", COLORS["temp_color"], "℃"),
+            "pressure": ("气压", COLORS["pres_color"], "hPa"),
+            "humidity": ("相对湿度", COLORS["humid_color"], "%"),
+            "wind_speed": ("风速", COLORS["wind_color"], "m/s"),
+        }
+        ol_name, ol_color, ol_unit = overlay_labels.get(overlay_field, (overlay_field, COLORS["primary"], ""))
+
+        fig = make_subplots(specs=[[{"secondary_y": True}]])
+        # 柱状降水（主y轴）
+        fig.add_trace(
+            go.Bar(x=x_data, y=y_precip, name="降水量 (mm)",
+                   marker_color=COLORS["rain_color"], opacity=0.75,
+                   hovertemplate="降水量: %{y:.1f} mm<extra></extra>"),
+            secondary_y=False,
+        )
+        # 折线叠加要素（次y轴）
+        fig.add_trace(
+            go.Scatter(x=x_data, y=dff[overlay_field],
+                       mode="lines+markers", name=f"{ol_name} ({ol_unit})",
+                       line=dict(color=ol_color, width=2), marker=dict(size=3),
+                       hovertemplate=f"{ol_name}: %{{y:.1f}} {ol_unit}<extra></extra>"),
+            secondary_y=True,
+        )
+        fig.update_yaxes(title_text="降水量 (mm)", secondary_y=False, gridcolor="#e0e0e0")
+        fig.update_yaxes(title_text=f"{ol_name} ({ol_unit})", secondary_y=True,
+                         title_font_color=ol_color, tickfont_color=ol_color)
+        title = f"时序降水 + {ol_name}（双轴）{agg_sel}"
+    else:
+        fig = go.Figure(
+            go.Bar(x=x_data, y=y_precip, name="降水量 (mm)",
+                   marker_color=COLORS["rain_color"], opacity=0.75,
+                   hovertemplate="降水量: %{y:.1f} mm<extra></extra>"),
+        )
+        fig.update_yaxes(title_text="降水量 (mm)", gridcolor="#e0e0e0")
+        title = f"时序降水量{agg_sel}"
+
+    fig.update_layout(
+        title=title,
+        xaxis_title="时间",
+        height=460,
+        margin=dict(l=50, r=50, t=50, b=50),
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+    )
+    fig.update_xaxes(tickangle=-45, nticks=12)
+
+    return fig
     """渲染可视化 Tab 全部内容"""
     st.subheader("[图表] 可视化分析")
 
@@ -379,8 +467,8 @@ def render_visualization_tab(df):
         return
 
     # 子Tab
-    viz_tab1, viz_tab2, viz_tab3, viz_tab4, viz_tab5 = st.tabs([
-        "[统计] 综合看板", "[风] 风场分析", "[实验] 要素关系", "[列表] 统计摘要", "[分布] 要素分布"
+    viz_tab1, viz_tab2, viz_tab3, viz_tab4, viz_tab5, viz_tab6 = st.tabs([
+        "[统计] 综合看板", "[风] 风场分析", "[实验] 要素关系", "[列表] 统计摘要", "[分布] 要素分布", "[降水] 时序降水"
     ])
 
     with viz_tab1:
@@ -485,3 +573,15 @@ def render_visualization_tab(df):
             safe_chart(hist_fig, "要素分布直方图", key="viz_hist")
         else:
             st.info("当前数据中缺少可用于分布统计的要素字段")
+
+    with viz_tab6:
+        st.write("### [降水] 时序降水分析")
+        st.caption("以柱状图展示降水量随时间变化，可选叠加折线要素形成双y轴对比")
+        if "precipitation" in df.columns and "timestamp" in df.columns:
+            precip_fig = precipitation_timeline(df)
+            if precip_fig:
+                safe_chart(precip_fig, "时序降水", key="viz_precip_time")
+            else:
+                st.info("暂无降水量数据可展示")
+        else:
+            st.info("当前数据中缺少降水量或时间戳字段，无法绘制时序降水图")
