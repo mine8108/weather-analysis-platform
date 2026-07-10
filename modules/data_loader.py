@@ -408,9 +408,10 @@ def render_api_section():
 
 # ---- ERA5 引导子模块 ----
 _ERA5_PRODUCTS = {
-    "ERA5-Land (地表小时)": {
+    "ERA5-Land (地表小时, 0.1°)": {
         "dataset": "reanalysis-era5-land",
         "url": "https://cds.climate.copernicus.eu/datasets/reanalysis-era5-land",
+        "type": "hourly",
         "variables": {
             "2m_temperature": "2m 气温",
             "2m_dewpoint_temperature": "2m 露点温度",
@@ -423,9 +424,10 @@ _ERA5_PRODUCTS = {
             "cloud_cover": "总云量",
         },
     },
-    "ERA5 再分析单层 (0.25度)": {
+    "ERA5 再分析单层 (0.25°)": {
         "dataset": "reanalysis-era5-single-levels",
         "url": "https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels",
+        "type": "hourly",
         "variables": {
             "2m_temperature": "2m 气温",
             "2m_dewpoint_temperature": "2m 露点温度",
@@ -437,6 +439,36 @@ _ERA5_PRODUCTS = {
             "relative_humidity": "相对湿度",
             "total_cloud_cover": "总云量",
             "snow_depth": "雪深",
+        },
+    },
+    "ERA5 气压层 (0.25°)": {
+        "dataset": "reanalysis-era5-pressure-levels",
+        "url": "https://cds.climate.copernicus.eu/datasets/reanalysis-era5-pressure-levels",
+        "type": "pressure",
+        "variables": {
+            "geopotential": "位势高度",
+            "temperature": "温度",
+            "u_component_of_wind": "纬向风",
+            "v_component_of_wind": "经向风",
+            "relative_humidity": "相对湿度",
+            "specific_humidity": "比湿",
+            "vertical_velocity": "垂直速度",
+        },
+    },
+    "ERA5-Land 月均值 (0.1°)": {
+        "dataset": "reanalysis-era5-land-monthly-means",
+        "url": "https://cds.climate.copernicus.eu/datasets/reanalysis-era5-land-monthly-means",
+        "type": "monthly",
+        "variables": {
+            "2m_temperature": "2m 气温",
+            "2m_dewpoint_temperature": "2m 露点温度",
+            "skin_temperature": "地表温度",
+            "total_precipitation": "总降水",
+            "10m_u_component_of_wind": "10m 纬向风",
+            "10m_v_component_of_wind": "10m 经向风",
+            "surface_pressure": "地面气压",
+            "relative_humidity": "相对湿度",
+            "cloud_cover": "总云量",
         },
     },
 }
@@ -488,13 +520,29 @@ def _render_era5_guide():
             format_func=lambda m: f"{m}月", key="era5_months",
         )
 
+    # 气压层选择（仅气压层产品显示）
+    product_type = _ERA5_PRODUCTS[product].get("type", "hourly")
+    pressure_levels = []
+    if product_type == "pressure":
+        pressure_levels = st.multiselect(
+            "气压层 (hPa)",
+            options=["1000", "975", "950", "925", "900", "875", "850", "825", "800",
+                     "775", "750", "700", "650", "600", "550", "500", "450",
+                     "400", "350", "300", "250", "225", "200", "175", "150",
+                     "125", "100", "70", "50", "30", "20", "10", "5", "1"],
+            default=["500", "850", "200"],
+            key="era5_pressure_levels",
+        )
+
     c4, c5 = st.columns(2)
     with c4:
+        var_keys = list(_ERA5_PRODUCTS[product]["variables"].keys())
+        default_vars = var_keys[:2] if len(var_keys) >= 2 else var_keys
         variables = st.multiselect(
             "变量",
-            options=list(_ERA5_PRODUCTS[product]["variables"].keys()),
+            options=var_keys,
             format_func=lambda v: _ERA5_PRODUCTS[product]["variables"][v],
-            default=["2m_temperature", "total_precipitation"],
+            default=default_vars,
             key="era5_vars",
         )
     with c5:
@@ -517,8 +565,35 @@ def _render_era5_guide():
             if not years or not months or not variables:
                 st.warning("请至少选择年份、月份和变量")
                 return
+            if product_type == "pressure" and not pressure_levels:
+                st.warning("气压层产品需要至少选择一个气压层")
+                return
 
             ds = _ERA5_PRODUCTS[product]["dataset"]
+
+            # 构建产品特有字段
+            extra_fields = ""
+            if product_type == "pressure":
+                extra_fields = f"        'pressure_level': {pressure_levels},\n"
+
+            # 根据产品类型构建 day/time 字段
+            if product_type == "monthly":
+                day_time = "        'time': '00:00',\n"
+            else:
+                day_time = (
+                    "        'day': [\n"
+                    "            '01', '02', '03', '04', '05', '06', '07', '08', '09', '10',\n"
+                    "            '11', '12', '13', '14', '15', '16', '17', '18', '19', '20',\n"
+                    "            '21', '22', '23', '24', '25', '26', '27', '28', '29', '30', '31'\n"
+                    "        ],\n"
+                    "        'time': [\n"
+                    "            '00:00', '01:00', '02:00', '03:00', '04:00', '05:00',\n"
+                    "            '06:00', '07:00', '08:00', '09:00', '10:00', '11:00',\n"
+                    "            '12:00', '13:00', '14:00', '15:00', '16:00', '17:00',\n"
+                    "            '18:00', '19:00', '20:00', '21:00', '22:00', '23:00'\n"
+                    "        ],\n"
+                )
+
             code = f'''import cdsapi
 
 # 请确保已安装 cdsapi: pip install cdsapi
@@ -532,18 +607,7 @@ c.retrieve(
         'variable': {variables},
         'year': {sorted(years)},
         'month': {[f"{m:02d}" for m in sorted(months)]},
-        'day': [
-            '01', '02', '03', '04', '05', '06', '07', '08', '09', '10',
-            '11', '12', '13', '14', '15', '16', '17', '18', '19', '20',
-            '21', '22', '23', '24', '25', '26', '27', '28', '29', '30', '31'
-        ],
-        'time': [
-            '00:00', '01:00', '02:00', '03:00', '04:00', '05:00',
-            '06:00', '07:00', '08:00', '09:00', '10:00', '11:00',
-            '12:00', '13:00', '14:00', '15:00', '16:00', '17:00',
-            '18:00', '19:00', '20:00', '21:00', '22:00', '23:00'
-        ],
-        'area': [{area_n}, {area_w}, {area_s}, {area_e}],
+{extra_fields}{day_time}        'area': [{area_n}, {area_w}, {area_s}, {area_e}],
         'format': 'netcdf',
     }},
     'era5_{ds.split("-")[-1]}_download.nc'
