@@ -387,7 +387,7 @@ def _rank_date_columns(df):
 def _smart_parse_datetime(series):
     """智能解析时间序列：优先自动推断，失败后尝试多种格式"""
     # 先试自动推断
-    parsed = pd.to_datetime(series, errors="coerce", infer_datetime_format=True)
+    parsed = pd.to_datetime(series, errors="coerce")
     if parsed.notna().sum() >= len(series) * 0.5:
         return parsed
 
