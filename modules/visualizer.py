@@ -523,6 +523,86 @@ def _add_dual_trace(fig, dff, field, name, color, unit, chart_type, secondary_y=
         fig.add_trace(trace)
 
 
+def _render_pollution_panel(df):
+    """空气质量专用可视化面板"""
+    st.write("### [大气] 空气质量分析")
+    st.caption("基于 GB 3095-2026 标准评估 PM2.5/PM10/SO₂/NOx 浓度趋势与达标率")
+
+    pollutants = {
+        "pm25": ("PM2.5", COLORS["pm25_color"], "μg/m³", 50),
+        "pm10": ("PM10",   COLORS["pm10_color"], "μg/m³", 100),
+        "so2":  ("SO₂",    COLORS["so2_color"],  "μg/m³", 100),
+        "nox":  ("NOx",    COLORS["nox_color"],  "μg/m³", 60),
+    }
+    available = [(k, v) for k, v in pollutants.items()
+                 if k in df.columns and not df[k].dropna().empty]
+
+    if not available:
+        st.info("当前数据中未检测到大气污染物字段，请导入含 PM2.5/PM10/SO₂/NOx 的数据。")
+        return
+
+    # ---- 污染物时间序列 ----
+    x_data = _safe_xaxis(df)
+    fig = make_subplots(
+        rows=len(available), cols=1,
+        subplot_titles=[f"{v[0]} ({v[2]})" for _, v in available],
+        vertical_spacing=0.08,
+    )
+
+    for i, (field, (label, color, unit, limit)) in enumerate(available, 1):
+        # 添加浓度线
+        fig.add_trace(
+            go.Scatter(x=x_data, y=df[field], mode="lines",
+                       line=dict(color=color, width=2),
+                       name=label,
+                       hovertemplate=f"{label}: %{{y:.1f}} {unit}"),
+            row=i, col=1,
+        )
+        # 添加标准限值虚线
+        fig.add_trace(
+            go.Scatter(x=[x_data.min(), x_data.max()], y=[limit, limit],
+                       mode="lines", line=dict(color=color, width=1.5, dash="dash"),
+                       name=f"{label} 标准限值", showlegend=False,
+                       hovertemplate=f"GB 3095-2026 限值: {limit} {unit}"),
+            row=i, col=1,
+        )
+
+    fig.update_layout(
+        title=dict(text="污染物浓度时间序列（虚线 = GB 3095-2026 二级日均限值）",
+                   font=dict(size=14), x=0),
+        height=220 * len(available) + 80,
+        showlegend=False,
+        hovermode="x unified",
+        margin=dict(l=40, r=20, t=40, b=40),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+    )
+    fig.update_xaxes(gridcolor="#e0e0e0", zeroline=False)
+    fig.update_yaxes(gridcolor="#e0e0e0", zeroline=False)
+    safe_chart(fig, "污染物浓度时序", key="viz_pollution_ts")
+
+    # ---- 污染物统计表 ----
+    st.write("---")
+    st.write("**污染物统计摘要**")
+    rows = []
+    for field, (label, color, unit, limit) in available:
+        vals = df[field].dropna()
+        if len(vals) == 0:
+            continue
+        exceed_count = (vals > limit).sum()
+        rows.append({
+            "污染物": label,
+            "均值": f"{vals.mean():.1f} {unit}",
+            "峰值": f"{vals.max():.1f} {unit}",
+            "标准限值": f"{limit} {unit}",
+            "超标次数": f"{exceed_count}/{len(vals)}",
+            "超标率": f"{exceed_count/len(vals)*100:.1f}%",
+            "达标状态": "⚠️ 超标" if exceed_count > 0 else "✓ 达标",
+        })
+
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+
 def render_visualization_tab(df):
     """渲染可视化 Tab 全部内容"""
     st.subheader("[图表] 可视化分析")
@@ -532,8 +612,9 @@ def render_visualization_tab(df):
         return
 
     # 子Tab
-    viz_tab1, viz_tab2, viz_tab3, viz_tab4, viz_tab5, viz_tab6 = st.tabs([
-        "[统计] 综合看板", "[风] 风场分析", "[实验] 要素关系", "[列表] 统计摘要", "[分布] 要素分布", "[双轴] 时序双要素"
+    viz_tab1, viz_tab2, viz_tab3, viz_tab4, viz_tab5, viz_tab6, viz_tab7 = st.tabs([
+        "[统计] 综合看板", "[风] 风场分析", "[实验] 要素关系", "[列表] 统计摘要",
+        "[分布] 要素分布", "[大气] 空气质量", "[双轴] 时序双要素"
     ])
 
     with viz_tab1:
@@ -647,6 +728,9 @@ def render_visualization_tab(df):
             st.info("当前数据中缺少可用于分布统计的要素字段")
 
     with viz_tab6:
+        _render_pollution_panel(df)
+
+    with viz_tab7:
         st.write("### [双轴] 时序双要素对比")
         st.caption("自由选择两个气象要素，系统自动适配图表类型（柱状/折线），支持双y轴独立缩放")
         if "timestamp" in df.columns:

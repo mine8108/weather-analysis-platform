@@ -791,28 +791,94 @@ def fetch_open_meteo(lat, lon, start_date, end_date):
     return df, None
 
 
+def fetch_open_meteo_air_quality(lat, lon, start_date, end_date):
+    """从 Open-Meteo Air Quality API 获取大气污染数据"""
+    import requests
+
+    url = "https://air-quality-api.open-meteo.com/v1/air-quality"
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "start_date": start_date,
+        "end_date": end_date,
+        "hourly": [
+            "pm2_5", "pm10",
+            "sulphur_dioxide",
+            "nitrogen_dioxide",
+        ],
+        "timezone": "Asia/Shanghai",
+    }
+
+    try:
+        resp = requests.get(url, params=params, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.exceptions.Timeout:
+        return None, "⚠️ API 请求超时，请重试"
+    except requests.exceptions.ConnectionError:
+        return None, "⚠️ 网络连接失败，请检查网络后重试"
+    except Exception as e:
+        return None, f"⚠️ API 请求失败: {str(e)[:200]}"
+
+    if "hourly" not in data:
+        return None, f"API 返回异常（可能该位置无空气质量数据）"
+
+    hourly = data["hourly"]
+    try:
+        n = len(hourly["time"])
+        df = pd.DataFrame({
+            "timestamp": pd.to_datetime(hourly["time"]),
+            "pm25": hourly.get("pm2_5", [None]*n),
+            "pm10": hourly.get("pm10", [None]*n),
+            "so2": hourly.get("sulphur_dioxide", [None]*n),
+            "nox": hourly.get("nitrogen_dioxide", [None]*n),
+        })
+    except Exception as e:
+        return None, f"数据解析失败: {str(e)[:200]}"
+
+    # 标记缺失字段
+    missing = [k for k, v in hourly.items() if v is None or all(x is None for x in v)]
+    return df, (missing if missing else None)
+
+
+def _merge_weather_pollution(weather_df, pollution_df):
+    """合并气象数据和污染物数据（按 timestamp 对齐）"""
+    if weather_df is None or pollution_df is None:
+        return weather_df or pollution_df
+    merged = pd.merge(weather_df, pollution_df, on="timestamp", how="left")
+    return merged
+
+
 def render_api_section():
-    """渲染 API 数据获取区域（Open-Meteo + ERA5 引导）"""
+    """渲染 API 数据获取区域（Open-Meteo 气象 + 空气质量 + ERA5 引导）"""
     st.subheader("[网络] API 数据获取 (Open-Meteo / ERA5)")
 
-    # ---- 子页签: Open-Meteo / ERA5 引导 ----
-    api_tab1, api_tab2 = st.tabs(["Open-Meteo (直接下载)", "ERA5 (CDS 引导下载)"])
+    api_tab1, api_tab2, api_tab3 = st.tabs([
+        "Open-Meteo (气象)", "Open-Meteo (空气质量)", "ERA5 (CDS 引导)"
+    ])
 
-    # ===== Tab 1: Open-Meteo =====
+    # 共享参数（不使用 session_state，用页面级变量存储）
+    if "api_fetched_weather" not in st.session_state:
+        st.session_state["api_fetched_weather"] = None
+    if "api_fetched_pollution" not in st.session_state:
+        st.session_state["api_fetched_pollution"] = None
+
+    # ===== Tab 1: Open-Meteo 气象 =====
     with api_tab1:
         col1, col2, col3 = st.columns(3)
         with col1:
-            lat = st.number_input("纬度 (Latitude)", value=39.94, min_value=-90.0, max_value=90.0, step=0.01, key="api_lat")
+            lat = st.number_input("纬度", value=39.94, min_value=-90.0, max_value=90.0, step=0.01, key="api_lat")
         with col2:
-            lon = st.number_input("经度 (Longitude)", value=116.85, min_value=-180.0, max_value=180.0, step=0.01, key="api_lon")
+            lon = st.number_input("经度", value=116.85, min_value=-180.0, max_value=180.0, step=0.01, key="api_lon")
         with col3:
             date_range = st.date_input(
                 "日期范围",
                 value=(datetime.now() - timedelta(days=7), datetime.now() - timedelta(days=1)),
                 key="api_date",
             )
+        st.caption("获取字段: 气温/气压/湿度/风速风向/云量/降水/天气码")
 
-        if st.button("[搜索] 获取数据", use_container_width=True, key="api_fetch"):
+        if st.button("[搜索] 获取气象数据", use_container_width=True, key="api_fetch"):
             if len(date_range) == 2:
                 start_str = date_range[0].strftime("%Y-%m-%d")
                 end_str = date_range[1].strftime("%Y-%m-%d")
@@ -821,16 +887,74 @@ def render_api_section():
                 if err:
                     st.error(err)
                 else:
-                    st.success(f"[OK] 获取成功: {len(df)} 条逐时记录")
-                    with st.expander("[列表] 数据预览"):
+                    st.success(f"[OK] 气象数据: {len(df)} 条记录")
+                    with st.expander("[列表] 气象数据预览"):
                         st.dataframe(df.head(20), use_container_width=True)
-                    st.session_state["api_df"] = df
-                    st.session_state["api_source"] = f"Open-Meteo ({lat:.2f}N, {lon:.2f}E)"
+                    st.session_state["api_fetched_weather"] = df
             else:
                 st.warning("请选择起止日期")
 
-    # ===== Tab 2: ERA5 CDS 引导 =====
+    # ===== Tab 2: Open-Meteo 空气质量 =====
     with api_tab2:
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            lat_aq = st.number_input("纬度", value=39.94, min_value=-90.0, max_value=90.0, step=0.01, key="api_aq_lat")
+        with col2:
+            lon_aq = st.number_input("经度", value=116.85, min_value=-180.0, max_value=180.0, step=0.01, key="api_aq_lon")
+        with col3:
+            date_range_aq = st.date_input(
+                "日期范围",
+                value=(datetime.now() - timedelta(days=7), datetime.now() - timedelta(days=1)),
+                key="api_aq_date",
+            )
+        st.caption("获取字段: PM2.5 / PM10 / SO₂ / NO₂ (逐时数据)")
+
+        if st.button("[搜索] 获取空气质量数据", use_container_width=True, key="api_aq_fetch"):
+            if len(date_range_aq) == 2:
+                start_str = date_range_aq[0].strftime("%Y-%m-%d")
+                end_str = date_range_aq[1].strftime("%Y-%m-%d")
+                with st.spinner(f"正在获取 {start_str} ~ {end_str} 空气质量数据..."):
+                    df, err = fetch_open_meteo_air_quality(lat_aq, lon_aq, start_str, end_str)
+                if err:
+                    st.error(err)
+                elif df is not None:
+                    st.success(f"[OK] 空气数据: {len(df)} 条记录")
+                    if err:  # err is now the missing fields list
+                        st.info(f"部分字段无数据: {', '.join(err)}")
+                    with st.expander("[列表] 空气质量数据预览"):
+                        st.dataframe(df.head(20), use_container_width=True)
+                    st.session_state["api_fetched_pollution"] = df
+            else:
+                st.warning("请选择起止日期")
+
+    # ===== 合并按钮 =====
+    weather = st.session_state.get("api_fetched_weather")
+    pollution = st.session_state.get("api_fetched_pollution")
+
+    if weather is not None or pollution is not None:
+        st.write("---")
+        if st.button("[合并] 合并气象 + 空气质量数据", use_container_width=True, key="api_merge"):
+            merged = _merge_weather_pollution(weather, pollution)
+            if merged is not None:
+                n_fields = len(merged.columns)
+                n_poll = len([c for c in merged.columns
+                             if c in ["so2", "nox", "tsp", "pm25", "pm10"]])
+                source_parts = []
+                if weather is not None:
+                    source_parts.append(f"Open-Meteo 气象 ({lat:.1f}N, {lon:.1f}E)")
+                if pollution is not None:
+                    source_parts.append(f"Open-Meteo 空气质量 ({lat_aq:.1f}N, {lon_aq:.1f}E)")
+                st.success(f"[OK] 合并完成: {len(merged)} 条记录 | {n_fields} 个字段 | {n_poll} 个污染物")
+                with st.expander("[列表] 合并数据预览"):
+                    st.dataframe(merged.head(20), use_container_width=True)
+                st.session_state["api_df"] = merged
+                st.session_state["api_source"] = " + ".join(source_parts)
+                # 清理缓存
+                st.session_state["api_fetched_weather"] = None
+                st.session_state["api_fetched_pollution"] = None
+
+    # ===== Tab 3: ERA5 CDS 引导 =====
+    with api_tab3:
         _render_era5_guide()
 
     return st.session_state.get("api_df", None), st.session_state.get("api_source", "")
