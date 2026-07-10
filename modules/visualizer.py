@@ -456,7 +456,7 @@ def precipitation_timeline(df):
         active = left_field or right_field
         a_name, a_color, a_unit, a_chart, a_agg = field_config[active]
         fig = go.Figure()
-        _add_dual_trace(fig, dff, active, a_name, a_color, a_unit, a_chart, False)
+        _add_dual_trace(fig, dff, active, a_name, a_color, a_unit, a_chart)
         fig.update_yaxes(title_text=f"{a_name} ({a_unit})", gridcolor="#e0e0e0")
         title = f"{a_name} 时序{agg_sel}"
 
@@ -473,26 +473,27 @@ def precipitation_timeline(df):
     return fig
 
 
-def _add_dual_trace(fig, dff, field, name, color, unit, chart_type, secondary):
-    """添加双要素 trace：bar 或 line，自动选择合适的图表类型"""
+def _add_dual_trace(fig, dff, field, name, color, unit, chart_type, secondary_y=None):
+    """添加双要素 trace：bar 或 line，自动选择合适的图表类型
+    secondary_y: 仅在 make_subplots 双轴图时传入 True/False，单轴图不传
+    """
     x_data = dff["timestamp"]
     y_data = dff[field]
 
     if chart_type == "bar":
-        fig.add_trace(
-            go.Bar(x=x_data, y=y_data, name=f"{name} ({unit})",
-                   marker_color=color, opacity=0.75,
-                   hovertemplate=f"{name}: %{{y:.1f}} {unit}<extra></extra>"),
-            secondary_y=secondary,
-        )
+        trace = go.Bar(x=x_data, y=y_data, name=f"{name} ({unit})",
+                       marker_color=color, opacity=0.75,
+                       hovertemplate=f"{name}: %{{y:.1f}} {unit}<extra></extra>")
     else:
-        fig.add_trace(
-            go.Scatter(x=x_data, y=y_data, mode="lines+markers",
-                       name=f"{name} ({unit})",
-                       line=dict(color=color, width=2), marker=dict(size=3),
-                       hovertemplate=f"{name}: %{{y:.1f}} {unit}<extra></extra>"),
-            secondary_y=secondary,
-        )
+        trace = go.Scatter(x=x_data, y=y_data, mode="lines+markers",
+                           name=f"{name} ({unit})",
+                           line=dict(color=color, width=2), marker=dict(size=3),
+                           hovertemplate=f"{name}: %{{y:.1f}} {unit}<extra></extra>")
+
+    if secondary_y is not None:
+        fig.add_trace(trace, secondary_y=secondary_y)
+    else:
+        fig.add_trace(trace)
 
 
 def render_visualization_tab(df):
