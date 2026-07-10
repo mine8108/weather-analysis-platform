@@ -1,5 +1,5 @@
 """
-分析建议引擎：国家预警标准检测、多要素耦合分析、公众出行/农业建议生成
+分析建议引擎：国家预警标准检测、多要素耦合分析、空气质量评估、公众出行/农业建议生成
 """
 
 import pandas as pd
@@ -11,6 +11,7 @@ from config import (
     FOG_WARNING, RAINSTORM_WARNING, FROST_WARNING,
     THUNDER_WARNING, HAZE_WARNING,
     PUBLIC_ADVICE, AGRI_ADVICE, WARN_STYLES,
+    _AQI_BREAKPOINTS, AQI_LEVELS, AQI_ADVICE, AIR_POLLUTANT_LIMITS,
     get_beaufort_level,
 )
 
@@ -306,6 +307,160 @@ def check_haze(df):
     return []
 
 
+# ============================================================
+# 大气环境质量评估 (GB 3095-2012 + HJ 633-2012)
+# ============================================================
+
+def _calc_single_aqi(conc, pollutant):
+    """计算单个污染物的AQI分指数 (IAQI)"""
+    if pollutant not in _AQI_BREAKPOINTS or np.isnan(conc):
+        return 0
+    bp = _AQI_BREAKPOINTS[pollutant]
+    for (clo, chi, ilo, ihi) in bp:
+        if clo <= conc <= chi:
+            return (ihi - ilo) / (chi - clo) * (conc - clo) + ilo
+    return 0
+
+
+def _aqi_level_name(aqi):
+    """AQI → 等级标签"""
+    for lv, info in sorted(AQI_LEVELS.items()):
+        lo, hi = info["range"]
+        if lo <= aqi <= hi:
+            return info["label"], info["color"]
+    return "严重污染", "#7e0023"
+
+
+def check_air_quality(df):
+    """
+    基于 HJ 633-2012 计算综合 AQI + 逐污染物分析 + 健康建议
+    返回: (综合AQI, 首要污染物, 等级标签, 逐项检测结果列表)
+    """
+    pollutant_fields = [
+        ("so2",  "SO₂"),
+        ("nox",  "NO₂"),
+        ("pm10", "PM10"),
+        ("pm25", "PM2.5"),
+    ]
+    available = [(field, label) for field, label in pollutant_fields
+                 if field in df.columns and df[field].dropna().any()]
+
+    if not available:
+        return None
+
+    results = []
+    max_iaqi = 0
+    primary_pollutant = None
+
+    for field, label in available:
+        vals = df[field].dropna()
+        if len(vals) == 0:
+            continue
+
+        avg_conc = vals.mean()
+        max_conc = vals.max()
+
+        # 计算日均值的AQI分指数
+        iaqi = round(_calc_single_aqi(avg_conc, field))
+        if iaqi > max_iaqi:
+            max_iaqi = iaqi
+            primary_pollutant = label
+
+        # 达标判断 (GB 3095-2012 二级标准)
+        limits = AIR_POLLUTANT_LIMITS.get(field, {})
+        daily_limit = limits.get("daily")
+
+        hourly_limit = limits.get("hourly")
+        exceed_daily = avg_conc > daily_limit if daily_limit else False
+        exceed_hourly = max_conc > hourly_limit if hourly_limit and hourly_limit else False
+
+        label_name, color = _aqi_level_name(iaqi)
+
+        results.append({
+            "field": field,
+            "label": label,
+            "avg": round(avg_conc, 1),
+            "max": round(max_conc, 1),
+            "iaqi": iaqi,
+            "level": label_name,
+            "color": color,
+            "limit": daily_limit,
+            "exceed_daily": exceed_daily,
+            "exceed_hourly": exceed_hourly,
+        })
+
+    overall_level, overall_color = _aqi_level_name(max_iaqi)
+
+    return {
+        "aqi": max_iaqi,
+        "primary": primary_pollutant,
+        "level": overall_level,
+        "color": overall_color,
+        "advice": AQI_ADVICE.get(overall_level, ""),
+        "details": results,
+    }
+
+
+def _render_air_quality_section(df):
+    """渲染空气质量评估区域"""
+    result = check_air_quality(df)
+    if result is None:
+        st.info("当前数据中未检测到大气污染物字段 (SO₂/NOx/PM2.5/PM10)，无法进行空气质量评估。")
+        return
+
+    aqi = result["aqi"]
+    level = result["level"]
+    color = result["color"]
+    primary = result["primary"] or "无"
+
+    # ---- AQI 概览卡 ----
+    st.markdown(f"""
+    <div style="
+        background: linear-gradient(135deg, {color}22 0%, {color}08 100%);
+        border: 2px solid {color};
+        border-radius: 12px;
+        padding: 20px 24px;
+        margin: 12px 0;
+        text-align: center;
+    ">
+        <div style="font-size: 0.85rem; color: #888; margin-bottom: 4px;">空气质量指数 (AQI)</div>
+        <div style="font-size: 3rem; font-weight: 800; color: {color}; line-height: 1.1;">{aqi}</div>
+        <div style="font-size: 1.2rem; font-weight: 600; color: {color}; margin: 4px 0;">{level}</div>
+        <div style="font-size: 0.82rem; color: #666;">首要污染物: {primary}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.caption(result["advice"])
+
+    # ---- 逐项详情表 ----
+    detail_rows = []
+    for d in result["details"]:
+        flag = ""
+        if d["exceed_daily"]:
+            flag = " ⚠️ 超标"
+        elif d["exceed_hourly"]:
+            flag = " ⚡ 小时超标"
+        detail_rows.append({
+            "污染物": d["label"],
+            f"均值 (μg/m³)": d["avg"],
+            f"峰值 (μg/m³)": d["max"],
+            "标准限值": f"{d['limit']} μg/m³" if d["limit"] else "—",
+            "IAQI": d["iaqi"],
+            "等级": d["level"],
+            "状态": "✓ 达标" if not d["exceed_daily"] else flag.strip(),
+        })
+
+    st.dataframe(pd.DataFrame(detail_rows), use_container_width=True, hide_index=True)
+
+    # ---- 超标警告 ----
+    exceeded = [d for d in result["details"] if d["exceed_daily"] or d["exceed_hourly"]]
+    if exceeded:
+        st.warning("⚠️ 以下污染物超过 GB 3095-2012 二级标准限值：")
+        for e in exceeded:
+            limit_type = "日均值" if e["exceed_daily"] else "小时值"
+            st.write(f"- {e['label']}: 均 {e['avg']} μg/m³ / 峰 {e['max']} μg/m³ (超过{e['limit']} 的{limit_type}限值)")
+
+
 def multi_factor_coupling(df):
     """多要素耦合分析"""
     alerts = []
@@ -440,6 +595,14 @@ def render_analysis_tab(df):
     else:
         st.info("当前未检测到显著的多要素耦合风险")
 
+    # ----- 空气质量评估 -----
+    # 检测是否有污染物数据
+    has_pollution = any(f in df.columns for f in ["so2", "nox", "pm10", "pm25"])
+    if has_pollution:
+        st.write("---")
+        st.write("### [大气] 空气质量评估 (GB 3095-2012)")
+        _render_air_quality_section(df)
+
     # ----- 建议 -----
     st.write("---")
     public_adv, agri_adv = generate_advice(all_warnings)
@@ -476,6 +639,27 @@ def render_analysis_tab(df):
 
     for field, label, unit, func, col in stats_config:
         if field in df.columns:
+            series = df[field].dropna()
+            if len(series) > 0:
+                val = func(series)
+                col.metric(label, f"{val:.1f} {unit}")
+
+    # 污染物统计行（有数据时才显示）
+    has_pollution = any(f in df.columns for f in ["so2", "nox", "pm10", "pm25"])
+    if has_pollution:
+        poll_cols = st.columns(4)
+        poll_stats = [
+            ("pm25", "PM2.5 均值", "μg/m³", lambda x: x.mean(), poll_cols[0]),
+            ("pm10", "PM10 均值", "μg/m³", lambda x: x.mean(), poll_cols[1]),
+            ("so2",  "SO₂ 均值",  "μg/m³", lambda x: x.mean(), poll_cols[2]),
+            ("nox",  "NOx 均值",  "μg/m³", lambda x: x.mean(), poll_cols[3]),
+        ]
+        for field, label, unit, func, col in poll_stats:
+            if field in df.columns:
+                series = df[field].dropna()
+                if len(series) > 0:
+                    val = func(series)
+                    col.metric(label, f"{val:.1f} {unit}")
             series = df[field].dropna()
             if len(series) > 0:
                 val = func(series)
