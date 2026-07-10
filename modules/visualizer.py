@@ -396,12 +396,18 @@ def precipitation_timeline(df):
     agg_freq = agg_map[agg_sel]
     overlay_field = avail_overlay.get(overlay_sel)
 
-    # 聚合数据
-    dff = df.set_index("timestamp").copy()
+    # 只保留需要的数值列，避免非数值列导致 resample 聚合报错
+    needed_cols = ["timestamp", "precipitation"]
+    if overlay_field and overlay_field in df.columns:
+        needed_cols.append(overlay_field)
+
+    dff = df[needed_cols].set_index("timestamp").copy()
+
     if agg_freq:
-        dff = dff.resample(agg_freq).agg(
-            {"precipitation": "sum", **{k: "mean" for k in dff.columns if k != "precipitation"}}
-        ).dropna(how="all").reset_index()
+        agg_dict = {"precipitation": "sum"}
+        if overlay_field and overlay_field in dff.columns:
+            agg_dict[overlay_field] = "mean"
+        dff = dff.resample(agg_freq).agg(agg_dict).dropna(how="all").reset_index()
     else:
         dff = dff.reset_index()
 
