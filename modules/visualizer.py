@@ -371,88 +371,94 @@ def distribution_histogram(df):
 
 
 def precipitation_timeline(df):
-    """时序降水图：柱状降水量 + 可选双y轴叠加折线要素"""
-    if "timestamp" not in df.columns or "precipitation" not in df.columns:
+    """时序双要素对比：自由选择两个要素，图表类型自动适配，支持双y轴"""
+    if "timestamp" not in df.columns:
         return None
 
-    import numpy as np
-
-    # ---- 聚合选项 ----
-    agg_map = {"原始（不聚合）": None, "3小时": "3h", "6小时": "6h", "12小时": "12h", "日累积": "1D"}
-    overlay_map = {
-        "无（仅降水柱状图）": None, "气温 (℃)": "temperature",
-        "气压 (hPa)": "pressure", "相对湿度 (%)": "humidity",
-        "风速 (m/s)": "wind_speed",
+    # ---- 要素配置 ----
+    field_config = {
+        "precipitation": ("降水量 (mm)", COLORS["rain_color"], "mm", "bar", "sum"),
+        "temperature":   ("气温 (℃)",    COLORS["temp_color"], "℃",  "line", "mean"),
+        "pressure":      ("气压 (hPa)",  COLORS["pres_color"], "hPa", "line", "mean"),
+        "humidity":      ("相对湿度 (%)", COLORS["humid_color"], "%",  "line", "mean"),
+        "wind_speed":    ("风速 (m/s)",  COLORS["wind_color"], "m/s", "bar", "mean"),
+        "visibility":    ("能见度 (km)", COLORS["vis_color"],   "km",  "line", "mean"),
+        "cloud_cover":   ("总云量",      COLORS["purple"],     "",    "line", "mean"),
     }
-    # 过滤可用的叠加要素
-    avail_overlay = {k: v for k, v in overlay_map.items() if v is None or v in df.columns}
 
-    c1, c2 = st.columns(2)
+    available_fields = [f for f in field_config if f in df.columns and not df[f].dropna().empty]
+    if not available_fields:
+        return None
+
+    # 构建选择列表
+    field_options = {"无（单轴显示）": None}
+    for f in available_fields:
+        name = field_config[f][0]
+        field_options[name] = f
+
+    # ---- 聚合 ----
+    agg_map = {"原始（不聚合）": None, "3小时": "3h", "6小时": "6h", "12小时": "12h", "日累积": "1D"}
+
+    c1, c2, c3 = st.columns(3)
     with c1:
-        agg_sel = st.selectbox("时间聚合", list(agg_map.keys()), index=0, key="precip_agg")
+        agg_sel = st.selectbox("时间聚合", list(agg_map.keys()), index=0, key="dual_agg")
     with c2:
-        overlay_sel = st.selectbox("叠加要素（双y轴）", list(avail_overlay.keys()), index=0, key="precip_overlay")
+        left_sel = st.selectbox("左轴要素", list(field_options.keys()),
+                                index=0 if "降水量" in field_options else 0, key="dual_left")
+    with c3:
+        right_sel = st.selectbox("右轴要素", list(field_options.keys()),
+                                 index=list(field_options.keys()).index("降水量 (mm)") if "降水量 (mm)" in field_options else 0,
+                                 key="dual_right")
 
     agg_freq = agg_map[agg_sel]
-    overlay_field = avail_overlay.get(overlay_sel)
+    left_field = field_options[left_sel]
+    right_field = field_options[right_sel]
 
-    # 只保留需要的数值列，避免非数值列导致 resample 聚合报错
-    needed_cols = ["timestamp", "precipitation"]
-    if overlay_field and overlay_field in df.columns:
-        needed_cols.append(overlay_field)
+    if left_field is None and right_field is None:
+        st.info("请至少选择一个要素")
+        return None
+
+    # ---- 聚合 ----
+    needed_cols = ["timestamp"]
+    agg_dict = {}
+    for f in [left_field, right_field]:
+        if f:
+            needed_cols.append(f)
+            agg_mode = field_config[f][4]  # "sum" or "mean"
+            agg_dict[f] = agg_mode
 
     dff = df[needed_cols].set_index("timestamp").copy()
-
     if agg_freq:
-        agg_dict = {"precipitation": "sum"}
-        if overlay_field and overlay_field in dff.columns:
-            agg_dict[overlay_field] = "mean"
         dff = dff.resample(agg_freq).agg(agg_dict).dropna(how="all").reset_index()
     else:
         dff = dff.reset_index()
 
     x_data = dff["timestamp"]
-    y_precip = dff["precipitation"]
-    has_overlay = overlay_field is not None and overlay_field in dff.columns
 
     # ---- 构建图形 ----
-    if has_overlay:
-        overlay_labels = {
-            "temperature": ("气温", COLORS["temp_color"], "℃"),
-            "pressure": ("气压", COLORS["pres_color"], "hPa"),
-            "humidity": ("相对湿度", COLORS["humid_color"], "%"),
-            "wind_speed": ("风速", COLORS["wind_color"], "m/s"),
-        }
-        ol_name, ol_color, ol_unit = overlay_labels.get(overlay_field, (overlay_field, COLORS["primary"], ""))
+    has_left = left_field is not None
+    has_right = right_field is not None
+    use_dual = has_left and has_right
 
+    if use_dual:
         fig = make_subplots(specs=[[{"secondary_y": True}]])
-        # 柱状降水（主y轴）
-        fig.add_trace(
-            go.Bar(x=x_data, y=y_precip, name="降水量 (mm)",
-                   marker_color=COLORS["rain_color"], opacity=0.75,
-                   hovertemplate="降水量: %{y:.1f} mm<extra></extra>"),
-            secondary_y=False,
-        )
-        # 折线叠加要素（次y轴）
-        fig.add_trace(
-            go.Scatter(x=x_data, y=dff[overlay_field],
-                       mode="lines+markers", name=f"{ol_name} ({ol_unit})",
-                       line=dict(color=ol_color, width=2), marker=dict(size=3),
-                       hovertemplate=f"{ol_name}: %{{y:.1f}} {ol_unit}<extra></extra>"),
-            secondary_y=True,
-        )
-        fig.update_yaxes(title_text="降水量 (mm)", secondary_y=False, gridcolor="#e0e0e0")
-        fig.update_yaxes(title_text=f"{ol_name} ({ol_unit})", secondary_y=True,
-                         title_font_color=ol_color, tickfont_color=ol_color)
-        title = f"时序降水 + {ol_name}（双轴）{agg_sel}"
+        # 左轴
+        l_name, l_color, l_unit, l_chart, l_agg = field_config[left_field]
+        _add_dual_trace(fig, dff, left_field, l_name, l_color, l_unit, l_chart, False)
+        # 右轴
+        r_name, r_color, r_unit, r_chart, r_agg = field_config[right_field]
+        _add_dual_trace(fig, dff, right_field, r_name, r_color, r_unit, r_chart, True)
+        fig.update_yaxes(title_text=f"{l_name} ({l_unit})", secondary_y=False, gridcolor="#e0e0e0")
+        fig.update_yaxes(title_text=f"{r_name} ({r_unit})", secondary_y=True,
+                         title_font_color=r_color, tickfont_color=r_color)
+        title = f"{l_name} + {r_name}（双轴）{agg_sel}"
     else:
-        fig = go.Figure(
-            go.Bar(x=x_data, y=y_precip, name="降水量 (mm)",
-                   marker_color=COLORS["rain_color"], opacity=0.75,
-                   hovertemplate="降水量: %{y:.1f} mm<extra></extra>"),
-        )
-        fig.update_yaxes(title_text="降水量 (mm)", gridcolor="#e0e0e0")
-        title = f"时序降水量{agg_sel}"
+        active = left_field or right_field
+        a_name, a_color, a_unit, a_chart, a_agg = field_config[active]
+        fig = go.Figure()
+        _add_dual_trace(fig, dff, active, a_name, a_color, a_unit, a_chart, False)
+        fig.update_yaxes(title_text=f"{a_name} ({a_unit})", gridcolor="#e0e0e0")
+        title = f"{a_name} 时序{agg_sel}"
 
     fig.update_layout(
         title=dict(text=title, x=0.5, xanchor="center", y=0.97, yanchor="top", font=dict(size=14)),
@@ -467,6 +473,28 @@ def precipitation_timeline(df):
     return fig
 
 
+def _add_dual_trace(fig, dff, field, name, color, unit, chart_type, secondary):
+    """添加双要素 trace：bar 或 line，自动选择合适的图表类型"""
+    x_data = dff["timestamp"]
+    y_data = dff[field]
+
+    if chart_type == "bar":
+        fig.add_trace(
+            go.Bar(x=x_data, y=y_data, name=f"{name} ({unit})",
+                   marker_color=color, opacity=0.75,
+                   hovertemplate=f"{name}: %{{y:.1f}} {unit}<extra></extra>"),
+            secondary_y=secondary,
+        )
+    else:
+        fig.add_trace(
+            go.Scatter(x=x_data, y=y_data, mode="lines+markers",
+                       name=f"{name} ({unit})",
+                       line=dict(color=color, width=2), marker=dict(size=3),
+                       hovertemplate=f"{name}: %{{y:.1f}} {unit}<extra></extra>"),
+            secondary_y=secondary,
+        )
+
+
 def render_visualization_tab(df):
     """渲染可视化 Tab 全部内容"""
     st.subheader("[图表] 可视化分析")
@@ -477,7 +505,7 @@ def render_visualization_tab(df):
 
     # 子Tab
     viz_tab1, viz_tab2, viz_tab3, viz_tab4, viz_tab5, viz_tab6 = st.tabs([
-        "[统计] 综合看板", "[风] 风场分析", "[实验] 要素关系", "[列表] 统计摘要", "[分布] 要素分布", "[降水] 时序降水"
+        "[统计] 综合看板", "[风] 风场分析", "[实验] 要素关系", "[列表] 统计摘要", "[分布] 要素分布", "[双轴] 时序双要素"
     ])
 
     with viz_tab1:
@@ -584,13 +612,13 @@ def render_visualization_tab(df):
             st.info("当前数据中缺少可用于分布统计的要素字段")
 
     with viz_tab6:
-        st.write("### [降水] 时序降水分析")
-        st.caption("以柱状图展示降水量随时间变化，可选叠加折线要素形成双y轴对比")
-        if "precipitation" in df.columns and "timestamp" in df.columns:
+        st.write("### [双轴] 时序双要素对比")
+        st.caption("自由选择两个气象要素，系统自动适配图表类型（柱状/折线），支持双y轴独立缩放")
+        if "timestamp" in df.columns:
             precip_fig = precipitation_timeline(df)
             if precip_fig:
-                safe_chart(precip_fig, "时序降水", key="viz_precip_time")
+                safe_chart(precip_fig, "时序双要素", key="viz_precip_time")
             else:
-                st.info("暂无降水量数据可展示")
+                st.info("暂无可用要素，请导入包含温度/降水/气压/湿度/风速等字段的数据")
         else:
-            st.info("当前数据中缺少降水量或时间戳字段，无法绘制时序降水图")
+            st.info("当前数据中缺少时间戳字段")
