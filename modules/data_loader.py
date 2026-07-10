@@ -386,6 +386,28 @@ def _rank_date_columns(df):
 
 def _smart_parse_datetime(series):
     """智能解析时间序列：优先自动推断，失败后尝试多种格式"""
+    # ---- HHMMSS / HMMSS 数值时间码检测 ----
+    # 气象站数据常见格式: 85311 → 08:53:11, 120500 → 12:05:00
+    if pd.api.types.is_numeric_dtype(series):
+        vals = series.dropna()
+        if len(vals) > 0:
+            min_val = vals.min()
+            max_val = vals.max()
+            if min_val >= 0 and max_val <= 240000:
+                str_vals = vals.astype(int).astype(str)
+                lengths = str_vals.str.len()
+                if lengths.min() >= 4 and lengths.max() <= 6:
+                    padded = str_vals.str.zfill(6)
+                    test_parsed = pd.to_datetime(padded, format="%H%M%S", errors="coerce")
+                    if test_parsed.notna().sum() >= len(vals) * 0.5:
+                        today = pd.Timestamp.now().strftime("%Y-%m-%d")
+                        result = pd.to_datetime(
+                            today + " " + padded,
+                            format="%Y-%m-%d %H%M%S", errors="coerce"
+                        )
+                        if result.notna().sum() >= len(vals) * 0.5:
+                            return result
+
     # 先试自动推断
     parsed = pd.to_datetime(series, errors="coerce")
     if parsed.notna().sum() >= len(series) * 0.5:
