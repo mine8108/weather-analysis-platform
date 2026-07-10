@@ -68,7 +68,7 @@ def _generate_report_charts(df):
     return figs
 
 
-def export_report_word(df, warnings_list, score, source="", forecast_df=None, forecast_analysis=None):
+def export_report_word(df, warnings_list, score, source="", forecast_df=None, forecast_analysis=None, plain_language=False):
     """生成增强版 Word 分析报告（含嵌入图表、预报摘要）。
 
     参数：
@@ -103,6 +103,8 @@ def export_report_word(df, warnings_list, score, source="", forecast_df=None, fo
 
     # ---- 第一部分：预警信号 ----
     doc.add_heading("一、预警信号", level=1)
+    if plain_language:
+        doc.add_paragraph("下面是基于您上传的数据自动检测到的天气预警信息。简单来说，这意味着什么，以及您需要注意什么。")
     if warnings_list:
         color_map = {
             "蓝色": RGBColor(0, 102, 204),
@@ -112,12 +114,23 @@ def export_report_word(df, warnings_list, score, source="", forecast_df=None, fo
         }
         for warn in warnings_list:
             p = doc.add_paragraph()
-            run = p.add_run(f"[{warn['level']}预警] {warn['type']} - {warn['detail']}")
+            if plain_language:
+                plain_text = {
+                    "高温": "天气会很热，可能会让人中暑，注意防暑降温、多喝水。",
+                    "寒潮": "天气会突然变得很冷，注意添衣保暖、减少外出。",
+                    "大风": "风会很大，可能会吹倒东西，在外面走路要小心。",
+                    "暴雨": "雨会很大，可能会有积水，尽量避免外出。",
+                    "大雾": "能见度很低，开车要特别小心、开雾灯。",
+                }
+                hint = plain_text.get(warn['type'], warn['detail'])
+                run = p.add_run(f"[{warn['level']}预警] {warn['type']} — {hint}")
+            else:
+                run = p.add_run(f"[{warn['level']}预警] {warn['type']} - {warn['detail']}")
             run.font.size = Pt(12)
             if warn["level"] in color_map:
                 run.font.color.rgb = color_map[warn["level"]]
     else:
-        doc.add_paragraph("未触发任何预警信号。")
+        doc.add_paragraph("未触发任何预警信号。" if not plain_language else "好消息！当前数据中没有触发任何天气预警，看起来天气状况比较稳定。")
 
     # ---- 第二部分：数据统计摘要 ----
     doc.add_heading("二、数据统计摘要", level=1)
@@ -208,7 +221,35 @@ def export_report_word(df, warnings_list, score, source="", forecast_df=None, fo
                     style="List Bullet",
                 )
     else:
-        doc.add_paragraph("当前无特殊预警，可正常开展活动。")
+        doc.add_paragraph("当前无特殊预警，可正常开展活动。" if not plain_language else "目前没有需要特别担心的天气情况，一切正常。")
+
+    # ---- 通俗版附录 ----
+    if plain_language:
+        doc.add_page_break()
+        doc.add_heading("附录：一句话总结", level=1)
+        doc.add_paragraph("这份报告的通俗版总结，帮您快速了解最重要的信息：")
+        # 温度总结
+        if df is not None and "temperature" in df.columns:
+            t = df["temperature"].dropna()
+            if len(t) > 0:
+                doc.add_paragraph(f"- 温度：平均约 {t.mean():.0f}℃，最高 {t.max():.0f}℃，" + 
+                    ("偏热，注意防暑" if t.mean() > 25 else "适中，体感舒适" if t.mean() > 10 else "偏冷，注意保暖"))
+        # 降水总结
+        if df is not None and "precipitation" in df.columns:
+            p = df["precipitation"].dropna()
+            if len(p) > 0:
+                total = p.sum()
+                doc.add_paragraph(f"- 降水：累计 {total:.0f}mm，" +
+                    ("雨量较大，出行带伞" if total > 10 else "雨量不大" if total > 0 else "基本无降水"))
+        # PM2.5 总结
+        if df is not None and "pm25" in df.columns:
+            pm = df["pm25"].dropna()
+            if len(pm) > 0:
+                avg_pm = pm.mean()
+                doc.add_paragraph(f"- 空气质量：PM2.5 均值 {avg_pm:.0f}，" +
+                    ("良好" if avg_pm <= 35 else "一般，敏感人群注意" if avg_pm <= 50 else "偏差，减少户外活动"))
+        doc.add_paragraph("")
+        doc.add_paragraph("💡 提示：如需详细数据，请查看报告中的专业图表和统计表格。")
 
     buf = BytesIO()
     doc.save(buf)
@@ -252,17 +293,24 @@ def render_export_tab(df, warnings_list, score, source=""):
     # ---- Word 报告 ----
     st.write("---")
     st.write("#### [文档] Word 分析报告 (含图表 + 统计 + 预报)")
-    st.caption("报告嵌入气温/降水/气压时序图、统计摘要、预警信号及防御建议。如有 GFS 预报数据自动附加预报分析。")
+
+    report_style = st.radio("报告风格", ["📊 专业版", "💬 通俗版"], horizontal=True, key="report_style")
+    if report_style == "💬 通俗版":
+        st.caption("用生活化语言解释数据，减少术语，适合非专业用户阅读。")
+    else:
+        st.caption("报告嵌入气温/降水/气压时序图、统计摘要、预警信号及防御建议。如有 GFS 预报数据自动附加预报分析。")
 
     fc_analysis = st.session_state.get("fc_analysis", None)
 
-    if st.button("[生成] 生成 Word 图文分析报告", use_container_width=True, key="gen_report"):
+    btn_label = "[生成] 生成通俗版分析报告" if report_style == "💬 通俗版" else "[生成] 生成 Word 图文分析报告"
+    if st.button(btn_label, use_container_width=True, key="gen_report"):
         with st.spinner("正在生成图文报告（含图表嵌入，约需 3-5 秒）..."):
             try:
                 doc_data = export_report_word(
                     df, warnings_list, score, source,
                     forecast_df=st.session_state.get("fc_df"),
                     forecast_analysis=fc_analysis,
+                    plain_language=(report_style == "💬 通俗版"),
                 )
                 if doc_data:
                     st.session_state["report_data"] = doc_data

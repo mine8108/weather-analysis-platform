@@ -356,7 +356,6 @@ _render_data_summary_card()
 
 tabs = st.tabs([
     "[导入] 数据导入",
-    "[实验] 数据质控",
     "[图表] 可视化分析",
     "[预警] 智能分析与建议",
     "[导出] 报告导出",
@@ -365,62 +364,161 @@ tabs = st.tabs([
     "[预报] 数值预报",
 ])
 
-# ---- Tab 1: 数据导入 ----
+# ---- 导入向导初始化 ----
+if "import_step" not in st.session_state:
+    st.session_state["import_step"] = 0
+if "import_method" not in st.session_state:
+    st.session_state["import_method"] = None
+
+# ---- Tab 0: 数据导入向导 ----
 with tabs[0]:
-    sub_tab1, sub_tab2, sub_tab3 = st.tabs(["[文件] 文件导入", "[编辑] 手动录入", "[网络] API 获取"])
+    step = st.session_state["import_step"]
 
-    with sub_tab1:
-        df_file, source_file = render_file_upload_section()
-        if df_file is not None:
-            st.session_state["df"] = df_file
-            st.session_state["source"] = source_file
-        render_template_download()
+    col_w, col_s = st.columns([5, 1])
+    with col_s:
+        if st.button("跳过向导", key="skip_wizard"):
+            st.session_state["import_step"] = 999
+            st.rerun()
 
-    with sub_tab2:
-        df_manual = render_manual_input_section()
-        if df_manual is not None:
-            try:
-                df_manual["timestamp"] = pd.to_datetime(df_manual["timestamp"])
-            except Exception:
-                pass
-            if st.session_state["df"] is not None:
-                st.session_state["df"] = pd.concat(
-                    [st.session_state["df"], df_manual], ignore_index=True
-                )
-                st.session_state["df"] = st.session_state["df"].sort_values("timestamp").reset_index(drop=True)
-            else:
-                st.session_state["df"] = df_manual
+    # ===== 向导模式 =====
+    if step == 0:
+        st.write("### 选择数据导入方式")
+        st.caption("选择以下任一方式开始导入数据")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            if st.button("📁 上传文件\n\nCSV / Excel / NetCDF", use_container_width=True, key="wiz_file"):
+                st.session_state["import_method"] = "file"
+                st.session_state["import_step"] = 1
+                st.rerun()
+        with c2:
+            if st.button("✏️ 手动录入\n\n逐条添加观测数据", use_container_width=True, key="wiz_manual"):
+                st.session_state["import_method"] = "manual"
+                st.session_state["import_step"] = 1
+                st.rerun()
+        with c3:
+            if st.button("🌐 API获取\n\nOpen-Meteo在线数据", use_container_width=True, key="wiz_api"):
+                st.session_state["import_method"] = "api"
+                st.session_state["import_step"] = 1
+                st.rerun()
 
-    with sub_tab3:
-        df_api, source_api = render_api_section()
-        if df_api is not None:
-            st.session_state["df"] = df_api
-            st.session_state["source"] = source_api
+    elif step == 1:
+        method = st.session_state["import_method"]
+        labels = {"file": "📁 上传文件", "manual": "✏️ 手动录入", "api": "🌐 API获取"}
+        st.write(f"### Step 1: {labels.get(method, method)}")
 
-    # 在导入 Tab 底部显示合并后的数据概览
-    if st.session_state["df"] is not None:
-        st.divider()
-        col_a, col_b = st.columns(2)
-        with col_a:
-            st.metric("当前数据", f"{len(st.session_state['df'])} 条记录")
-        with col_b:
-            st.metric("数据来源", st.session_state.get("source", "多源"))
+        if method == "file":
+            df_file, source_file = render_file_upload_section()
+            render_template_download()
+            if df_file is not None:
+                st.session_state["df"] = df_file
+                st.session_state["source"] = source_file
+                st.session_state["import_step"] = 2
+                st.rerun()
+        elif method == "manual":
+            df_manual = render_manual_input_section()
+            if df_manual is not None:
+                try:
+                    df_manual["timestamp"] = pd.to_datetime(df_manual["timestamp"])
+                except Exception:
+                    pass
+                if st.session_state["df"] is not None:
+                    st.session_state["df"] = pd.concat([st.session_state["df"], df_manual], ignore_index=True)
+                    st.session_state["df"] = st.session_state["df"].sort_values("timestamp").reset_index(drop=True)
+                else:
+                    st.session_state["df"] = df_manual
+                st.session_state["import_step"] = 2
+                st.rerun()
+        elif method == "api":
+            df_api, source_api = render_api_section()
+            if df_api is not None:
+                st.session_state["df"] = df_api
+                if source_api:
+                    st.session_state["source"] = source_api
+                st.session_state["import_step"] = 2
+                st.rerun()
 
-# ---- Tab 2: 数据质控 ----
+    elif step == 2:
+        st.write("### Step 2: 数据预览与质量检查")
+        df = st.session_state.get("df")
+        if df is not None:
+            col_a, col_b, col_c = st.columns(3)
+            with col_a:
+                st.metric("记录数", f"{len(df)} 条")
+            with col_b:
+                na_ratio = df.isna().sum().sum() / (df.shape[0] * df.shape[1]) * 100 if df.shape[0] > 0 else 0
+                st.metric("缺失率", f"{na_ratio:.1f}%")
+            with col_c:
+                outlier_count = 0
+                if "temperature" in df.columns:
+                    outlier_count += ((df["temperature"] > 55) | (df["temperature"] < -50)).sum()
+                if "humidity" in df.columns:
+                    outlier_count += ((df["humidity"] > 100) | (df["humidity"] < 0)).sum()
+                st.metric("疑似异常值", f"{outlier_count} 个" if outlier_count > 0 else "0")
+
+            st.dataframe(df.head(10), use_container_width=True)
+
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("✅ 确认数据，前往可视化分析", use_container_width=True, key="wiz_confirm"):
+                    st.session_state["import_step"] = 0
+                    st.session_state["show_tab_hint"] = "[图表] 可视化分析"
+                    st.rerun()
+            with c2:
+                if st.button("🔄 重新导入", use_container_width=True, key="wiz_retry"):
+                    st.session_state["import_step"] = 0
+                    st.session_state["import_method"] = None
+                    st.rerun()
+        else:
+            st.warning("未检测到数据，请返回重新导入")
+            if st.button("← 返回", key="wiz_back"):
+                st.session_state["import_step"] = 0
+                st.rerun()
+
+    else:
+        # 跳过向导：传统多标签模式
+        sub_tab1, sub_tab2, sub_tab3 = st.tabs(["[文件] 文件导入", "[编辑] 手动录入", "[网络] API 获取"])
+        with sub_tab1:
+            df_file, source_file = render_file_upload_section()
+            if df_file is not None:
+                st.session_state["df"] = df_file
+                st.session_state["source"] = source_file
+            render_template_download()
+        with sub_tab2:
+            df_manual = render_manual_input_section()
+            if df_manual is not None:
+                try:
+                    df_manual["timestamp"] = pd.to_datetime(df_manual["timestamp"])
+                except Exception:
+                    pass
+                if st.session_state["df"] is not None:
+                    st.session_state["df"] = pd.concat([st.session_state["df"], df_manual], ignore_index=True)
+                    st.session_state["df"] = st.session_state["df"].sort_values("timestamp").reset_index(drop=True)
+                else:
+                    st.session_state["df"] = df_manual
+        with sub_tab3:
+            df_api, source_api = render_api_section()
+            if df_api is not None:
+                st.session_state["df"] = df_api
+                st.session_state["source"] = source_api
+
+        if st.session_state["df"] is not None:
+            st.divider()
+            c_a, c_b = st.columns(2)
+            with c_a:
+                st.metric("当前数据", f"{len(st.session_state['df'])} 条记录")
+            with c_b:
+                st.metric("数据来源", st.session_state.get("source", "多源"))
+            if st.button("🔄 返回向导模式", key="back_to_wizard"):
+                st.session_state["import_step"] = 0
+                st.rerun()
+
+# ---- Tab 1: 可视化 ----
 with tabs[1]:
-    result = render_quality_report(st.session_state["df"])
-    if result:
-        score, issues = result
-        st.session_state["quality_score"] = score
-
-# ---- Tab 3: 可视化分析 ----
-with tabs[2]:
     render_visualization_tab(st.session_state["df"])
 
-# ---- Tab 4: 智能分析与建议 ----
-with tabs[3]:
+# ---- Tab 2: 智能分析与建议 ----
+with tabs[2]:
     warnings_result = render_analysis_tab(st.session_state["df"])
-    # 收集预警列表（从 session state 间接获取）
     if st.session_state["df"] is not None:
         all_w = []
         all_w += check_high_temperature(st.session_state["df"])
@@ -433,8 +531,8 @@ with tabs[3]:
         all_w += check_haze(st.session_state["df"])
         st.session_state["warnings_list"] = all_w
 
-# ---- Tab 5: 报告导出 ----
-with tabs[4]:
+# ---- Tab 3: 报告导出 ----
+with tabs[3]:
     render_export_tab(
         st.session_state["df"],
         st.session_state.get("warnings_list", []),
@@ -442,16 +540,16 @@ with tabs[4]:
         st.session_state.get("source", ""),
     )
 
-# ---- Tab 6: 气候态参照 ----
-with tabs[5]:
+# ---- Tab 4: 气候态参照 ----
+with tabs[4]:
     render_climate_ref_tab(st.session_state["df"])
 
-# ---- Tab 7: 报文解码 ----
-with tabs[6]:
+# ---- Tab 5: 报文解码 ----
+with tabs[5]:
     render_codec_tab()
 
-# ---- Tab 8: 数值预报 ----
-with tabs[7]:
+# ---- Tab 6: 数值预报 ----
+with tabs[6]:
     render_forecast_tab()
 
     # P1: 预报完成后自动传递到智能分析
