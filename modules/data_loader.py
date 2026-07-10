@@ -410,7 +410,7 @@ def render_api_section():
 _ERA5_PRODUCTS = {
     "ERA5-Land (地表小时)": {
         "dataset": "reanalysis-era5-land",
-        "url": "https://cds.climate.copernicus.eu/datasets/reanalysis-era5-land",
+        "url": "https://cds-beta.climate.copernicus.eu/datasets/reanalysis-era5-land",
         "variables": {
             "2m_temperature": "2m 气温",
             "2m_dewpoint_temperature": "2m 露点温度",
@@ -425,7 +425,7 @@ _ERA5_PRODUCTS = {
     },
     "ERA5 再分析单层 (0.25度)": {
         "dataset": "reanalysis-era5-single-levels",
-        "url": "https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels",
+        "url": "https://cds-beta.climate.copernicus.eu/datasets/reanalysis-era5-single-levels",
         "variables": {
             "2m_temperature": "2m 气温",
             "2m_dewpoint_temperature": "2m 露点温度",
@@ -565,23 +565,36 @@ def _render_era5_direct_run(code):
 
     # 1. 凭证检查
     if not os.path.exists(cdsapirc):
-        st.warning("未检测到 CDS 凭证文件 (~/.cdsapirc)，请填入你的 Copernicus UID 和 API Key。")
-        uid_val = st.text_input("CDS UID", key="era5_uid", placeholder="例如: 123456")
+        st.warning("未检测到 CDS 凭证文件 (~/.cdsapirc)，请输入你的 CDS API Key。")
+        st.caption("新版 CDS beta 使用单一 Token（UUID 格式，如 xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx）；旧版格式为 UID:API-Key（如 123456:xxxxx），冒号前面是纯数字UID。本平台自动识别。")
         api_val = st.text_input("CDS API Key", type="password", key="era5_apikey",
-                                placeholder="从 cd.climate.copernicus.eu/profile 获取")
+                                placeholder="复制完整的 key 到这里")
         if st.button("[保存] 保存凭证", key="era5_save_cred"):
-            if uid_val and api_val:
+            if api_val:
                 try:
+                    # 自动识别新旧格式
+                    if ":" in api_val:
+                        # 旧版: UID:API-Key
+                        uid_part = api_val.split(":")[0]
+                        if uid_part.isdigit():
+                            # 确认 UID 是纯数字 → 使用旧版 API URL
+                            api_url = "https://cds.climate.copernicus.eu/api"
+                        else:
+                            api_url = "https://cds-beta.climate.copernicus.eu/api"
+                    else:
+                        # 新版 beta: 纯 Token
+                        api_url = "https://cds-beta.climate.copernicus.eu/api"
                     with open(cdsapirc, "w") as f:
-                        f.write(f"url: https://cds.climate.copernicus.eu/api\n")
-                        f.write(f"key: {uid_val}:{api_val}\n")
+                        f.write(f"url: {api_url}\n")
+                        f.write(f"key: {api_val}\n")
                     os.chmod(cdsapirc, 0o600)
-                    st.success("凭证已保存到 ~/.cdsapirc")
+                    st.session_state["era5_api_url"] = api_url
+                    st.success(f"凭证已保存 (API: {api_url})")
                     st.rerun()
                 except Exception as e:
                     st.error(f"保存失败: {e}")
             else:
-                st.warning("请填入 UID 和 API Key")
+                st.warning("请填入 API Key")
         if not os.path.exists(cdsapirc):
             return
     else:
