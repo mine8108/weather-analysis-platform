@@ -362,40 +362,182 @@ def fetch_open_meteo(lat, lon, start_date, end_date):
 
 
 def render_api_section():
-    """渲染 API 数据获取区域"""
+    """渲染 API 数据获取区域（Open-Meteo + ERA5 引导）"""
     st.subheader("[网络] API 数据获取 (Open-Meteo / ERA5)")
 
-    col1, col2, col3 = st.columns(3)
+    # ---- 子页签: Open-Meteo / ERA5 引导 ----
+    api_tab1, api_tab2 = st.tabs(["Open-Meteo (直接下载)", "ERA5 (CDS 引导下载)"])
 
-    with col1:
-        lat = st.number_input("纬度 (Latitude)", value=39.94, min_value=-90.0, max_value=90.0, step=0.01)
-    with col2:
-        lon = st.number_input("经度 (Longitude)", value=116.85, min_value=-180.0, max_value=180.0, step=0.01)
-    with col3:
-        date_range = st.date_input(
-            "日期范围",
-            value=(datetime.now() - timedelta(days=7), datetime.now() - timedelta(days=1)),
+    # ===== Tab 1: Open-Meteo =====
+    with api_tab1:
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            lat = st.number_input("纬度 (Latitude)", value=39.94, min_value=-90.0, max_value=90.0, step=0.01, key="api_lat")
+        with col2:
+            lon = st.number_input("经度 (Longitude)", value=116.85, min_value=-180.0, max_value=180.0, step=0.01, key="api_lon")
+        with col3:
+            date_range = st.date_input(
+                "日期范围",
+                value=(datetime.now() - timedelta(days=7), datetime.now() - timedelta(days=1)),
+                key="api_date",
+            )
+
+        if st.button("[搜索] 获取数据", use_container_width=True, key="api_fetch"):
+            if len(date_range) == 2:
+                start_str = date_range[0].strftime("%Y-%m-%d")
+                end_str = date_range[1].strftime("%Y-%m-%d")
+                with st.spinner(f"正在从 Open-Meteo 获取 {start_str} ~ {end_str} 数据..."):
+                    df, err = fetch_open_meteo(lat, lon, start_str, end_str)
+                if err:
+                    st.error(err)
+                else:
+                    st.success(f"[OK] 获取成功: {len(df)} 条逐时记录")
+                    with st.expander("[列表] 数据预览"):
+                        st.dataframe(df.head(20), use_container_width=True)
+                    st.session_state["api_df"] = df
+                    st.session_state["api_source"] = f"Open-Meteo ({lat:.2f}N, {lon:.2f}E)"
+            else:
+                st.warning("请选择起止日期")
+
+    # ===== Tab 2: ERA5 CDS 引导 =====
+    with api_tab2:
+        _render_era5_guide()
+
+    return st.session_state.get("api_df", None), st.session_state.get("api_source", "")
+
+
+# ---- ERA5 引导子模块 ----
+_ERA5_PRODUCTS = {
+    "ERA5-Land (地表小时)": {
+        "dataset": "reanalysis-era5-land",
+        "url": "https://cds.climate.copernicus.eu/datasets/reanalysis-era5-land",
+        "variables": {
+            "2m_temperature": "2m 气温",
+            "2m_dewpoint_temperature": "2m 露点温度",
+            "skin_temperature": "地表温度",
+            "total_precipitation": "总降水",
+            "10m_u_component_of_wind": "10m 纬向风",
+            "10m_v_component_of_wind": "10m 经向风",
+            "surface_pressure": "地面气压",
+            "relative_humidity": "相对湿度",
+            "cloud_cover": "总云量",
+        },
+    },
+    "ERA5 再分析单层 (0.25度)": {
+        "dataset": "reanalysis-era5-single-levels",
+        "url": "https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels",
+        "variables": {
+            "2m_temperature": "2m 气温",
+            "2m_dewpoint_temperature": "2m 露点温度",
+            "mean_sea_level_pressure": "平均海平面气压",
+            "surface_pressure": "地面气压",
+            "total_precipitation": "总降水",
+            "10m_u_component_of_wind": "10m 纬向风",
+            "10m_v_component_of_wind": "10m 经向风",
+            "relative_humidity": "相对湿度",
+            "total_cloud_cover": "总云量",
+            "snow_depth": "雪深",
+        },
+    },
+}
+
+
+def _render_era5_guide():
+    """ERA5 CDS 数据获取引导页"""
+    st.caption("ERA5 数据由 Copernicus Climate Data Store (CDS) 提供，需个人账号。本页生成下载请求代码，请复制到本地运行。")
+
+    # 注册提示
+    with st.expander("[说明] 如何使用 CDS 下载 ERA5 数据", expanded=False):
+        st.markdown("""
+        1. **注册账号**: 访问 [Copernicus CDS](https://cds.climate.copernicus.eu/) 注册免费账号
+        2. **获取 API Key**: 登录后在个人资料页查看 UID 和 API Key
+        3. **安装 cdsapi**: `pip install cdsapi`
+        4. **配置凭证**: 在用户目录创建 `~/.cdsapirc` 文件，写入：
+           ```
+           url: https://cds.climate.copernicus.eu/api
+           key: {UID}:{API-KEY}
+           ```
+        5. **运行代码**: 复制下方生成的 Python 代码，保存为 `.py` 文件并运行
+        6. **导入数据**: 下载的 NetCDF 文件可通过 `xarray` 读取，或导入本平台的"文件导入"Tab
+        """)
+        st.link_button("[打开] Copernicus CDS 官网", "https://cds.climate.copernicus.eu/")
+
+    # 参数选择
+    st.write("---")
+    st.write("#### 参数配置")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        product = st.selectbox("数据产品", list(_ERA5_PRODUCTS.keys()), key="era5_product")
+    with c2:
+        years = st.multiselect(
+            "年份", options=list(range(1950, 2025)), default=[2023],
+            key="era5_years",
+        )
+    with c3:
+        months = st.multiselect(
+            "月份", options=list(range(1, 13)), default=[1, 2, 3],
+            format_func=lambda m: f"{m}月", key="era5_months",
         )
 
-    if st.button("[搜索] 获取数据", use_container_width=True):
-        if len(date_range) == 2:
-            start_str = date_range[0].strftime("%Y-%m-%d")
-            end_str = date_range[1].strftime("%Y-%m-%d")
+    c4, c5 = st.columns(2)
+    with c4:
+        variables = st.multiselect(
+            "变量",
+            options=list(_ERA5_PRODUCTS[product]["variables"].keys()),
+            format_func=lambda v: _ERA5_PRODUCTS[product]["variables"][v],
+            default=["2m_temperature", "total_precipitation"],
+            key="era5_vars",
+        )
+    with c5:
+        area_n = st.number_input("区域北界 (N)", value=40.0, min_value=-90.0, max_value=90.0, step=0.1, key="era5_n")
+        area_s = st.number_input("区域南界 (S)", value=39.0, min_value=-90.0, max_value=90.0, step=0.1, key="era5_s")
+        area_w = st.number_input("区域西界 (W)", value=116.0, min_value=-180.0, max_value=180.0, step=0.1, key="era5_w")
+        area_e = st.number_input("区域东界 (E)", value=117.0, min_value=-180.0, max_value=180.0, step=0.1, key="era5_e")
 
-            with st.spinner(f"正在从 Open-Meteo 获取 {start_str} ~ {end_str} 数据..."):
-                df, err = fetch_open_meteo(lat, lon, start_str, end_str)
+    if st.button("[生成] 生成 CDS 下载请求代码", use_container_width=True, key="era5_gen"):
+        if not years or not months or not variables:
+            st.warning("请至少选择年份、月份和变量")
+            return
 
-            if err:
-                st.error(err)
-                return None, ""
-            else:
-                st.success(f"[OK] 获取成功: {len(df)} 条逐时记录")
-                with st.expander("[列表] 数据预览"):
-                    st.dataframe(df.head(20), use_container_width=True)
-                return df, f"Open-Meteo ({lat:.2f}N, {lon:.2f}E)"
-        else:
-            st.warning("请选择起止日期")
-    return None, ""
+        ds = _ERA5_PRODUCTS[product]["dataset"]
+        code = f'''import cdsapi
+
+# 请确保已安装 cdsapi: pip install cdsapi
+# 并配置 ~/.cdsapirc (UID 和 API Key)
+
+c = cdsapi.Client()
+
+c.retrieve(
+    '{ds}',
+    {{
+        'variable': {variables},
+        'year': {sorted(years)},
+        'month': {[f"{m:02d}" for m in sorted(months)]},
+        'day': [
+            '01', '02', '03', '04', '05', '06', '07', '08', '09', '10',
+            '11', '12', '13', '14', '15', '16', '17', '18', '19', '20',
+            '21', '22', '23', '24', '25', '26', '27', '28', '29', '30', '31'
+        ],
+        'time': [
+            '00:00', '01:00', '02:00', '03:00', '04:00', '05:00',
+            '06:00', '07:00', '08:00', '09:00', '10:00', '11:00',
+            '12:00', '13:00', '14:00', '15:00', '16:00', '17:00',
+            '18:00', '19:00', '20:00', '21:00', '22:00', '23:00'
+        ],
+        'area': [{area_n}, {area_w}, {area_s}, {area_e}],
+        'format': 'netcdf',
+    }},
+    'era5_{ds.split("-")[-1]}_download.nc'
+)
+'''
+        st.success("代码已生成，请复制下方代码到本地运行。")
+        st.code(code, language="python")
+
+        # 复制按钮 (通过 Streamlit 的 clipboard 不可用，提供 text_area 让用户手动复制)
+        st.text_area("复制代码", value=code, height=200, key="era5_code_copy")
+
+        st.link_button("[打开] 对应 CDS 数据集页面", _ERA5_PRODUCTS[product]["url"])
+        st.caption("提示：CDS 下载需要排队，请留意邮件通知。下载完成后可用 xarray 读取 NetCDF，或导入本平台的文件导入Tab。")
 
 
 def render_template_download():
