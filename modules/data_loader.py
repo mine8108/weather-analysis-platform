@@ -543,6 +543,12 @@ c.retrieve(
     'era5_{ds.split("-")[-1]}_download.nc'
 )
 '''
+        st.session_state["era5_code"] = code
+        st.rerun()
+
+    # ---- 代码已生成时，持久化展示（不受 rerun 影响）----
+    code = st.session_state.get("era5_code", None)
+    if code:
         st.success("代码已生成。您可以选择以下两种方式运行：")
 
         # 方式一：直接运行
