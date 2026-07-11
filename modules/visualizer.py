@@ -89,7 +89,7 @@ def wind_rose_chart(df):
         (17.2, 999, "大风及以上"),
     ]
 
-    colors = ["#e0e0e0", "#b0c4de", "#87ceeb", "#5cacee", "#3b8ed4", "#1e6bb8", "#ffa500", "#ff6347", "#cc0000"]
+    colors = ["#475569" if st.session_state.get("dark_mode", False) else "#e0e0e0", "#b0c4de", "#87ceeb", "#5cacee", "#3b8ed4", "#1e6bb8", "#ffa500", "#ff6347", "#cc0000"]
 
     fig = go.Figure()
     for j, (lo, hi, label) in enumerate(speed_bins):
@@ -475,7 +475,7 @@ def precipitation_timeline(df):
         # 右轴
         r_name, r_color, r_unit, r_chart, r_agg = field_config[right_field]
         _add_dual_trace(fig, dff, right_field, r_name, r_color, r_unit, r_chart, True)
-        fig.update_yaxes(title_text=f"{l_name} ({l_unit})", secondary_y=False, gridcolor="#e0e0e0")
+        fig.update_yaxes(title_text=f"{l_name} ({l_unit})", secondary_y=False, gridcolor="#334155" if st.session_state.get("dark_mode", False) else "#e0e0e0")
         fig.update_yaxes(title_text=f"{r_name} ({r_unit})", secondary_y=True,
                          title_font_color=r_color, tickfont_color=r_color)
         title = f"{l_name} + {r_name}（双轴）{agg_sel}"
@@ -484,7 +484,7 @@ def precipitation_timeline(df):
         a_name, a_color, a_unit, a_chart, a_agg = field_config[active]
         fig = go.Figure()
         _add_dual_trace(fig, dff, active, a_name, a_color, a_unit, a_chart)
-        fig.update_yaxes(title_text=f"{a_name} ({a_unit})", gridcolor="#e0e0e0")
+        fig.update_yaxes(title_text=f"{a_name} ({a_unit})", gridcolor="#334155" if st.session_state.get("dark_mode", False) else "#e0e0e0")
         title = f"{a_name} 时序{agg_sel}"
 
     fig.update_layout(
@@ -577,8 +577,9 @@ def _render_pollution_panel(df):
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
     )
-    fig.update_xaxes(gridcolor="#e0e0e0", zeroline=False)
-    fig.update_yaxes(gridcolor="#e0e0e0", zeroline=False)
+    grid_c = "#334155" if st.session_state.get("dark_mode", False) else "#e0e0e0"
+    fig.update_xaxes(gridcolor=grid_c, zeroline=False)
+    fig.update_yaxes(gridcolor=grid_c, zeroline=False)
     safe_chart(fig, "污染物浓度时序", key="viz_pollution_ts")
 
     # ---- 污染物统计表 ----

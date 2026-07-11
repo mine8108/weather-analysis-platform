@@ -19,6 +19,10 @@ from plotly.subplots import make_subplots
 
 from config import COLORS, safe_chart
 
+# ---- 暗色模式适配 ----
+def _is_dark():
+    return st.session_state.get("dark_mode", False)
+
 # ============================================================
 # 一、模式选项
 # ============================================================
@@ -320,7 +324,8 @@ def _forecast_time_series(fdf):
               "<span style='color:#f5a623'>4-7天中</span> | "
               "<span style='color:#d0021b'>8+天低</span>"),
         showarrow=False, font=dict(size=10),
-        bgcolor="rgba(255,255,255,0.82)", bordercolor="#ccc",
+        bgcolor="rgba(15,23,42,0.9)" if _is_dark() else "rgba(255,255,255,0.82)",
+        bordercolor="#475569" if _is_dark() else "#ccc",
         borderwidth=1, borderpad=5, align="right",
     )
 
@@ -352,8 +357,8 @@ def _forecast_time_series(fdf):
         legend=dict(
             x=0.01, y=0.98,
             xanchor="left", yanchor="top",
-            bgcolor="rgba(255,255,255,0.85)",
-            bordercolor="#ddd", borderwidth=1,
+            bgcolor="rgba(15,23,42,0.9)" if _is_dark() else "rgba(255,255,255,0.85)",
+            bordercolor="#475569" if _is_dark() else "#ddd", borderwidth=1,
         ),
     )
     return fig
@@ -387,8 +392,8 @@ def _high_temp_72h_panel(hh):
         legend=dict(
             x=0.01, y=0.98,
             xanchor="left", yanchor="top",
-            bgcolor="rgba(255,255,255,0.85)",
-            bordercolor="#ddd", borderwidth=1,
+            bgcolor="rgba(15,23,42,0.9)" if _is_dark() else "rgba(255,255,255,0.85)",
+            bordercolor="#475569" if _is_dark() else "#ddd", borderwidth=1,
         ),
     )
     return fig
@@ -464,7 +469,7 @@ def _build_single_heatmap(field2d, lons, lats, vname, lon, lat,
         x=[lon], y=[lat], mode="markers+text", name="目标点",
         marker=dict(color="black", size=16, symbol="x", line=dict(width=2)),
         text=["目标"], textposition="middle right",
-        textfont=dict(size=11, color="#333"),
+        textfont=dict(size=11, color="#e2e8f0" if _is_dark() else "#333"),
         hovertemplate="目标点 (%.2fN, %.2fE)<extra></extra>" % (lat, lon),
     ))
     fig.update_layout(
@@ -584,7 +589,7 @@ def _spatial_heatmap(lats, lons, times, field3d, lat, lon, hour_idx, variable,
             x=[lon], y=[lat], mode="markers+text", name="目标点",
             marker=dict(color="black", size=16, symbol="x", line=dict(width=2)),
             text=["目标"], textposition="middle right",
-            textfont=dict(size=11, color="#333"),
+            textfont=dict(size=11, color="#e2e8f0" if _is_dark() else "#333"),
             hovertemplate="目标点 (%.2fN, %.2fE)<extra></extra>" % (lat, lon),
         ))
         fig.update_layout(
@@ -934,12 +939,19 @@ def _render_forecast_advice(analysis):
         level_order = {"红色": 0, "橙色": 1, "黄色": 2, "蓝色": 3}
         sorted_w = sorted(analysis["warnings"], key=lambda w: level_order.get(w["level"], 4))
         cols = st.columns(min(len(sorted_w), 2))
+        dark_ws = {
+            "蓝色": {"color": "#60a5fa", "bg": "#1e3a5f"},
+            "黄色": {"color": "#f59e0b", "bg": "#3d2e0c"},
+            "橙色": {"color": "#fb923c", "bg": "#3d1f0c"},
+            "红色": {"color": "#ef4444", "bg": "#3d0c0c"},
+        }
         for i, warn in enumerate(sorted_w):
-            style = WARN_STYLES.get(warn["level"], WARN_STYLES["蓝色"])
+            style = dark_ws.get(warn["level"], dark_ws["蓝色"]) if _is_dark() else WARN_STYLES.get(warn["level"], WARN_STYLES["蓝色"])
+            detail_color = "#94a3b8" if _is_dark() else "#555"
             with cols[i % 2]:
                 st.markdown(f"""<div style="background:{style['bg']};border-left:4px solid {style['color']};padding:10px 12px;border-radius:4px;margin-bottom:6px;font-size:13px">
 <b style="color:{style['color']};font-size:15px">{warn['icon']} {warn['type']}{warn['level']}</b>
-<br><span style="color:#555">{warn['level_num']} | {warn['detail']}</span></div>""", unsafe_allow_html=True)
+<br><span style="color:{detail_color}">{warn['level_num']} | {warn['detail']}</span></div>""", unsafe_allow_html=True)
     else:
         st.success("[OK] 未来预报期内未触发预警信号")
 

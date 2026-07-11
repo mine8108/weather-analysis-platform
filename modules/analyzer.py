@@ -423,10 +423,10 @@ def _render_air_quality_section(df):
         margin: 12px 0;
         text-align: center;
     ">
-        <div style="font-size: 0.85rem; color: #888; margin-bottom: 4px;">空气质量指数 (AQI)</div>
+        <div style="font-size: 0.85rem; color: {'#94a3b8' if st.session_state.get('dark_mode', False) else '#888'}; margin-bottom: 4px;">空气质量指数 (AQI)</div>
         <div style="font-size: 3rem; font-weight: 800; color: {color}; line-height: 1.1;">{aqi}</div>
         <div style="font-size: 1.2rem; font-weight: 600; color: {color}; margin: 4px 0;">{level}</div>
-        <div style="font-size: 0.82rem; color: #666;">首要污染物: {primary}</div>
+        <div style="font-size: 0.82rem; color: {'#94a3b8' if st.session_state.get('dark_mode', False) else '#666'};">首要污染物: {primary}</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -731,8 +731,15 @@ def render_analysis_tab(df):
         all_warnings.sort(key=lambda w: level_order.get(w["level"], 4))
 
         cols = st.columns(min(len(all_warnings), 3))
+        is_dark = st.session_state.get("dark_mode", False)
+        dark_styles = {
+            "蓝色": {"color": "#60a5fa", "bg": "#1e3a5f", "text_color": "white"},
+            "黄色": {"color": "#f59e0b", "bg": "#3d2e0c", "text_color": "#e2e8f0"},
+            "橙色": {"color": "#fb923c", "bg": "#3d1f0c", "text_color": "white"},
+            "红色": {"color": "#ef4444", "bg": "#3d0c0c", "text_color": "white"},
+        }
         for i, warn in enumerate(all_warnings):
-            style = WARN_STYLES.get(warn["level"], WARN_STYLES["蓝色"])
+            style = dark_styles.get(warn["level"], dark_styles["蓝色"]) if is_dark else WARN_STYLES.get(warn["level"], WARN_STYLES["蓝色"])
             with cols[i % 3]:
                 st.markdown(f"""
                 <div style="
@@ -745,7 +752,7 @@ def render_analysis_tab(df):
                     <div style="font-size: 18px; font-weight: bold; color: {style['color']};">
                         {warn['icon']} {warn['type']}{warn['level']}预警
                     </div>
-                    <div style="font-size: 13px; color: #666; margin: 4px 0;">
+                    <div style="font-size: 13px; color: {'#94a3b8' if is_dark else '#666'}; margin: 4px 0;">
                         {warn['level_num']} | {warn['detail']}
                     </div>
                 </div>

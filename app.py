@@ -220,25 +220,119 @@ st.markdown("""
 if st.session_state.get("dark_mode", False):
     st.markdown("""
     <style>
+        /* ===== 全局 ===== */
         .stApp { background: #0f172a; }
         .main-header { color: #e2e8f0 !important; }
         .sub-header { color: #94a3b8 !important; }
         h1, h2, h3, h4 { color: #e2e8f0 !important; }
         p, span, label, .stMarkdown { color: #cbd5e1 !important; }
-        [data-testid="stExpander"] { background: #1e293b; border-color: #334155; }
-        [data-testid="stMetric"] { background: #1e293b; border-color: #334155; }
+
+        /* ===== 卡片/容器 (st.container border=True) ===== */
+        [data-testid="stVerticalBlockBorderWrapper"] {
+            background: #1e293b !important;
+            border-color: #334155 !important;
+        }
+
+        /* ===== 按钮 ===== */
+        .stButton > button {
+            background: #1e293b !important;
+            color: #e2e8f0 !important;
+            border-color: #475569 !important;
+        }
+        .stButton > button:hover {
+            background: #334155 !important;
+            border-color: #60a5fa !important;
+            color: #e2e8f0 !important;
+        }
+        button[kind="primary"] {
+            background: #2563eb !important;
+        }
+        button[kind="primary"]:hover {
+            background: #1d4ed8 !important;
+        }
+
+        /* ===== 输入框 ===== */
+        .stTextInput input, .stNumberInput input {
+            background: #1e293b !important;
+            color: #e2e8f0 !important;
+            border-color: #475569 !important;
+        }
+        .stNumberInput button {
+            background: #334155 !important;
+            color: #e2e8f0 !important;
+        }
+
+        /* ===== 展开器 ===== */
+        [data-testid="stExpander"] {
+            background: #1e293b !important;
+            border-color: #334155 !important;
+        }
+        [data-testid="stExpander"] summary {
+            color: #e2e8f0 !important;
+        }
+        [data-testid="stExpander"] summary:hover {
+            color: #60a5fa !important;
+        }
+
+        /* ===== 提示框 ===== */
+        div.stAlert {
+            background: #1e293b !important;
+            border-color: #334155 !important;
+        }
+        div[data-testid="stAlert"] {
+            background: #1e293b !important;
+        }
+
+        /* ===== 指标 ===== */
+        [data-testid="stMetric"] {
+            background: #1e293b !important;
+            border-color: #334155 !important;
+        }
         [data-testid="stMetric"] label { color: #94a3b8 !important; }
         [data-testid="stMetricValue"] { color: #e2e8f0 !important; }
+
+        /* ===== 数据表格 ===== */
         [data-testid="stDataFrame"] { border-color: #334155; }
         [data-testid="stDataFrame"] thead th { background: #1e3a5f !important; }
         [data-testid="stDataFrame"] tbody tr:nth-child(even) { background: #1a2332; }
         [data-testid="stDataFrame"] tbody td { color: #cbd5e1 !important; }
+
+        /* ===== Tab ===== */
         .stTabs [data-baseweb="tab"] { color: #94a3b8 !important; }
         .stTabs [data-baseweb="tab"][aria-selected="true"] { color: #60a5fa !important; }
         .stTabs [data-baseweb="tab-list"] { border-bottom-color: #334155; }
+
+        /* ===== Radio (Tab 导航) ===== */
+        .stRadio label { color: #e2e8f0 !important; }
+        [data-testid="stRadio"] [role="radiogroup"] label {
+            color: #e2e8f0 !important;
+        }
+
+        /* ===== 侧边栏 ===== */
         [data-testid="stSidebar"] { background: #0a0f1a; }
-        button[kind="primary"] { background: #2563eb !important; }
+
+        /* ===== 复选框 ===== */
+        .stCheckbox label { color: #e2e8f0 !important; }
+        .stCheckbox label span { color: #e2e8f0 !important; }
+
+        /* ===== 分割线 ===== */
+        hr { border-color: #334155 !important; }
+
+        /* ===== 文件上传 ===== */
+        [data-testid="stFileUploader"] section {
+            background: #1e293b !important;
+            border-color: #475569 !important;
+        }
+        [data-testid="stFileUploader"] section p {
+            color: #94a3b8 !important;
+        }
+
+        /* ===== 滚动条 ===== */
         ::-webkit-scrollbar-thumb { background: #475569; }
+
+        /* ===== st.caption + st.success ===== */
+        .stCaption { color: #94a3b8 !important; }
+        .stSuccess { background: #064e3b !important; }
     </style>
     """, unsafe_allow_html=True)
 
