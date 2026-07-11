@@ -9,3 +9,4 @@ requests==2.34.2
 xarray>=2024.0
 netCDF4>=1.7.0
 h5netcdf>=1.3.0
+h5py>=3.12.0

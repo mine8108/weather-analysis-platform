@@ -1,5 +1,5 @@
 """
-分析建议引擎：国家预警标准检测、多要素耦合分析、空气质量评估、公众出行/农业建议生成
+分析建议引擎：历史事件检测（基于国家预警标准阈值）、多要素耦合分析、空气质量评估、公众出行/农业建议生成
 """
 
 import pandas as pd
@@ -15,7 +15,7 @@ from config import (
     get_beaufort_level,
 )
 
-# 可配置的预警规则（用户可在侧边栏自定义覆盖）
+# 可配置的事件检测规则（用户可在侧边栏自定义覆盖）
 CUSTOM_THRESHOLDS = {}
 
 
@@ -25,7 +25,7 @@ def set_custom_thresholds(custom):
 
 
 def check_high_temperature(df):
-    """高温预警检测"""
+    """高温事件检测"""
     warnings_list = []
     if "temperature" not in df.columns:
         return warnings_list
@@ -79,7 +79,7 @@ def check_high_temperature(df):
 
 
 def check_cold_wave(df):
-    """寒潮预警检测"""
+    """寒潮事件检测"""
     warnings_list = []
     if "temperature" not in df.columns or len(df) < 48:
         return warnings_list
@@ -123,7 +123,7 @@ def check_cold_wave(df):
 
 
 def check_gale(df):
-    """大风预警检测"""
+    """大风事件检测"""
     warnings_list = []
     if "wind_speed" not in df.columns:
         return warnings_list
@@ -165,7 +165,7 @@ def check_gale(df):
 
 
 def check_fog(df):
-    """大雾预警检测"""
+    """大雾事件检测"""
     warnings_list = []
     if "visibility" not in df.columns:
         return warnings_list
@@ -192,7 +192,7 @@ def check_fog(df):
 
 
 def check_rainstorm(df):
-    """暴雨预警检测"""
+    """暴雨事件检测"""
     warnings_list = []
     if "precipitation" not in df.columns:
         return warnings_list
@@ -229,7 +229,7 @@ def check_rainstorm(df):
 
 
 def check_frost(df):
-    """霜冻预警检测（用气温近似地温）"""
+    """霜冻事件检测（用气温近似地温）"""
     warnings_list = []
     if "temperature" not in df.columns:
         return warnings_list
@@ -258,7 +258,7 @@ def check_frost(df):
 
 
 def check_thunderstorm(df):
-    """雷电预警检测（基于天气码）"""
+    """雷电事件检测（基于天气码）"""
     if "weather_code" not in df.columns:
         return []
 
@@ -278,7 +278,7 @@ def check_thunderstorm(df):
 
 
 def check_haze(df):
-    """霾预警检测"""
+    """霾事件检测"""
     if "visibility" not in df.columns:
         return []
 
@@ -587,7 +587,7 @@ def _render_smart_advice(df):
             avg_temp = temps.mean()
             max_temp = temps.max()
             if max_temp >= 35:
-                advices.append(f"🔥 高温预警: 最高气温达 {max_temp:.1f}℃，建议做好防暑降温，户外工作者注意防护。")
+                advices.append(f"🔥 高温事件: 最高气温达 {max_temp:.1f}℃，建议做好防暑降温，户外工作者注意防护。")
             elif avg_temp > 30:
                 advices.append(f"☀️ 气温偏高: 平均 {avg_temp:.1f}℃，注意补水防晒。")
 
@@ -687,7 +687,7 @@ def multi_factor_coupling(df):
 
 
 def generate_advice(warnings_list):
-    """根据预警生成建议"""
+    """根据检测到的事件生成建议"""
     public_advices = []
     agri_advices = []
 
@@ -696,24 +696,24 @@ def generate_advice(warnings_list):
         level = warn["level"]
 
         if w_type in PUBLIC_ADVICE and level in PUBLIC_ADVICE[w_type]:
-            public_advices.append(f"**{w_type}{level}预警** — {PUBLIC_ADVICE[w_type][level]}")
+            public_advices.append(f"**{w_type}{level}事件** — {PUBLIC_ADVICE[w_type][level]}")
 
         if w_type in AGRI_ADVICE and level in AGRI_ADVICE[w_type]:
-            agri_advices.append(f"**{w_type}{level}预警** — {AGRI_ADVICE[w_type][level]}")
+            agri_advices.append(f"**{w_type}{level}事件** — {AGRI_ADVICE[w_type][level]}")
 
     return public_advices, agri_advices
 
 
 def render_analysis_tab(df):
     """渲染智能分析 Tab"""
-    st.subheader("[预警] 智能分析与建议")
+    st.subheader("[检测] 智能分析与建议")
 
     if df is None or df.empty:
         st.info("请先导入数据")
         return
 
-    # ----- 预警检测 -----
-    st.write("### 预警信号检测（国家气象预警标准）")
+    # ----- 事件检测 -----
+    st.write("### 历史事件检测（参照国家气象预警阈值标准）")
 
     all_warnings = []
     all_warnings += check_high_temperature(df)
@@ -750,7 +750,7 @@ def render_analysis_tab(df):
                     margin-bottom: 8px;
                 ">
                     <div style="font-size: 18px; font-weight: bold; color: {style['color']};">
-                        {warn['icon']} {warn['type']}{warn['level']}预警
+                        {warn['icon']} {warn['type']}{warn['level']}事件
                     </div>
                     <div style="font-size: 13px; color: {'#94a3b8' if is_dark else '#666'}; margin: 4px 0;">
                         {warn['level_num']} | {warn['detail']}
@@ -758,7 +758,7 @@ def render_analysis_tab(df):
                 </div>
                 """, unsafe_allow_html=True)
     else:
-        st.success("[OK] 未触发任何预警信号")
+        st.success("[OK] 未检测到符合阈值的事件")
 
     # ----- 耦合分析 -----
     st.write("---")

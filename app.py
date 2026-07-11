@@ -1,6 +1,6 @@
 """
 气象数据交互分析平台 - 主入口
-基于 Streamlit 的全功能气象数据导入、可视化、预警分析、报告导出平台
+基于 Streamlit 的全功能气象数据导入、可视化、事件检测、报告导出平台
 """
 
 import sys
@@ -61,7 +61,11 @@ def _render_data_summary_card():
     time_info = ""
     if "timestamp" in df.columns and not df["timestamp"].dropna().empty:
         ts = df["timestamp"].dropna()
-        time_info = f"{ts.min().strftime('%Y-%m-%d %H:%M')} ~ {ts.max().strftime('%Y-%m-%d %H:%M')}"
+        is_synthetic = st.session_state.get("_date_is_synthetic", False)
+        if is_synthetic:
+            time_info = f"{ts.min().strftime('%H:%M')} ~ {ts.max().strftime('%H:%M')}"
+        else:
+            time_info = f"{ts.min().strftime('%Y-%m-%d %H:%M')} ~ {ts.max().strftime('%Y-%m-%d %H:%M')}"
     else:
         time_info = f"{n} 条记录"
 
@@ -100,14 +104,14 @@ def _render_data_summary_card():
             cur_tab = st.session_state.get("active_tab", 0)
             b_col1, b_col2, b_col3 = st.columns(3)
             with b_col1:
-                if cur_tab != 1 and st.button("📊 图表", use_container_width=True, key="jump_viz"):
-                    _navigate_to(1)
-            with b_col2:
-                if cur_tab != 2 and st.button("🔔 预警", use_container_width=True, key="jump_alert"):
+                if cur_tab != 2 and st.button("📊 图表", use_container_width=True, key="jump_viz"):
                     _navigate_to(2)
-            with b_col3:
-                if cur_tab != 3 and st.button("📤 导出", use_container_width=True, key="jump_export"):
+            with b_col2:
+                if cur_tab != 3 and st.button("🔔 检测", use_container_width=True, key="jump_alert"):
                     _navigate_to(3)
+            with b_col3:
+                if cur_tab != 4 and st.button("📤 导出", use_container_width=True, key="jump_export"):
+                    _navigate_to(4)
 
 def _render_progress_bar():
     """P3: 任务流进度条（面包屑风格）"""
@@ -115,7 +119,7 @@ def _render_progress_bar():
         ("[导入]", "f0"),
         ("[质控]", "f1"),
         ("[图表]", "f2"),
-        ("[预警]", "f3"),
+        ("[检测]", "f3"),
         ("[导出]", "f4"),
     ]
     # 根据当前 session 数据状态判断进度
@@ -166,7 +170,7 @@ def _render_next_step_hint():
     if not has_data:
         hints.append(("&#x1F4C2;", "请先导入数据：上传 CSV/Excel 文件，或使用 API 获取在线数据"))
     elif has_forecast and "fc_analysis" in st.session_state:
-        hints.append(("&#x26A1;", "数值预报已生成，前往 [预警] 查看预报驱动的智能分析建议"))
+        hints.append(("&#x26A1;", "数值预报已生成，前往 [检测] 查看预报驱动的智能分析建议"))
 
     # 只在有数据时显示
     if has_data and not has_forecast:
@@ -338,7 +342,7 @@ if st.session_state.get("dark_mode", False):
 
 # 头部
 st.markdown('<div class="main-header">[天气] 气象数据交互分析平台</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">数据导入 · 可视化分析 · 国家预警标准检测 · 智能建议 · 数值预报 · 报告导出</div>',
+st.markdown('<div class="sub-header">数据导入 · 可视化分析 · 事件检测 · 智能建议 · 数值预报 · 报告导出</div>',
             unsafe_allow_html=True)
 
 # 使用手册（标题行右侧链接）
@@ -348,7 +352,7 @@ with st.expander("📖 使用手册", expanded=False):
 1. **导入数据**：支持 CSV / Excel / NetCDF 格式，或通过 API 获取在线气象/空气质量数据
 2. **列名自动识别**：系统支持中英文别名，如 `SO2`→`so2`、`二氧化硫`→`so2`、`时间`→`timestamp`
 3. **可视化**：7 个子面板，覆盖时间序列、双轴对比、散点矩阵、相关性热力图、风场分析
-4. **智能分析**：基于国家预警标准（第16号令）及 GB 3095-2026 空气质量标准生成建议
+4. **智能分析**：基于国家预警阈值标准（第16号令）及 GB 3095-2026 空气质量标准生成建议
 
 ### 数据格式
 - **气象站数据**：无名时间列（HHMMSS 格式）自动识别
@@ -379,17 +383,17 @@ def init_session():
 init_session()
 
 # ============================================================
-# 侧边栏：自定义预警阈值
+# 侧边栏：自定义检测阈值
 # ============================================================
 with st.sidebar:
-    st.header("[设置] 自定义预警阈值")
+    st.header("[设置] 自定义检测阈值")
 
     with st.expander("[工具] 调整阈值（覆盖国家标准）", expanded=False):
-        st.caption("留空则使用国家预警标准")
+        st.caption("留空则使用国家预警阈值标准")
 
         custom = {}
 
-        st.write("**高温预警 (℃)**")
+        st.write("**高温检测阈值 (℃)**")
         col_a, col_b = st.columns(2)
         with col_a:
             ht_y = st.number_input("黄色 ≥", value=35.0, step=0.5, key="ht_y")
@@ -398,7 +402,7 @@ with st.sidebar:
         ht_r = st.number_input("红色 ≥", value=40.0, step=0.5, key="ht_r")
         custom["high_temp"] = {"黄色": ht_y, "橙色": ht_o, "红色": ht_r}
 
-        st.write("**大风预警 (m/s)**")
+        st.write("**大风检测阈值 (m/s)**")
         col_c, col_d = st.columns(2)
         with col_c:
             gw_b = st.number_input("蓝色 ≥", value=10.8, step=0.5, key="gw_b")
@@ -411,7 +415,7 @@ with st.sidebar:
             gw_r = st.number_input("红色 ≥", value=32.7, step=0.5, key="gw_r")
         custom["gale"] = {"蓝色": gw_b, "黄色": gw_y, "橙色": gw_o, "红色": gw_r}
 
-        st.write("**大雾预警 (m)**")
+        st.write("**大雾检测阈值 (m)**")
         fg_y = st.number_input("黄色 <", value=500, step=50, key="fg_y")
         fg_o = st.number_input("橙色 <", value=200, step=50, key="fg_o")
         fg_r = st.number_input("红色 <", value=50, step=10, key="fg_r")
@@ -447,12 +451,12 @@ if "active_tab" not in st.session_state:
 
 tab_labels = [
     "[导入] 数据导入",
+    "[预报] 数值预报",
     "[图表] 可视化分析",
-    "[预警] 智能分析与建议",
+    "[检测] 智能分析与建议",
     "[导出] 报告导出",
     "[日期] 气候态参照",
     "[雷达] 报文解码",
-    "[预报] 数值预报",
 ]
 
 
@@ -577,7 +581,7 @@ if st.session_state["active_tab"] == 0:
             with c1:
                 if st.button("✅ 确认数据，前往可视化分析", use_container_width=True, key="wiz_confirm"):
                     st.session_state["import_step"] = 0
-                    _navigate_to(1)
+                    _navigate_to(2)
             with c2:
                 if st.button("🔄 重新导入", use_container_width=True, key="wiz_retry"):
                     st.session_state["import_step"] = 0
@@ -627,12 +631,12 @@ if st.session_state["active_tab"] == 0:
                 st.session_state["import_step"] = 0
                 st.rerun()
 
-# ---- Tab 1: 可视化 ----
-if st.session_state["active_tab"] == 1:
+# ---- Tab 2: 可视化 ----
+if st.session_state["active_tab"] == 2:
     render_visualization_tab(st.session_state["df"])
 
-# ---- Tab 2: 智能分析与建议 ----
-if st.session_state["active_tab"] == 2:
+# ---- Tab 3: 智能分析与建议 ----
+if st.session_state["active_tab"] == 3:
     warnings_result = render_analysis_tab(st.session_state["df"])
     if st.session_state["df"] is not None:
         all_w = []
@@ -646,8 +650,8 @@ if st.session_state["active_tab"] == 2:
         all_w += check_haze(st.session_state["df"])
         st.session_state["warnings_list"] = all_w
 
-# ---- Tab 3: 报告导出 ----
-if st.session_state["active_tab"] == 3:
+# ---- Tab 4: 报告导出 ----
+if st.session_state["active_tab"] == 4:
     render_export_tab(
         st.session_state["df"],
         st.session_state.get("warnings_list", []),
@@ -655,16 +659,16 @@ if st.session_state["active_tab"] == 3:
         st.session_state.get("source", ""),
     )
 
-# ---- Tab 4: 气候态参照 ----
-if st.session_state["active_tab"] == 4:
+# ---- Tab 5: 气候态参照 ----
+if st.session_state["active_tab"] == 5:
     render_climate_ref_tab(st.session_state["df"])
 
-# ---- Tab 5: 报文解码 ----
-if st.session_state["active_tab"] == 5:
+# ---- Tab 6: 报文解码 ----
+if st.session_state["active_tab"] == 6:
     render_codec_tab()
 
-# ---- Tab 6: 数值预报 ----
-if st.session_state["active_tab"] == 6:
+# ---- Tab 1: 数值预报 ----
+if st.session_state["active_tab"] == 1:
     render_forecast_tab()
 
     # P1: 预报完成后自动传递到智能分析
@@ -680,11 +684,11 @@ if st.session_state["active_tab"] == 6:
                                                "precipitation_sum": "precipitation"})
             st.session_state["nwp_combined"] = True
             st.session_state["nwp_forecast_for_analysis"] = fc_df
-            st.success("预报数据已传递给智能分析模块！请前往 [预警] Tab 查看基于预报的建议。")
-            st.info("提示：在 [预警] Tab 中，系统将自动结合预报数据生成：\n"
-                    "- 未来气温趋势与高温预警\n"
+            st.success("预报数据已传递给智能分析模块！请前往 [检测] Tab 查看基于预报的建议。")
+            st.info("提示：在 [检测] Tab 中，系统将自动结合预报数据生成：\n"
+                    "- 未来气温趋势与高温风险\n"
                     "- 降水量预测与暴雨风险评估\n"
-                    "- 风速预报与大风预警")
+                    "- 风速预报与大风风险")
 
         if fc_analysis:
             pass  # 预报分析摘要已隐藏

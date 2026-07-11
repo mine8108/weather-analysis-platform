@@ -62,9 +62,14 @@ def load_netcdf(file):
     variables: {var_name: {"dims": [...], "ndim": N, "units": "", "long_name": ""}}
     """
     try:
+        import h5py
+    except ImportError:
+        return None, None, None, "缺少 h5py 依赖，无法解析 NetCDF 文件。请在 requirements.txt 中添加 h5py>=3.12.0 并重新部署。"
+
+    try:
         import xarray as xr
     except ImportError:
-        return None, None, None, "xarray 未安装。请执行: pip install xarray netCDF4"
+        return None, None, None, "xarray 未安装。请执行: pip install xarray netCDF4 h5py"
 
     try:
         ds = xr.open_dataset(BytesIO(file.read()), engine="netcdf4")
@@ -191,6 +196,8 @@ def parse_timestamp(df):
     L4: 质量报告 (解析后反馈)
     L5: 交互式确认 (找不到时让用户选)
     """
+    # 重置合成日期标记
+    st.session_state["_date_is_synthetic"] = False
     ts_col = None
     report_method = ""
 
@@ -406,6 +413,7 @@ def _smart_parse_datetime(series):
                             format="%Y-%m-%d %H%M%S", errors="coerce"
                         )
                         if result.notna().sum() >= len(vals) * 0.5:
+                            st.session_state["_date_is_synthetic"] = True
                             return result
 
     # 先试自动推断
@@ -455,7 +463,14 @@ def _show_time_report(df, method, valid, total):
 
     missing = total - valid
     missing_str = f"，{missing} 条缺失" if missing > 0 else ""
-    span = f"（{timestamps.min().strftime('%Y-%m-%d %H:%M')} ~ {timestamps.max().strftime('%Y-%m-%d %H:%M')}）" if len(timestamps) > 0 else ""
+    is_synthetic = st.session_state.get("_date_is_synthetic", False)
+    if len(timestamps) > 0:
+        if is_synthetic:
+            span = f"（{timestamps.min().strftime('%H:%M')} ~ {timestamps.max().strftime('%H:%M')}）"
+        else:
+            span = f"（{timestamps.min().strftime('%Y-%m-%d %H:%M')} ~ {timestamps.max().strftime('%Y-%m-%d %H:%M')}）"
+    else:
+        span = ""
 
     st.success(
         f"[时间] {method} | {valid}/{total} 条有效{missing_str}{gap_str} {span}"
