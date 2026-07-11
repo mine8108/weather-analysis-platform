@@ -715,6 +715,16 @@ if st.session_state["active_tab"] == 0:
                 if st.button("🔄 重新导入", use_container_width=True, key="wiz_retry"):
                     st.session_state["import_step"] = 0
                     st.session_state["import_method"] = None
+                    st.session_state["df"] = None
+                    st.session_state["source"] = ""
+                    st.session_state["warnings_list"] = []
+                    st.session_state["quality_score"] = 0.0
+                    st.session_state["climate_data"] = None
+                    st.session_state["climate_extreme"] = None
+                    st.session_state["fc_df"] = None
+                    st.session_state["fc_analysis"] = None
+                    st.session_state["_import_history"] = []
+                    st.session_state["_filter_date_range"] = None
                     st.rerun()
         else:
             st.warning("未检测到数据，请返回重新导入")
