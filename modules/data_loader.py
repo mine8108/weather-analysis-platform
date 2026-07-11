@@ -660,14 +660,14 @@ def render_api_section():
                     weather = df
                     has_aq = st.session_state.get("api_fetched_pollution") is not None
                     if has_aq:
-                        if st.button("[使用] 使用并合并气象+空气质量", use_container_width=True, key="api_use_weather"):
+                        if st.button("[使用] 使用并合并气象+空气质量", use_container_width=True, key="api_use_weather_merged"):
                             merged = _merge_weather_pollution(weather, st.session_state["api_fetched_pollution"])
                             if merged is not None:
                                 st.session_state["api_df"] = merged
                                 st.session_state["api_source"] = f"{st.session_state['api_weather_source']} + {st.session_state.get('api_aq_source', '')}"
                                 st.rerun()
                     else:
-                        if st.button("[使用] 使用气象数据", use_container_width=True, key="api_use_weather"):
+                        if st.button("[使用] 使用气象数据", use_container_width=True, key="api_use_weather_solo"):
                             st.session_state["api_df"] = weather
                             st.session_state["api_source"] = st.session_state["api_weather_source"]
                             st.rerun()
@@ -711,14 +711,14 @@ def render_api_section():
                     pollution = df
                     has_w = st.session_state.get("api_fetched_weather") is not None
                     if has_w:
-                        if st.button("[使用] 使用并合并气象+空气质量", use_container_width=True, key="api_use_aq"):
+                        if st.button("[使用] 使用并合并气象+空气质量", use_container_width=True, key="api_use_aq_merged"):
                             merged = _merge_weather_pollution(st.session_state["api_fetched_weather"], pollution)
                             if merged is not None:
                                 st.session_state["api_df"] = merged
                                 st.session_state["api_source"] = f"{st.session_state.get('api_weather_source', '')} + {st.session_state['api_aq_source']}"
                                 st.rerun()
                     else:
-                        if st.button("[使用] 使用空气质量数据", use_container_width=True, key="api_use_aq"):
+                        if st.button("[使用] 使用空气质量数据", use_container_width=True, key="api_use_aq_solo"):
                             st.session_state["api_df"] = pollution
                             st.session_state["api_source"] = st.session_state["api_aq_source"]
                             st.rerun()
