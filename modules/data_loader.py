@@ -10,6 +10,10 @@ from datetime import datetime, timedelta
 from io import StringIO
 from config import FIELD_ALIASES, STANDARD_FIELDS
 
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils import retry_with_backoff
+
 
 def normalize_columns(df):
     """将用户数据列名映射为标准字段名"""
@@ -497,6 +501,7 @@ def render_manual_input_section(existing_df=None):
     return None
 
 
+@retry_with_backoff(max_retries=2, base_delay=2, backoff_factor=2)
 def fetch_open_meteo(lat, lon, start_date, end_date):
     """从 Open-Meteo API 获取历史气象数据"""
     import requests

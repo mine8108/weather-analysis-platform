@@ -259,58 +259,95 @@ def scatter_matrix(df):
 
 
 def multi_station_comparison(df):
-    """多站点对比分析"""
+    """多站点对比分析（增强版：站点筛选 + 统计摘要表）"""
     if "station_id" not in df.columns or df["station_id"].nunique() < 2:
         return None
 
-    stations = df["station_id"].unique()
+    stations = sorted(df["station_id"].dropna().unique())
     st.write(f"### [标签] 多站点对比 (共 {len(stations)} 个站点)")
+
+    # 站点选择面板
+    if "multi_station_selected" not in st.session_state:
+        st.session_state["multi_station_selected"] = list(stations)
+
+    with st.expander("站点管理", expanded=False):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            if st.button("✓ 全选", use_container_width=True, key="ms_all"):
+                st.session_state["multi_station_selected"] = list(stations)
+                st.rerun()
+        with c2:
+            if st.button("✗ 取消", use_container_width=True, key="ms_none"):
+                st.session_state["multi_station_selected"] = []
+                st.rerun()
+        with c3:
+            if st.button("↻ 反选", use_container_width=True, key="ms_invert"):
+                sel = set(st.session_state["multi_station_selected"])
+                st.session_state["multi_station_selected"] = [s for s in stations if s not in sel]
+                st.rerun()
+        st.session_state["multi_station_selected"] = st.multiselect(
+            "选择站点", stations,
+            default=st.session_state["multi_station_selected"],
+            key="ms_select"
+        )
+
+    selected = st.session_state["multi_station_selected"]
+    if len(selected) < 2:
+        st.info("请至少选择 2 个站点进行对比")
+        return None
 
     # 选择对比要素
     compare_fields = ["temperature", "pressure", "humidity", "wind_speed", "visibility"]
     available = [f for f in compare_fields if f in df.columns]
-
     if not available:
         return None
 
     field = st.selectbox("选择对比要素", available, key="multi_station_field")
 
-    if field not in df.columns:
-        return None
+    station_df_filtered = df[df["station_id"].isin(selected)]
 
     fig = go.Figure()
     palette = px.colors.qualitative.Set1
-    for idx, station in enumerate(stations):
-        station_df = df[df["station_id"] == station]
-        if station_df[field].dropna().empty:
+    for idx, station in enumerate(selected):
+        sdf = station_df_filtered[station_df_filtered["station_id"] == station]
+        if sdf[field].dropna().empty:
             continue
         color = palette[idx % len(palette)]
         fig.add_trace(go.Scatter(
-            x=_safe_xaxis(station_df),
-            y=station_df[field],
-            mode="lines+markers",
-            name=str(station),
-            line=dict(color=color, width=2),
-            marker=dict(size=3),
+            x=_safe_xaxis(sdf), y=sdf[field],
+            mode="lines+markers", name=str(station),
+            line=dict(color=color, width=2), marker=dict(size=3),
         ))
 
     labels = {
-        "temperature": "气温 (℃)",
-        "pressure": "气压 (hPa)",
-        "humidity": "相对湿度 (%)",
-        "wind_speed": "风速 (m/s)",
+        "temperature": "气温 (℃)", "pressure": "气压 (hPa)",
+        "humidity": "相对湿度 (%)", "wind_speed": "风速 (m/s)",
         "visibility": "能见度 (km)",
     }
-
     fig.update_layout(
         title=f"多站点 {labels.get(field, field)} 对比",
-        xaxis_title="时间",
-        yaxis_title=labels.get(field, field),
-        hovermode="x unified",
-        height=400,
+        xaxis_title="时间", yaxis_title=labels.get(field, field),
+        hovermode="x unified", height=420,
         margin=dict(l=40, r=20, t=40, b=40),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
     )
-    safe_chart(fig, "多站点对比", use_container_width=True)
+    safe_chart(fig, "多站点对比", use_container_width=True, key="multi_station_chart")
+
+    # 统计摘要表
+    st.write("**站点统计摘要**")
+    stats_rows = []
+    for station in selected:
+        sdf = station_df_filtered[station_df_filtered["station_id"] == station][field].dropna()
+        if len(sdf) == 0:
+            continue
+        stats_rows.append({
+            "站点": str(station), "均值": f"{sdf.mean():.1f}",
+            "最大": f"{sdf.max():.1f}", "最小": f"{sdf.min():.1f}",
+            "记录数": len(sdf),
+        })
+    if stats_rows:
+        st.dataframe(pd.DataFrame(stats_rows), use_container_width=True, hide_index=True)
+
     return fig
 
 

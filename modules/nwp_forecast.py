@@ -19,6 +19,11 @@ from plotly.subplots import make_subplots
 
 from config import COLORS, safe_chart
 
+# ---- 工具导入 ----
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils import retry_with_backoff
+
 # ---- 暗色模式适配 ----
 def _is_dark():
     return st.session_state.get("dark_mode", False)
@@ -56,6 +61,7 @@ _FC_HOURLY = [
 # ============================================================
 # 二、数据获取
 # ============================================================
+@retry_with_backoff(max_retries=3, base_delay=3, backoff_factor=2)
 def fetch_gfs_forecast(lat, lon, days=7, model="gfs_seamless"):
     """获取 GFS 单点逐时预报 (Open-Meteo, 免注册)。
 
@@ -1041,6 +1047,8 @@ def render_forecast_tab():
         else:
             st.session_state["fc_df"] = fdf
             st.success(f"[OK] 获取 {len(fdf)} 条逐时预报 (未来 {days} 天)")
+            st.session_state["_fc_auto_link"] = True
+            st.rerun()
 
     fdf = st.session_state.get("fc_df", None)
     if fdf is None:

@@ -7,6 +7,7 @@ import sys
 import os
 import streamlit as st
 import pandas as pd
+from datetime import datetime
 
 # 确保模块路径可导入
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -37,6 +38,7 @@ from modules.climate_ref import render_climate_ref_tab
 from modules.codec import render_codec_tab
 from modules.reporter import render_export_tab
 from modules.nwp_forecast import render_forecast_tab
+from utils import df_fingerprint as _df_fingerprint
 
 # ============================================================
 # 通用 UI 辅助函数
@@ -112,6 +114,30 @@ def _render_data_summary_card():
             with b_col3:
                 if cur_tab != 4 and st.button("📤 导出", use_container_width=True, key="jump_export"):
                     _navigate_to(4)
+
+    # 日期范围筛选器
+    if "timestamp" in df.columns:
+        ts = df["timestamp"].dropna()
+        if len(ts) > 1:
+            dmin = ts.min().to_pydatetime() if hasattr(ts.min(), "to_pydatetime") else ts.min()
+            dmax = ts.max().to_pydatetime() if hasattr(ts.max(), "to_pydatetime") else ts.max()
+            date_range = st.date_input(
+                "📅 数据时间范围筛选",
+                value=(dmin.date(), dmax.date()),
+                key="_filter_date_range_input",
+            )
+            if len(date_range) == 2:
+                st.session_state["_filter_date_range"] = date_range
+                filtered_n = len(_get_filtered_df())
+                if filtered_n != n:
+                    st.caption(f"当前筛选：{filtered_n} 条 / 共 {n} 条")
+
+    # 记录导入历史（首次检测到新数据时）
+    fp_key = "_last_df_fp"
+    current_fp = _df_fingerprint(df)
+    if st.session_state.get(fp_key) != current_fp:
+        st.session_state[fp_key] = current_fp
+        _record_import(src, df)
 
 def _render_progress_bar():
     """P3: 任务流进度条（面包屑风格）"""
@@ -192,6 +218,75 @@ def _render_next_step_hint():
             <span style="margin-right: 6px;">{icon}</span> {text}
         </div>
         """, unsafe_allow_html=True)
+
+
+def _render_onboarding_page():
+    """P4: 空数据时显示图形化三步引导页"""
+    from config import ONBOARDING_STEPS
+
+    col_center = st.columns([1, 6, 1])
+    with col_center[1]:
+        st.markdown("""
+        <div style="text-align:center; padding: 30px 0 10px 0;">
+            <div style="font-size: 3rem;">🌤️</div>
+            <h2 style="margin: 8px 0;">气象数据交互分析平台</h2>
+            <p style="color:#888; font-size:0.95rem;">
+                三步上手，轻松完成气象数据导入、可视化分析与报告导出
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        step_cols = st.columns(3)
+        for i, step in enumerate(ONBOARDING_STEPS):
+            with step_cols[i]:
+                with st.container(border=True):
+                    st.markdown(f"""
+                    <div style="text-align:center; padding: 12px 0;">
+                        <div style="font-size: 2.5rem;">{step['icon']}</div>
+                        <h4 style="margin: 8px 0;">{step['title']}</h4>
+                        <p style="color:#888; font-size:0.8rem;">{step['desc']}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    if st.button(step["action"], use_container_width=True, key=f"onboard_{i}"):
+                        _navigate_to(step["tab_idx"])
+
+        st.write("")
+        c1, c2, c3 = st.columns([1, 2, 1])
+        with c2:
+            if st.button("⚡ 快速开始 — 导入数据", use_container_width=True, type="primary",
+                         key="onboard_quick"):
+                _navigate_to(0)
+        st.divider()
+
+
+def _apply_filter(df):
+    """对 DataFrame 应用 session_state 中的筛选条件"""
+    if df is None or df.empty:
+        return df
+    date_range = st.session_state.get("_filter_date_range", None)
+    if date_range and len(date_range) == 2 and "timestamp" in df.columns:
+        start, end = date_range
+        df = df[(df["timestamp"] >= pd.Timestamp(start)) &
+                (df["timestamp"] <= pd.Timestamp(end))]
+    return df
+
+
+def _get_filtered_df():
+    """获取当前筛选后的 DataFrame"""
+    return _apply_filter(st.session_state.get("df"))
+
+
+def _record_import(source, df):
+    """记录导入历史到 session_state"""
+    record = {
+        "source": source,
+        "time": datetime.now().strftime("%H:%M:%S"),
+        "n_rows": len(df),
+    }
+    history = st.session_state.get("_import_history", [])
+    history.append(record)
+    st.session_state["_import_history"] = history[-5:]
+
 
 # 页面配置
 st.set_page_config(**PAGE_CONFIG)
@@ -337,6 +432,24 @@ if st.session_state.get("dark_mode", False):
         /* ===== st.caption + st.success ===== */
         .stCaption { color: #94a3b8 !important; }
         .stSuccess { background: #064e3b !important; }
+
+        /* ===== 移动端适配 ===== */
+        @media screen and (max-width: 768px) {
+            .main-header { font-size: 1.3rem !important; }
+            .sub-header { font-size: 0.8rem !important; }
+            [data-testid="column"] { flex: 1 1 100% !important; min-width: 100% !important; }
+            .stTabs [data-baseweb="tab"] { padding: 6px 8px !important; font-size: 0.75rem !important; }
+            .stButton > button { width: 100% !important; }
+            [data-testid="stRadio"] [role="radiogroup"] { flex-direction: column !important; }
+            [data-testid="stMetric"] { padding: 8px !important; }
+            .js-plotly-plot, .plot-container { max-height: 300px !important; }
+            [data-testid="stDataFrame"] { overflow-x: auto !important; }
+            .block-container { padding: 1rem 0.5rem !important; }
+        }
+        @media screen and (min-width: 769px) and (max-width: 1024px) {
+            .main-header { font-size: 1.6rem !important; }
+            .block-container { padding: 1.5rem 1rem !important; }
+        }
     </style>
     """, unsafe_allow_html=True)
 
@@ -378,6 +491,8 @@ def init_session():
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
+    if "_import_history" not in st.session_state:
+        st.session_state["_import_history"] = []
 
 
 init_session()
@@ -434,16 +549,27 @@ with st.sidebar:
         st.session_state["dark_mode"] = dark
         st.rerun()
     st.divider()
+    # 导入历史
+    history = st.session_state.get("_import_history", [])
+    if history:
+        st.caption("📋 导入历史")
+        for h in reversed(history[-3:]):
+            st.caption(f"{h['time']} | {h['source']} | {h['n_rows']}条")
+    st.divider()
     st.caption("[资料] 中国气象局第16号令 · 气象灾害预警信号发布与传播办法")
     st.caption("© 气象数据交互分析平台 v1.0")
     st.divider()
     st.caption("※ 本平台分析结果仅供学习参考，不替代国家气象部门权威预报。")
 
 # ============================================================
-# 主内容区：进度条 + 下一步提示 + Tab 导航
+# 主内容区：无数据时显示引导页，有数据时显示提示+摘要
 # ============================================================
-_render_next_step_hint()
-_render_data_summary_card()
+has_any_data = st.session_state.get("df") is not None
+if not has_any_data:
+    _render_onboarding_page()
+else:
+    _render_next_step_hint()
+    _render_data_summary_card()
 
 # ---- 标签页导航（支持编程跳转） ----
 if "active_tab" not in st.session_state:
@@ -633,7 +759,7 @@ if st.session_state["active_tab"] == 0:
 
 # ---- Tab 2: 可视化 ----
 if st.session_state["active_tab"] == 2:
-    render_visualization_tab(st.session_state["df"])
+    render_visualization_tab(_get_filtered_df())
 
 # ---- Tab 3: 智能分析与建议 ----
 if st.session_state["active_tab"] == 3:
@@ -669,26 +795,35 @@ if st.session_state["active_tab"] == 6:
 
 # ---- Tab 1: 数值预报 ----
 if st.session_state["active_tab"] == 1:
+    # 预报完成后自动联动：跳转到检测 Tab
+    if st.session_state.get("_fc_auto_link", False):
+        st.session_state["_fc_auto_link"] = False
+        fc_df = st.session_state.get("fc_df")
+        if fc_df is not None:
+            if "temperature" not in fc_df.columns and "temperature_2m" in fc_df.columns:
+                fc_df = fc_df.rename(columns={
+                    "temperature_2m": "temperature",
+                    "precipitation_sum": "precipitation"
+                })
+            st.session_state["nwp_forecast_for_analysis"] = fc_df
+            st.session_state["nwp_combined"] = True
+            _navigate_to(3)
+
     render_forecast_tab()
 
-    # P1: 预报完成后自动传递到智能分析
+    # P1: 预报完成后自动传递到智能分析（保留备用按钮）
     fc_df = st.session_state.get("fc_df", None)
     fc_analysis = st.session_state.get("fc_analysis", "")
     if fc_df is not None:
         st.write("---")
         st.write("### [联动] 预报驱动的智能分析")
         if st.button("[分析] 基于预报数据生成智能建议", use_container_width=True, key="nwp_analyze"):
-            # 将预报数据转为分析用的 DataFrame
             if "temperature" not in fc_df.columns and "temperature_2m" in fc_df.columns:
                 fc_df = fc_df.rename(columns={"temperature_2m": "temperature",
                                                "precipitation_sum": "precipitation"})
             st.session_state["nwp_combined"] = True
             st.session_state["nwp_forecast_for_analysis"] = fc_df
-            st.success("预报数据已传递给智能分析模块！请前往 [检测] Tab 查看基于预报的建议。")
-            st.info("提示：在 [检测] Tab 中，系统将自动结合预报数据生成：\n"
-                    "- 未来气温趋势与高温风险\n"
-                    "- 降水量预测与暴雨风险评估\n"
-                    "- 风速预报与大风风险")
+            _navigate_to(3)
 
         if fc_analysis:
             pass  # 预报分析摘要已隐藏
