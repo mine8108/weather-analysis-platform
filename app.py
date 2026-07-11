@@ -126,7 +126,7 @@ def _render_data_summary_card():
                     st.caption(f"当前筛选：{filtered_n} 条 / 共 {n} 条")
 
     # 使用原生 Streamlit 组件确保刷新正确
-    with st.container(border=True, key="summary_card"):
+    with st.container(border=False, key="summary_card"):
         c1, c2 = st.columns([6, 4])
         with c1:
             st.success(f"数据已就绪 — {src}")
