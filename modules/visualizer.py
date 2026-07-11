@@ -696,9 +696,9 @@ def correlation_heatmap(df):
     ))
 
     fig.update_layout(
-        title=dict(text="要素相关性矩阵 | 红=正相关 蓝=负相关", font=dict(size=14), x=0),
+        title=dict(text="要素相关性矩阵 | 红=正相关 蓝=负相关", font=dict(size=14), x=0.5, xanchor="center"),
         height=480,
-        margin=dict(l=20, r=20, t=40, b=20),
+        margin=dict(l=80, r=20, t=80, b=20),
         xaxis=dict(side="top"),
     )
     return fig
