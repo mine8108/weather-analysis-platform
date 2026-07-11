@@ -94,8 +94,25 @@ def _render_data_summary_card():
         pollution_text = " · ".join([pollution_labels.get(f, f) for f in pollution_present])
         pollution_text = f" | 污染物: {pollution_text}"
 
+    # 日期范围筛选器（放在容器外避免DOM不一致）
+    if "timestamp" in df.columns:
+        ts = df["timestamp"].dropna()
+        if len(ts) > 1:
+            dmin = ts.min().to_pydatetime() if hasattr(ts.min(), "to_pydatetime") else ts.min()
+            dmax = ts.max().to_pydatetime() if hasattr(ts.max(), "to_pydatetime") else ts.max()
+            date_range = st.date_input(
+                "📅 数据时间范围筛选",
+                value=(dmin.date(), dmax.date()),
+                key="_filter_date_range_input",
+            )
+            if len(date_range) == 2:
+                st.session_state["_filter_date_range"] = date_range
+                filtered_n = len(_get_filtered_df())
+                if filtered_n != n:
+                    st.caption(f"当前筛选：{filtered_n} 条 / 共 {n} 条")
+
     # 使用原生 Streamlit 组件确保刷新正确
-    with st.container(border=True):
+    with st.container(border=True, key="summary_card"):
         c1, c2 = st.columns([6, 4])
         with c1:
             st.success(f"数据已就绪 — {src}")
@@ -239,7 +256,7 @@ def _render_onboarding_page():
         step_cols = st.columns(3)
         for i, step in enumerate(ONBOARDING_STEPS):
             with step_cols[i]:
-                with st.container(border=True):
+                with st.container(border=True, key=f"onboard_{i}"):
                     st.markdown(f"""
                     <div style="text-align:center; padding: 12px 0;">
                         <div style="font-size: 2.5rem;">{step['icon']}</div>
