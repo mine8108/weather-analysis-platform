@@ -192,6 +192,9 @@ def render_climate_ref_tab(df):
             st.info("当前数据缺少可用于距平对比的要素字段")
     else:
         st.info("请先导入数据以进行距平对比")
+        if st.button("← 返回导入", key="climate_back"):
+            st.session_state["active_tab"] = 0
+            st.rerun()
 
     # 历史极值面板
     extreme = st.session_state.get("climate_extreme")

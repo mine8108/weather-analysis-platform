@@ -758,6 +758,11 @@ def render_analysis_tab(df):
 
     if df is None or df.empty:
         st.info("请先导入数据")
+        if st.button("← 返回导入", key="analyzer_back"):
+            stack = st.session_state.get("_nav_stack", [])
+            st.session_state["active_tab"] = stack.pop() if stack else 0
+            st.session_state["_nav_stack"] = stack
+            st.rerun()
         return
 
     # ----- 事件检测 -----

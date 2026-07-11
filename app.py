@@ -39,14 +39,27 @@ from modules.climate_ref import render_climate_ref_tab
 from modules.codec import render_codec_tab
 from modules.reporter import render_export_tab
 from modules.nwp_forecast import render_forecast_tab
-from utils import df_fingerprint as _df_fingerprint
+from utils import df_fingerprint as _df_fingerprint, go_back as _go_back
 
 # ============================================================
 # 通用 UI 辅助函数
 # ============================================================
 
+# 导航栈初始化
+if "_nav_stack" not in st.session_state:
+    st.session_state["_nav_stack"] = []
+
+
 def _navigate_to(tab_idx):
-    """统一跳转入口，避免 session state 不同步"""
+    """统一跳转入口：入栈当前 tab，跳转目标 tab"""
+    cur = st.session_state.get("active_tab", 0)
+    if cur != tab_idx:
+        stack = st.session_state.get("_nav_stack", [])
+        stack.append(cur)
+        # 保留最近 10 层
+        if len(stack) > 10:
+            stack = stack[-10:]
+        st.session_state["_nav_stack"] = stack
     st.session_state["active_tab"] = tab_idx
     st.rerun()
 

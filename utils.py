@@ -67,3 +67,26 @@ def retry_with_backoff(max_retries=3, base_delay=2, backoff_factor=2):
             return None, f"API 不可用: {str(last_error)[:200]}"
         return wrapper
     return decorator
+
+
+# ============================================================
+# 三、导航栈工具
+# ============================================================
+
+def go_back(fallback=0):
+    """从导航栈弹出上一级 Tab 并跳转，栈空时跳到 fallback"""
+    stack = st.session_state.get("_nav_stack", [])
+    if stack:
+        st.session_state["active_tab"] = stack.pop()
+        st.session_state["_nav_stack"] = stack
+    else:
+        st.session_state["active_tab"] = fallback
+    st.rerun()
+
+
+def render_back_button(label="← 返回", fallback=0, key=None):
+    """渲染一个返回上一级按钮（用于各模块空状态或操作后）"""
+    import streamlit as st_local
+    k = key or f"back_{fallback}"
+    if st_local.button(label, key=k):
+        go_back(fallback)
