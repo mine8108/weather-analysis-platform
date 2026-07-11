@@ -606,7 +606,7 @@ tab_labels = [
 # 注意：不使用 key 参数！否则 session_state 旧值会覆盖 index，
 # 导致 active_tab 被反向重置，跳转失效
 selected = st.radio(
-    "",
+    "导航",
     tab_labels,
     index=st.session_state["active_tab"],
     horizontal=True,

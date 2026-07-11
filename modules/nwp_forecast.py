@@ -1049,108 +1049,105 @@ def render_forecast_tab():
             st.success(f"[OK] 获取 {len(fdf)} 条逐时预报 (未来 {days} 天)")
 
     fdf = st.session_state.get("fc_df", None)
+    if fdf is None:
+        st.info("点击上方按钮获取 GFS 预报数据")
+        return
 
-    # 稳定容器 - 避免 DOM 突变触发 Streamlit 前端 Bug
-    with st.container(key="fc_results"):
-        if fdf is None:
-            st.info("点击上方按钮获取 GFS 预报数据")
-            return
-
-        # ---- 时间图 ----
+    # ---- 时间图 ----
         st.write("### 时间图：逐时预报序列")
         ts_fig = _forecast_time_series(fdf)
-        safe_chart(ts_fig, "温度/体感/降水 预报", key="fc_ts")
-        # D: 说明 rangeslider 的 Plotly 天然限制
-        st.caption("提示：底部缩放滑块仅关联左侧「气温」坐标轴（右轴降水不随滑块缩放），这是 Plotly 原生行为。")
-        st.write("### 72 小时高温预报面板")
-        hh = fdf.head(72)
-        panel_fig = _high_temp_72h_panel(hh)
-        safe_chart(panel_fig, "72小时高温预报", key="fc_72h")
-    
-        max_t = float(hh["temperature"].max())
-        max_app = float(hh["apparent_temperature"].max())
-        hi = heat_index(hh["temperature"].values, hh["humidity"].values)
-        max_hi = float(np.nanmax(hi)) if np.isfinite(np.nanmax(hi)) else float("nan")
-        if max_t >= 35:
-            msg = f"未来 72 小时将出现高温：最高气温 {max_t:.1f}℃，最大体感温度 {max_app:.1f}℃"
-            if np.isfinite(max_hi):
-                msg += f"，Rothfusz 热指数峰值 {max_hi:.1f}℃"
-            st.warning("[高温] " + msg)
+    safe_chart(ts_fig, "温度/体感/降水 预报", key="fc_ts")
+    # D: 说明 rangeslider 的 Plotly 天然限制
+    st.caption("提示：底部缩放滑块仅关联左侧「气温」坐标轴（右轴降水不随滑块缩放），这是 Plotly 原生行为。")
+    st.write("### 72 小时高温预报面板")
+    hh = fdf.head(72)
+    panel_fig = _high_temp_72h_panel(hh)
+    safe_chart(panel_fig, "72小时高温预报", key="fc_72h")
+
+    max_t = float(hh["temperature"].max())
+    max_app = float(hh["apparent_temperature"].max())
+    hi = heat_index(hh["temperature"].values, hh["humidity"].values)
+    max_hi = float(np.nanmax(hi)) if np.isfinite(np.nanmax(hi)) else float("nan")
+    if max_t >= 35:
+        msg = f"未来 72 小时将出现高温：最高气温 {max_t:.1f}℃，最大体感温度 {max_app:.1f}℃"
+        if np.isfinite(max_hi):
+            msg += f"，Rothfusz 热指数峰值 {max_hi:.1f}℃"
+        st.warning("[高温] " + msg)
+    else:
+        st.success(f"[OK] 未来 72 小时无高温风险 (气温 < 35℃，峰值 {max_t:.1f}℃)")
+
+    # ---- 降水预报 ----
+    st.write("### 降水预报")
+    total_precip = float(fdf["precipitation"].sum())
+    st.metric("预报期累计降水", f"{total_precip:.1f} mm")
+    daily_fig = _daily_precip_chart(fdf)
+    safe_chart(daily_fig, "逐日降水预报", key="fc_daily_precip")
+
+    # ---- 空间图 ----
+    st.write("---")
+    st.write("### 空间图：区域预报场")
+    st.caption("多模式视图：单时次热力图 + 等值线 | 多时次快照 | 距平异常检测 (无需 Mapbox Token)")
+
+    # 视图模式选择
+    spatial_mode = st.radio(
+        "视图模式",
+        ["single", "panel", "anomaly"],
+        format_func=lambda m: {"single": "单时次 (等值线)", "panel": "多时次快照", "anomaly": "距平模式"}[m],
+        horizontal=True, key="fc_spatial_mode",
+    )
+
+    scol1, scol2, scol3 = st.columns(3)
+    with scol1:
+        variable = st.selectbox("空间变量", list(SPATIAL_VAR_LABELS.keys()),
+                                format_func=lambda v: SPATIAL_VAR_LABELS[v], key="fc_spatial_var")
+    with scol2:
+        step = st.slider("网格步长 (度)", 0.10, 1.0, 0.25, 0.05, key="fc_step")
+    with scol3:
+        half = st.slider("半宽 (度)", 0.5, 3.0, 1.0, 0.25, key="fc_half")
+
+    if st.button("[空间] 生成空间预报场", use_container_width=True, key="fc_spatial"):
+        with st.spinner("正在抓取网格预报..."):
+            lats, lons, times, field3d, err = fetch_gfs_spatial_grid(
+                lat, lon, step=step, half=half, days=days, model=model, variable=variable
+            )
+        if err:
+            st.error(err)
         else:
-            st.success(f"[OK] 未来 72 小时无高温风险 (气温 < 35℃，峰值 {max_t:.1f}℃)")
-    
-        # ---- 降水预报 ----
-        st.write("### 降水预报")
-        total_precip = float(fdf["precipitation"].sum())
-        st.metric("预报期累计降水", f"{total_precip:.1f} mm")
-        daily_fig = _daily_precip_chart(fdf)
-        safe_chart(daily_fig, "逐日降水预报", key="fc_daily_precip")
-    
-        # ---- 空间图 ----
-        st.write("---")
-        st.write("### 空间图：区域预报场")
-        st.caption("多模式视图：单时次热力图 + 等值线 | 多时次快照 | 距平异常检测 (无需 Mapbox Token)")
-    
-        # 视图模式选择
-        spatial_mode = st.radio(
-            "视图模式",
-            ["single", "panel", "anomaly"],
-            format_func=lambda m: {"single": "单时次 (等值线)", "panel": "多时次快照", "anomaly": "距平模式"}[m],
-            horizontal=True, key="fc_spatial_mode",
-        )
-    
-        scol1, scol2, scol3 = st.columns(3)
-        with scol1:
-            variable = st.selectbox("空间变量", list(SPATIAL_VAR_LABELS.keys()),
-                                    format_func=lambda v: SPATIAL_VAR_LABELS[v], key="fc_spatial_var")
-        with scol2:
-            step = st.slider("网格步长 (度)", 0.10, 1.0, 0.25, 0.05, key="fc_step")
-        with scol3:
-            half = st.slider("半宽 (度)", 0.5, 3.0, 1.0, 0.25, key="fc_half")
-    
-        if st.button("[空间] 生成空间预报场", use_container_width=True, key="fc_spatial"):
-            with st.spinner("正在抓取网格预报..."):
-                lats, lons, times, field3d, err = fetch_gfs_spatial_grid(
-                    lat, lon, step=step, half=half, days=days, model=model, variable=variable
-                )
-            if err:
-                st.error(err)
-            else:
-                st.session_state["fc_grid"] = (lats, lons, times, field3d)
-                st.session_state["fc_hour"] = 0
-                n_total = len(lats) * len(lons)
-                st.success(f"[OK] 网格 {len(lats)}x{len(lons)}={n_total} 点，共 {len(times)} 个时次")
-    
-        if "fc_grid" in st.session_state:
-            lats, lons, times, field3d = st.session_state["fc_grid"]
-            if spatial_mode == "single":
-                hour_idx = st.slider("选择预报时次", 0, len(times) - 1,
-                                     st.session_state.get("fc_hour", 0), key="fc_hour")
-            else:
-                hour_idx = 0  # panel/anomaly 模式不使用滑块
-            try:
-                map_fig, grid_stats = _spatial_heatmap(
-                    lats, lons, times, field3d, lat, lon, hour_idx, variable,
-                    mode=spatial_mode,
-                )
-            except Exception as e:  # noqa: BLE001
-                st.error(f"空间图数据构建失败: {e}")
-            else:
-                safe_chart(map_fig, "区域预报场", key="fc_spatial_map")
-                # 统计量（panel 模式无单一时次统计数据）
-                if grid_stats is not None:
-                    sc1, sc2, sc3, sc4 = st.columns(4)
-                    with sc1:
-                        st.metric("最小值", f"{grid_stats['min']:+.1f}" if spatial_mode == "anomaly" else f"{grid_stats['min']:.1f}")
-                    with sc2:
-                        st.metric("最大值", f"{grid_stats['max']:+.1f}" if spatial_mode == "anomaly" else f"{grid_stats['max']:.1f}")
-                    with sc3:
-                        st.metric("平均值", f"{grid_stats['mean']:+.1f}" if spatial_mode == "anomaly" else f"{grid_stats['mean']:.1f}")
-                    with sc4:
-                        st.metric("网格规模", f"{grid_stats['n_points']}点 ({grid_stats['grid_shape']})")
-    
-        # ---- 智能分析与建议 ----
-        with st.spinner("正在生成预报智能分析..."):
-            analysis = _analyze_forecast(fdf)
-        st.session_state["fc_analysis"] = analysis
-        _render_forecast_advice(analysis)
+            st.session_state["fc_grid"] = (lats, lons, times, field3d)
+            st.session_state["fc_hour"] = 0
+            n_total = len(lats) * len(lons)
+            st.success(f"[OK] 网格 {len(lats)}x{len(lons)}={n_total} 点，共 {len(times)} 个时次")
+
+    if "fc_grid" in st.session_state:
+        lats, lons, times, field3d = st.session_state["fc_grid"]
+        if spatial_mode == "single":
+            hour_idx = st.slider("选择预报时次", 0, len(times) - 1,
+                                 st.session_state.get("fc_hour", 0), key="fc_hour")
+        else:
+            hour_idx = 0  # panel/anomaly 模式不使用滑块
+        try:
+            map_fig, grid_stats = _spatial_heatmap(
+                lats, lons, times, field3d, lat, lon, hour_idx, variable,
+                mode=spatial_mode,
+            )
+        except Exception as e:  # noqa: BLE001
+            st.error(f"空间图数据构建失败: {e}")
+        else:
+            safe_chart(map_fig, "区域预报场", key="fc_spatial_map")
+            # 统计量（panel 模式无单一时次统计数据）
+            if grid_stats is not None:
+                sc1, sc2, sc3, sc4 = st.columns(4)
+                with sc1:
+                    st.metric("最小值", f"{grid_stats['min']:+.1f}" if spatial_mode == "anomaly" else f"{grid_stats['min']:.1f}")
+                with sc2:
+                    st.metric("最大值", f"{grid_stats['max']:+.1f}" if spatial_mode == "anomaly" else f"{grid_stats['max']:.1f}")
+                with sc3:
+                    st.metric("平均值", f"{grid_stats['mean']:+.1f}" if spatial_mode == "anomaly" else f"{grid_stats['mean']:.1f}")
+                with sc4:
+                    st.metric("网格规模", f"{grid_stats['n_points']}点 ({grid_stats['grid_shape']})")
+
+    # ---- 智能分析与建议 ----
+    with st.spinner("正在生成预报智能分析..."):
+        analysis = _analyze_forecast(fdf)
+    st.session_state["fc_analysis"] = analysis
+    _render_forecast_advice(analysis)
