@@ -258,8 +258,14 @@ def parse_timestamp(df):
         return _fallback_synthetic_time(df)
 
     # ---- 解析时间列 ----
-    df["timestamp"] = _smart_parse_datetime(df[ts_col])
-    valid = df["timestamp"].notna().sum()
+    # 如果已经是 datetime64/cftime 类型，直接保留，避免 pd.to_datetime 解析失败
+    if pd.api.types.is_datetime64_any_dtype(df[ts_col]):
+        df["timestamp"] = df[ts_col]
+        valid = df["timestamp"].notna().sum()
+        report_method = f"L1: datetime64 原生 ({ts_col})"
+    else:
+        df["timestamp"] = _smart_parse_datetime(df[ts_col])
+        valid = df["timestamp"].notna().sum()
 
     # 低质量回退
     if valid < len(df) * 0.3 and ts_col != "timestamp__generated":
@@ -393,6 +399,10 @@ def _rank_date_columns(df):
 
 def _smart_parse_datetime(series):
     """智能解析时间序列：优先自动推断，失败后尝试多种格式"""
+    # 已经是 datetime64 类型，直接返回
+    if pd.api.types.is_datetime64_any_dtype(series):
+        return series
+
     # ---- HHMMSS / HMMSS 数值时间码检测 ----
     # 气象站数据常见格式: 85311 → 08:53:11, 120500 → 12:05:00
     if pd.api.types.is_numeric_dtype(series):
@@ -417,7 +427,10 @@ def _smart_parse_datetime(series):
                             return result
 
     # 先试自动推断
-    parsed = pd.to_datetime(series, errors="coerce")
+    try:
+        parsed = pd.to_datetime(series, errors="coerce")
+    except ValueError:
+        parsed = pd.Series([pd.NaT] * len(series), index=series.index)
     if parsed.notna().sum() >= len(series) * 0.5:
         return parsed
 
