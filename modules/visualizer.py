@@ -663,9 +663,8 @@ def _render_pollution_panel(df):
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
-def correlation_heatmap(df):
-    """全要素 Pearson 相关性热力图"""
-    # 选取所有数值型标准字段
+def _get_corr_matrix(df):
+    """提取数值字段计算相关系数矩阵"""
     num_fields = [
         "temperature", "pressure", "humidity", "wind_speed", "visibility",
         "precipitation", "cloud_cover", "so2", "nox", "pm25", "pm10"
@@ -673,14 +672,24 @@ def correlation_heatmap(df):
     available = [f for f in num_fields if f in df.columns and not df[f].dropna().empty]
     if len(available) < 2:
         return None
+    return df[available].corr()
 
-    corr = df[available].corr()
-    labels_map = {
-        "temperature": "气温", "pressure": "气压", "humidity": "湿度",
-        "wind_speed": "风速", "visibility": "能见度", "precipitation": "降水",
-        "cloud_cover": "云量", "so2": "SO₂", "nox": "NOx", "pm25": "PM2.5", "pm10": "PM10",
-    }
-    display_labels = [labels_map.get(f, f) for f in available]
+
+_CORR_LABELS = {
+    "temperature": "气温", "pressure": "气压", "humidity": "湿度",
+    "wind_speed": "风速", "visibility": "能见度", "precipitation": "降水",
+    "cloud_cover": "云量", "so2": "SO₂", "nox": "NOx", "pm25": "PM2.5", "pm10": "PM10",
+}
+
+
+def correlation_heatmap(df):
+    """全要素 Pearson 相关性热力图"""
+    corr = _get_corr_matrix(df)
+    if corr is None:
+        return None
+
+    fields = list(corr.columns)
+    display_labels = [_CORR_LABELS.get(f, f) for f in fields]
 
     fig = go.Figure(data=go.Heatmap(
         z=corr.values,
@@ -702,6 +711,40 @@ def correlation_heatmap(df):
         xaxis=dict(side="top"),
     )
     return fig
+
+
+def _render_correlation_analysis(corr, labels_map):
+    """在热力图下方直接显示相关性解读"""
+
+    # 提取所有配对并排序（去重、排对角线）
+    pairs = []
+    fields = list(corr.columns)
+    for i in range(len(fields)):
+        for j in range(i + 1, len(fields)):
+            a, b = fields[i], fields[j]
+            r = corr.loc[a, b]
+            pairs.append((a, b, r))
+    pairs.sort(key=lambda x: abs(x[2]), reverse=True)
+
+    # 分级
+    label = lambda f: labels_map.get(f, f)
+
+    st.markdown("**相关性分析解读**")
+    st.caption("按 |r| 降序排列，截取前 8 组")
+
+    lines = []
+    shown = 0
+    for a, b, r in pairs:
+        if shown >= 8:
+            break
+        direction = "正相关" if r > 0 else "负相关"
+        grade = "强" if abs(r) >= 0.7 else ("中等" if abs(r) >= 0.3 else "弱")
+        icon = "🔴" if abs(r) >= 0.7 else ("🟠" if abs(r) >= 0.3 else "⚪")
+        lines.append(f"{icon} {label(a)} ↔ {label(b)}：r={r:+.2f}（{grade}{direction}）")
+        shown += 1
+
+    for line in lines:
+        st.caption(line)
 
 
 def render_visualization_tab(df):
@@ -816,6 +859,10 @@ def render_visualization_tab(df):
         heatmap = correlation_heatmap(df)
         if heatmap:
             safe_chart(heatmap, "相关性热力图", key="viz_corr_heatmap")
+            # 相关性解读（直接展示，不展开）
+            corr = _get_corr_matrix(df)
+            if corr is not None and len(corr.columns) >= 2:
+                _render_correlation_analysis(corr, _CORR_LABELS)
         else:
             st.info("至少需要两个以上有效数值要素")
 
