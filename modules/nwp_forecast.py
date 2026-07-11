@@ -1300,9 +1300,9 @@ def render_forecast_tab():
                 with sc4:
                     st.metric("网格规模", f"{grid_stats['n_points']}点 ({grid_stats['grid_shape']})")
 
-    # ---- Skew-T 探空图 ----
-    with st.expander("[探空] Skew-T 温度对数压力图", expanded=False):
-        render_skewt_tab(lat, lon)
+    # ---- Skew-T 探空图（避免st.expander导致DOM不一致）----
+    st.write("---")
+    render_skewt_tab(lat, lon)
 
     # ---- 智能分析与建议 ----
     with st.spinner("正在生成预报智能分析..."):
