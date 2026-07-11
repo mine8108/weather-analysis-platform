@@ -1054,8 +1054,8 @@ def render_forecast_tab():
         return
 
     # ---- 时间图 ----
-        st.write("### 时间图：逐时预报序列")
-        ts_fig = _forecast_time_series(fdf)
+    st.write("### 时间图：逐时预报序列")
+    ts_fig = _forecast_time_series(fdf)
     safe_chart(ts_fig, "温度/体感/降水 预报", key="fc_ts")
     # D: 说明 rangeslider 的 Plotly 天然限制
     st.caption("提示：底部缩放滑块仅关联左侧「气温」坐标轴（右轴降水不随滑块缩放），这是 Plotly 原生行为。")
