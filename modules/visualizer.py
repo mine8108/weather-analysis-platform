@@ -716,14 +716,15 @@ def correlation_heatmap(df):
 def _render_correlation_analysis(corr, labels_map):
     """在热力图下方直接显示相关性解读"""
 
-    # 提取所有配对并排序（去重、排对角线）
+    # 提取所有配对并排序（去重、排对角线，过滤NaN）
     pairs = []
     fields = list(corr.columns)
     for i in range(len(fields)):
         for j in range(i + 1, len(fields)):
             a, b = fields[i], fields[j]
             r = corr.loc[a, b]
-            pairs.append((a, b, r))
+            if r == r:  # NaN != NaN, so this filters NaN
+                pairs.append((a, b, float(r)))
     pairs.sort(key=lambda x: abs(x[2]), reverse=True)
 
     # 分级

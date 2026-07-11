@@ -643,7 +643,7 @@ def check_against_extremes(df):
     if "temperature" in df.columns:
         t_max = df["temperature"].dropna().max()
         hist_max = extreme["历史最高气温"]["value"]
-        if t_max > hist_max:
+        if hist_max is not None and t_max > hist_max:
             results.append({
                 "type": "极端高温",
                 "level": "极端",
@@ -654,7 +654,7 @@ def check_against_extremes(df):
 
         t_min = df["temperature"].dropna().min()
         hist_min = extreme["历史最低气温"]["value"]
-        if t_min < hist_min:
+        if hist_min is not None and t_min < hist_min:
             results.append({
                 "type": "极端低温",
                 "level": "极端",
@@ -666,7 +666,7 @@ def check_against_extremes(df):
     if "precipitation" in df.columns:
         p_max = df["precipitation"].dropna().max()
         hist_p = extreme["历史最大日降水"]["value"]
-        if p_max > hist_p:
+        if hist_p is not None and p_max > hist_p:
             results.append({
                 "type": "极端降水",
                 "level": "极端",

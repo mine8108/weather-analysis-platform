@@ -608,6 +608,10 @@ def _merge_weather_pollution(weather_df, pollution_df):
     if pollution_df is None:
         return weather_df
     merged = pd.merge(weather_df, pollution_df, on="timestamp", how="left")
+    # 防御：时间范围完全不重叠时 merged 可能为空
+    if merged.empty:
+        st.warning("气象与空气质量数据时间范围不重叠，已分别保留")
+        return weather_df
     return merged
 
 

@@ -59,16 +59,19 @@ def fetch_climate_normal(lat, lon, month):
         "数据年份范围": f"{years_range[0]}-{years_range[-1]}",
     }
 
-    # 历史极值
+    # 历史极值（NaN 防御）
+    def _extreme(col, func):
+        s = combined[col].dropna()
+        if s.empty:
+            return {"value": None, "year": None}
+        idx = s.idxmax() if func == "max" else s.idxmin()
+        return {"value": float(s.iloc[s.index.get_loc(idx)]), "year": int(combined.loc[idx, "year"])}
+
     extreme = {
-        "历史最高气温": {"value": combined["temperature_2m_max"].max(),
-                         "year": int(combined.loc[combined["temperature_2m_max"].idxmax(), "year"])},
-        "历史最低气温": {"value": combined["temperature_2m_min"].min(),
-                         "year": int(combined.loc[combined["temperature_2m_min"].idxmin(), "year"])},
-        "历史最大日降水": {"value": combined["precipitation_sum"].max(),
-                          "year": int(combined.loc[combined["precipitation_sum"].idxmax(), "year"])},
-        "历史最大风速": {"value": combined["wind_speed_10m_max"].max(),
-                         "year": int(combined.loc[combined["wind_speed_10m_max"].idxmax(), "year"])},
+        "历史最高气温": _extreme("temperature_2m_max", "max"),
+        "历史最低气温": _extreme("temperature_2m_min", "min"),
+        "历史最大日降水": _extreme("precipitation_sum", "max"),
+        "历史最大风速": _extreme("wind_speed_10m_max", "max"),
     }
 
     return climate_stats, extreme
