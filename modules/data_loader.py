@@ -656,15 +656,21 @@ def render_api_section():
                     st.session_state["api_fetched_weather"] = df
                     st.session_state["api_weather_source"] = f"Open-Meteo 气象 ({lat:.1f}N, {lon:.1f}E)"
 
-                    # P0: 立即使用按钮
-                    c_use, c_keep = st.columns(2)
-                    with c_use:
+                    # P0: 立即使用按钮（如已有空气质量数据则自动合并）
+                    weather = df
+                    has_aq = st.session_state.get("api_fetched_pollution") is not None
+                    if has_aq:
+                        if st.button("[使用] 使用并合并气象+空气质量", use_container_width=True, key="api_use_weather"):
+                            merged = _merge_weather_pollution(weather, st.session_state["api_fetched_pollution"])
+                            if merged is not None:
+                                st.session_state["api_df"] = merged
+                                st.session_state["api_source"] = f"{st.session_state['api_weather_source']} + {st.session_state.get('api_aq_source', '')}"
+                                st.rerun()
+                    else:
                         if st.button("[使用] 使用气象数据", use_container_width=True, key="api_use_weather"):
-                            st.session_state["api_df"] = df
+                            st.session_state["api_df"] = weather
                             st.session_state["api_source"] = st.session_state["api_weather_source"]
                             st.rerun()
-                    with c_keep:
-                        st.caption("或前往「合并」区域与其他数据组合")
             else:
                 st.warning("请选择起止日期")
 
@@ -701,15 +707,21 @@ def render_api_section():
                     st.session_state["api_fetched_pollution"] = df
                     st.session_state["api_aq_source"] = f"Open-Meteo 空气质量 ({lat_aq:.1f}N, {lon_aq:.1f}E)"
 
-                    # P0: 立即使用按钮
-                    c_use, c_keep = st.columns(2)
-                    with c_use:
+                    # P0: 立即使用按钮（如已有气象数据则自动合并）
+                    pollution = df
+                    has_w = st.session_state.get("api_fetched_weather") is not None
+                    if has_w:
+                        if st.button("[使用] 使用并合并气象+空气质量", use_container_width=True, key="api_use_aq"):
+                            merged = _merge_weather_pollution(st.session_state["api_fetched_weather"], pollution)
+                            if merged is not None:
+                                st.session_state["api_df"] = merged
+                                st.session_state["api_source"] = f"{st.session_state.get('api_weather_source', '')} + {st.session_state['api_aq_source']}"
+                                st.rerun()
+                    else:
                         if st.button("[使用] 使用空气质量数据", use_container_width=True, key="api_use_aq"):
-                            st.session_state["api_df"] = df
+                            st.session_state["api_df"] = pollution
                             st.session_state["api_source"] = st.session_state["api_aq_source"]
                             st.rerun()
-                    with c_keep:
-                        st.caption("或前往「合并」区域与气象数据组合")
             else:
                 st.warning("请选择起止日期")
 
