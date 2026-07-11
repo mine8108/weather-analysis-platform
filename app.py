@@ -647,6 +647,12 @@ if st.session_state["active_tab"] == 0:
         labels = {"file": "📁 上传文件", "manual": "✏️ 手动录入", "api": "🌐 API获取"}
         st.write(f"### Step 1: {labels.get(method, method)}")
 
+        # 返回按钮
+        if st.button("← 返回选择方式", key="wiz_back_step0"):
+            st.session_state["import_step"] = 0
+            st.session_state["import_method"] = None
+            st.rerun()
+
         if method == "file":
             df_file, source_file = render_file_upload_section()
             render_template_download()
@@ -706,12 +712,16 @@ if st.session_state["active_tab"] == 0:
 
             st.dataframe(df.head(10), use_container_width=True)
 
-            c1, c2 = st.columns(2)
+            c1, c2, c3 = st.columns(3)
             with c1:
                 if st.button("✅ 确认数据，前往可视化分析", use_container_width=True, key="wiz_confirm"):
                     st.session_state["import_step"] = 0
                     _navigate_to(2)
             with c2:
+                if st.button("← 返回上一步", use_container_width=True, key="wiz_back_step1"):
+                    st.session_state["import_step"] = 1
+                    st.rerun()
+            with c3:
                 if st.button("🔄 重新导入", use_container_width=True, key="wiz_retry"):
                     st.session_state["import_step"] = 0
                     st.session_state["import_method"] = None
