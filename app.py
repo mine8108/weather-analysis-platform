@@ -266,8 +266,10 @@ def _apply_filter(df):
     date_range = st.session_state.get("_filter_date_range", None)
     if date_range and len(date_range) == 2 and "timestamp" in df.columns:
         start, end = date_range
+        # end 扩展为当天最后一秒，避免过滤掉有小时分钟的数据
+        end = pd.Timestamp(end) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
         df = df[(df["timestamp"] >= pd.Timestamp(start)) &
-                (df["timestamp"] <= pd.Timestamp(end))]
+                (df["timestamp"] <= end)]
     return df
 
 
