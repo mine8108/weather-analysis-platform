@@ -3,6 +3,7 @@ pandas==3.0.3
 numpy==2.5.1
 plotly==6.8.0
 matplotlib==3.11.0
+kaleido>=0.2.1
 openpyxl==3.1.5
 python-docx==1.2.0
 requests==2.34.2
