@@ -90,20 +90,18 @@ def _render_data_summary_card():
             st.caption(f"{time_info} | {n}条 | {weather_text}{pollution_text}")
         with c2:
             st.write("")
-            # 按钮组：使用 st.session_state 标记推荐 Tab
+            # 按钮组：根据当前 Tab 智能隐藏（不显示当前所在页的跳转按钮）
+            cur_tab = st.session_state.get("active_tab", 0)
             b_col1, b_col2, b_col3 = st.columns(3)
             with b_col1:
-                if st.button("📊 图表", use_container_width=True, key="jump_viz"):
-                    st.session_state["active_tab"] = 1
-                    st.rerun()
+                if cur_tab != 1 and st.button("📊 图表", use_container_width=True, key="jump_viz"):
+                    _navigate_to(1)
             with b_col2:
-                if st.button("🔔 预警", use_container_width=True, key="jump_alert"):
-                    st.session_state["active_tab"] = 2
-                    st.rerun()
+                if cur_tab != 2 and st.button("🔔 预警", use_container_width=True, key="jump_alert"):
+                    _navigate_to(2)
             with b_col3:
-                if st.button("📤 导出", use_container_width=True, key="jump_export"):
-                    st.session_state["active_tab"] = 3
-                    st.rerun()
+                if cur_tab != 3 and st.button("📤 导出", use_container_width=True, key="jump_export"):
+                    _navigate_to(3)
 
 def _render_progress_bar():
     """P3: 任务流进度条（面包屑风格）"""
@@ -340,7 +338,6 @@ with st.sidebar:
 # ============================================================
 # 主内容区：进度条 + 下一步提示 + Tab 导航
 # ============================================================
-_render_progress_bar()
 _render_next_step_hint()
 _render_data_summary_card()
 
@@ -358,15 +355,22 @@ tab_labels = [
     "[预报] 数值预报",
 ]
 
+
+def _navigate_to(tab_idx):
+    """统一跳转入口，避免 session state 不同步"""
+    st.session_state["active_tab"] = tab_idx
+    st.rerun()
+
+
 # 使用 radio 替代 tabs，支持 index 参数实现编程跳转
-# 当 session_state["active_tab"] 被外部修改时，radio 会自动跟随
+# 注意：不使用 key 参数！否则 session_state 旧值会覆盖 index，
+# 导致 active_tab 被反向重置，跳转失效
 selected = st.radio(
     "",
     tab_labels,
     index=st.session_state["active_tab"],
     horizontal=True,
     label_visibility="collapsed",
-    key="tab_selector",
 )
 # 同步：用户手动切换时更新 session_state
 active_idx = tab_labels.index(selected) if selected in tab_labels else 0
@@ -479,8 +483,7 @@ if st.session_state["active_tab"] == 0:
             with c1:
                 if st.button("✅ 确认数据，前往可视化分析", use_container_width=True, key="wiz_confirm"):
                     st.session_state["import_step"] = 0
-                    st.session_state["active_tab"] = 1
-                    st.rerun()
+                    _navigate_to(1)
             with c2:
                 if st.button("🔄 重新导入", use_container_width=True, key="wiz_retry"):
                     st.session_state["import_step"] = 0
@@ -590,5 +593,4 @@ if st.session_state["active_tab"] == 6:
                     "- 风速预报与大风预警")
 
         if fc_analysis:
-            with st.expander("[报告] 预报分析摘要", expanded=True):
-                st.markdown(fc_analysis)
+            pass  # 预报分析摘要已隐藏

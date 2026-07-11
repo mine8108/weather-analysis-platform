@@ -542,8 +542,6 @@ def _spatial_heatmap(lats, lons, times, field3d, lat, lon, hour_idx, variable,
             for trace in mono_fig.data:
                 if hasattr(trace, "colorbar"):
                     trace.showscale = False if idx_pos < 3 else True
-                    if idx_pos < 3 and hasattr(trace, "colorbar"):
-                        del trace.colorbar
                 fig.add_trace(trace, row=row, col=col)
         # 共享 x/y
         for row in range(1, n_rows + 1):
