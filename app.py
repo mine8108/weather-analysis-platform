@@ -42,6 +42,12 @@ from modules.nwp_forecast import render_forecast_tab
 # 通用 UI 辅助函数
 # ============================================================
 
+def _navigate_to(tab_idx):
+    """统一跳转入口，避免 session state 不同步"""
+    st.session_state["active_tab"] = tab_idx
+    st.rerun()
+
+
 def _render_data_summary_card():
     """P0: 数据导入完成后显示摘要卡片 + 快捷跳转按钮"""
     df = st.session_state.get("df")
@@ -354,12 +360,6 @@ tab_labels = [
     "[雷达] 报文解码",
     "[预报] 数值预报",
 ]
-
-
-def _navigate_to(tab_idx):
-    """统一跳转入口，避免 session state 不同步"""
-    st.session_state["active_tab"] = tab_idx
-    st.rerun()
 
 
 # 使用 radio 替代 tabs，支持 index 参数实现编程跳转
