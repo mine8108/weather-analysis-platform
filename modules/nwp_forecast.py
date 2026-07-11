@@ -1199,8 +1199,6 @@ def render_forecast_tab():
         else:
             st.session_state["fc_df"] = fdf
             st.success(f"[OK] 获取 {len(fdf)} 条逐时预报 (未来 {days} 天)")
-            st.session_state["_fc_auto_link"] = True
-            st.rerun()
 
     fdf = st.session_state.get("fc_df", None)
     if fdf is None:

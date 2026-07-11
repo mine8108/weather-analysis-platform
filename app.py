@@ -832,20 +832,6 @@ if st.session_state["active_tab"] == 6:
 
 # ---- Tab 1: 数值预报 ----
 if st.session_state["active_tab"] == 1:
-    # 预报完成后自动联动：跳转到检测 Tab
-    if st.session_state.get("_fc_auto_link", False):
-        st.session_state["_fc_auto_link"] = False
-        fc_df = st.session_state.get("fc_df")
-        if fc_df is not None:
-            if "temperature" not in fc_df.columns and "temperature_2m" in fc_df.columns:
-                fc_df = fc_df.rename(columns={
-                    "temperature_2m": "temperature",
-                    "precipitation_sum": "precipitation"
-                })
-            st.session_state["nwp_forecast_for_analysis"] = fc_df
-            st.session_state["nwp_combined"] = True
-            _navigate_to(3)
-
     render_forecast_tab()
 
     # P1: 预报完成后自动传递到智能分析（保留备用按钮）
