@@ -132,23 +132,6 @@ def _render_data_summary_card():
                 if cur_tab != 4 and st.button("📤 导出", use_container_width=True, key="jump_export"):
                     _navigate_to(4)
 
-    # 日期范围筛选器
-    if "timestamp" in df.columns:
-        ts = df["timestamp"].dropna()
-        if len(ts) > 1:
-            dmin = ts.min().to_pydatetime() if hasattr(ts.min(), "to_pydatetime") else ts.min()
-            dmax = ts.max().to_pydatetime() if hasattr(ts.max(), "to_pydatetime") else ts.max()
-            date_range = st.date_input(
-                "📅 数据时间范围筛选",
-                value=(dmin.date(), dmax.date()),
-                key="_filter_date_range_input",
-            )
-            if len(date_range) == 2:
-                st.session_state["_filter_date_range"] = date_range
-                filtered_n = len(_get_filtered_df())
-                if filtered_n != n:
-                    st.caption(f"当前筛选：{filtered_n} 条 / 共 {n} 条")
-
     # 记录导入历史（首次检测到新数据时）
     fp_key = "_last_df_fp"
     current_fp = _df_fingerprint(df)
