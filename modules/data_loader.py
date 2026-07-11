@@ -150,6 +150,20 @@ def extract_netcdf_to_df(ds, lat_dim, lon_dim, spatial_mode, lat_val, lon_val,
         # 转为 DataFrame
         df = ds_sel.to_dataframe().reset_index()
 
+        # 将 cftime 对象转换为 pandas datetime（避免下游解析失败）
+        for col in df.columns:
+            if df[col].dtype == object:
+                sample = df[col].dropna().iloc[0] if len(df[col].dropna()) > 0 else None
+                if sample is not None and str(type(sample)).startswith("<class 'cftime."):
+                    try:
+                        df[col] = pd.to_datetime(df[col].astype(str), errors="coerce")
+                    except Exception:
+                        pass
+            elif hasattr(df[col].dtype, 'name') and 'datetime' in str(df[col].dtype).lower():
+                try:
+                    df[col] = pd.to_datetime(df[col], errors="coerce")
+                except Exception:
+                    pass
         # 清理多级索引
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = ["_".join(str(c) for c in col if c).strip("_") for col in df.columns]
@@ -268,6 +282,9 @@ def parse_timestamp(df):
         valid = df["timestamp"].notna().sum()
 
     # 低质量回退
+    valid = int(valid) if hasattr(valid, "__int__") else valid
+    if not isinstance(valid, (int, float, np.integer, np.floating)):
+        valid = 0
     if valid < len(df) * 0.3 and ts_col != "timestamp__generated":
         st.warning(f"时间列 `{ts_col}` 仅识别 {valid}/{len(df)} 条有效值，请核对数据格式")
         fallback = _interactive_time_picker(df, default_col=ts_col)
@@ -402,6 +419,15 @@ def _smart_parse_datetime(series):
     # 已经是 datetime64 类型，直接返回
     if pd.api.types.is_datetime64_any_dtype(series):
         return series
+
+    # 检测 cftime 对象（NetCDF 常见），转为字符串再解析
+    if series.dtype == object and len(series.dropna()) > 0:
+        sample = series.dropna().iloc[0]
+        if str(type(sample)).startswith("<class 'cftime."):
+            try:
+                return pd.to_datetime(series.astype(str), errors="coerce")
+            except Exception:
+                return pd.Series([pd.NaT] * len(series), index=series.index)
 
     # ---- HHMMSS / HMMSS 数值时间码检测 ----
     # 气象站数据常见格式: 85311 → 08:53:11, 120500 → 12:05:00
