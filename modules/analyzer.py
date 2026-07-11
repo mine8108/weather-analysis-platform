@@ -630,6 +630,54 @@ def _render_smart_advice(df):
         st.info("当前数据未触发特殊建议，各项指标均在正常范围。")
 
 
+
+
+def check_against_extremes(df):
+    """检查当前数据是否超出历史气候极值（需先在气候态Tab获取数据）"""
+    import streamlit as st
+    extreme = st.session_state.get("climate_extreme")
+    if not extreme or df is None or df.empty:
+        return []
+
+    results = []
+    if "temperature" in df.columns:
+        t_max = df["temperature"].dropna().max()
+        hist_max = extreme["历史最高气温"]["value"]
+        if t_max > hist_max:
+            results.append({
+                "type": "极端高温",
+                "level": "极端",
+                "level_num": "",
+                "detail": f"当前最高 {t_max:.1f}℃ 超出历史同期最高 {hist_max:.1f}℃（{extreme['历史最高气温']['year']}年）",
+                "icon": "🔥🔥",
+            })
+
+        t_min = df["temperature"].dropna().min()
+        hist_min = extreme["历史最低气温"]["value"]
+        if t_min < hist_min:
+            results.append({
+                "type": "极端低温",
+                "level": "极端",
+                "level_num": "",
+                "detail": f"当前最低 {t_min:.1f}℃ 低于历史同期最低 {hist_min:.1f}℃（{extreme['历史最低气温']['year']}年）",
+                "icon": "🧊🧊",
+            })
+
+    if "precipitation" in df.columns:
+        p_max = df["precipitation"].dropna().max()
+        hist_p = extreme["历史最大日降水"]["value"]
+        if p_max > hist_p:
+            results.append({
+                "type": "极端降水",
+                "level": "极端",
+                "level_num": "",
+                "detail": f"当前最大日降水 {p_max:.1f}mm 超出历史记录 {hist_p:.1f}mm（{extreme['历史最大日降水']['year']}年）",
+                "icon": "🌧️🌧️",
+            })
+
+    return results
+
+
 def multi_factor_coupling(df):
     """多要素耦合分析"""
     alerts = []

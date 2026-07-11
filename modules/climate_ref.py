@@ -9,35 +9,27 @@ from datetime import datetime
 
 def fetch_climate_normal(lat, lon, month):
     """
-    获取指定月份的气候态均值（近似：取最近完整年份对应月份）
-    Open-Meteo 不直接提供气候态，使用多年平均作为替代
+    获取指定月份的气候态统计（均值 + 历史极值）。
+    Open-Meteo 不直接提供气候态，使用多年平均作为替代。
+    返回 (climate_stats, extreme_dict) 或 (None, None)
     """
     import requests
 
-    # 获取过去5年对应月份的数据取平均
     current_year = datetime.now().year
     years_range = range(current_year - 5, current_year)
 
     all_data = []
     for year in years_range:
         start = f"{year}-{month:02d}-01"
-        # 处理月末
-        if month == 12:
-            end = f"{year}-12-31"
-        else:
-            end = f"{year}-{month:02d}-28"
+        end = f"{year}-12-31" if month == 12 else f"{year}-{month:02d}-28"
 
         url = "https://archive-api.open-meteo.com/v1/archive"
         params = {
-            "latitude": lat,
-            "longitude": lon,
-            "start_date": start,
-            "end_date": end,
+            "latitude": lat, "longitude": lon,
+            "start_date": start, "end_date": end,
             "daily": [
-                "temperature_2m_max",
-                "temperature_2m_min",
-                "temperature_2m_mean",
-                "precipitation_sum",
+                "temperature_2m_max", "temperature_2m_min",
+                "temperature_2m_mean", "precipitation_sum",
                 "wind_speed_10m_max",
             ],
             "timezone": "Asia/Shanghai",
@@ -54,21 +46,32 @@ def fetch_climate_normal(lat, lon, month):
             continue
 
     if not all_data:
-        return None
+        return None, None
 
     combined = pd.concat(all_data, ignore_index=True)
 
-    # 计算气候态统计
     climate_stats = {
         "月均最高气温": combined["temperature_2m_max"].mean(),
         "月均最低气温": combined["temperature_2m_min"].mean(),
         "月均气温": combined["temperature_2m_mean"].mean(),
-        "月总降水量": combined["precipitation_sum"].mean() * 30,  # 近似月总量
+        "月总降水量": combined["precipitation_sum"].mean() * 30,
         "最大风速均值": combined["wind_speed_10m_max"].mean(),
         "数据年份范围": f"{years_range[0]}-{years_range[-1]}",
     }
 
-    return climate_stats
+    # 历史极值
+    extreme = {
+        "历史最高气温": {"value": combined["temperature_2m_max"].max(),
+                         "year": int(combined.loc[combined["temperature_2m_max"].idxmax(), "year"])},
+        "历史最低气温": {"value": combined["temperature_2m_min"].min(),
+                         "year": int(combined.loc[combined["temperature_2m_min"].idxmin(), "year"])},
+        "历史最大日降水": {"value": combined["precipitation_sum"].max(),
+                          "year": int(combined.loc[combined["precipitation_sum"].idxmax(), "year"])},
+        "历史最大风速": {"value": combined["wind_speed_10m_max"].max(),
+                         "year": int(combined.loc[combined["wind_speed_10m_max"].idxmax(), "year"])},
+    }
+
+    return climate_stats, extreme
 
 
 def compute_anomalies(df, climate_stats):
@@ -142,10 +145,11 @@ def render_climate_ref_tab(df):
 
     if st.button("[导入] 获取气候态数据", use_container_width=True, key="fetch_climate"):
         with st.spinner("正在获取气候态数据（过去5年均值）..."):
-            climate = fetch_climate_normal(lat, lon, month)
+            climate, extreme = fetch_climate_normal(lat, lon, month)
 
         if climate:
             st.session_state["climate_data"] = climate
+            st.session_state["climate_extreme"] = extreme
             st.rerun()
 
     if "climate_data" not in st.session_state:
@@ -188,3 +192,15 @@ def render_climate_ref_tab(df):
             st.info("当前数据缺少可用于距平对比的要素字段")
     else:
         st.info("请先导入数据以进行距平对比")
+
+    # 历史极值面板
+    extreme = st.session_state.get("climate_extreme")
+    if extreme:
+        st.write("---")
+        st.write("### [极值] 历史同期极值")
+        labels = {
+            "历史最高气温": "℃", "历史最低气温": "℃",
+            "历史最大日降水": "mm", "历史最大风速": "m/s",
+        }
+        for key, data in extreme.items():
+            st.caption(f"{key}: {data['value']:.1f} {labels.get(key, '')} ({data['year']}年)")

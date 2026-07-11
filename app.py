@@ -32,6 +32,7 @@ from modules.analyzer import (
     check_frost,
     check_thunderstorm,
     check_haze,
+    check_against_extremes,
     multi_factor_coupling,
 )
 from modules.climate_ref import render_climate_ref_tab
@@ -776,6 +777,7 @@ if st.session_state["active_tab"] == 3:
         all_w += check_frost(st.session_state["df"])
         all_w += check_thunderstorm(st.session_state["df"])
         all_w += check_haze(st.session_state["df"])
+        all_w += check_against_extremes(st.session_state["df"])
         st.session_state["warnings_list"] = all_w
 
 # ---- Tab 4: 报告导出 ----

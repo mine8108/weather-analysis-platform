@@ -22,8 +22,11 @@ def _safe_xaxis(df):
     return df.index
 
 
-def time_series_chart(df, field, title, color, y_label, unit=""):
-    """通用时间序列折线图"""
+def time_series_chart(df, field, title, color, y_label, unit="", rolling_window=None):
+    """通用时间序列折线图
+
+    rolling_window: 滑动窗口大小（None=仅原始数据, N=添加N期滑动平均虚线）
+    """
     if field not in df.columns or df[field].dropna().empty:
         return None
 
@@ -38,6 +41,16 @@ def time_series_chart(df, field, title, color, y_label, unit=""):
         marker=dict(size=4),
         hovertemplate=f"时间: %{{x}}<br>{title}: %{{y:.1f}}{unit}<extra></extra>",
     ))
+
+    # 添加滑动平均线
+    if rolling_window and rolling_window > 1:
+        rolled = df[field].rolling(window=rolling_window, min_periods=max(1, rolling_window//2)).mean()
+        fig.add_trace(go.Scatter(
+            x=x_data, y=rolled,
+            mode="lines", name=f"{rolling_window}期滑动均线",
+            line=dict(color="#ff7f0e", width=2, dash="dash"),
+            hovertemplate=f"{rolling_window}期均线: %{{y:.1f}}{unit}<extra></extra>",
+        ))
 
     fig.update_layout(
         title=title,
@@ -151,6 +164,15 @@ def dashboard_view(df):
                        name="气温"),
             row=1, col=1,
         )
+        # 5日滑动均温
+        if len(df) >= 5:
+            rolled = df["temperature"].rolling(window=5, min_periods=3).mean()
+            fig.add_trace(
+                go.Scatter(x=x_data, y=rolled, mode="lines",
+                           line=dict(color="#ff7f0e", width=1.5, dash="dash"),
+                           name="5日滑动均温", showlegend=False),
+                row=1, col=1,
+            )
 
     # 气压
     if "pressure" in df.columns:
