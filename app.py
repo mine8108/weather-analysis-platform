@@ -256,7 +256,7 @@ def _render_onboarding_page():
         step_cols = st.columns(3)
         for i, step in enumerate(ONBOARDING_STEPS):
             with step_cols[i]:
-                with st.container(border=True, key=f"onboard_{i}"):
+                with st.container(border=True, key=f"onboard_card_{i}"):
                     st.markdown(f"""
                     <div style="text-align:center; padding: 12px 0;">
                         <div style="font-size: 2.5rem;">{step['icon']}</div>
