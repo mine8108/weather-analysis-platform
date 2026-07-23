@@ -336,6 +336,27 @@ BEAUFORT_SCALE = {
 WIND_DIRECTIONS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
                    "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
 
+# ============================================================
+# 共享工具：���段标签、预警等级、暗色模式
+# ============================================================
+FIELD_LABELS = {
+    "timestamp": "时间", "temperature": "气温 (℃)", "pressure": "气压 (hPa)",
+    "humidity": "湿度 (%)", "wind_speed": "风速 (m/s)",
+    "wind_direction": "风向", "precipitation": "降水 (mm)",
+    "visibility": "能见度 (km)", "cloud_cover": "云量",
+    "so2": "SO₂ (μg/m³)", "nox": "NOx (μg/m³)",
+    "pm25": "PM2.5 (μg/m³)", "pm10": "PM10 (μg/m³)", "tsp": "TSP (μg/m³)",
+    "apparent_temperature": "体感温度 (℃)",
+}
+
+WARN_LEVEL_ORDER = {"红色": 0, "橙色": 1, "黄色": 2, "蓝色": 3}
+
+
+def _is_dark():
+    """判断当前是否为暗色模式"""
+    import streamlit as st
+    return st.session_state.get("dark_mode", False)
+
 
 def get_beaufort_level(speed_ms):
     """根据风速(m/s)返回蒲福风级"""

@@ -111,6 +111,7 @@ def fetch_gfs_forecast(lat, lon, days=7, model="gfs_seamless"):
     return df, None
 
 
+@retry_with_backoff(max_retries=3, base_delay=3, backoff_factor=2)
 def fetch_gfs_spatial_grid(center_lat, center_lon, step=0.5, half=1.5,
                            days=1, model="gfs_seamless", variable="temperature_2m"):
     """抓取以 center 为中心、步长 step、半宽 half 的网格点 GFS 预报。

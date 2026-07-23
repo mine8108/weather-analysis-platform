@@ -184,20 +184,20 @@ def decode_metar(report):
                         result["wind_direction"] = int(token[:3])
 
                     speed_part = token[3:]
-                    if "KT" in speed_part:
-                        speed_part = speed_part.replace("KT", "")
-                    elif "MPS" in speed_part:
-                        speed_part = speed_part.replace("MPS", "")
+                    is_knots = "KT" in speed_part
+                    clean = speed_part.replace("KT", "").replace("MPS", "").strip()
 
-                    if "G" in speed_part:
-                        parts = speed_part.split("G")
-                        result["wind_speed"] = float(parts[0])
-                        # gust 暂不记录
+                    if not clean:
+                        continue
+
+                    if "G" in clean:
+                        parts = clean.split("G")
+                        result["wind_speed"] = float(parts[0]) if parts[0] else None
                     else:
-                        result["wind_speed"] = float(speed_part)
+                        result["wind_speed"] = float(clean)
 
                     # KT 转 m/s
-                    if "KT" in token:
+                    if is_knots and result["wind_speed"] is not None:
                         result["wind_speed"] *= 0.5144
                 except (ValueError, IndexError):
                     pass

@@ -43,7 +43,11 @@ def retry_with_backoff(max_retries=3, base_delay=2, backoff_factor=2):
             last_error = None
             for attempt in range(1, max_retries + 1):
                 try:
-                    return func(*args, **kwargs)
+                    result = func(*args, **kwargs)
+                    # 成功时写入缓存
+                    cache_key = f"_api_cache_{func.__name__}"
+                    st.session_state[cache_key] = result
+                    return result
                 except Exception as e:
                     last_error = e
                     if attempt < max_retries:

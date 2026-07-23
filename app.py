@@ -108,7 +108,7 @@ def _render_data_summary_card():
         pollution_text = " · ".join([pollution_labels.get(f, f) for f in pollution_present])
         pollution_text = f" | 污染物: {pollution_text}"
 
-    # 日期范围筛选器（放在容器外避免DOM不一致）
+    # 日期范围筛选器（始终渲染，避免 widget 消失触发 DOM 不一致）
     if "timestamp" in df.columns:
         ts = df["timestamp"].dropna()
         if len(ts) > 1:
@@ -124,6 +124,15 @@ def _render_data_summary_card():
                 filtered_n = len(_get_filtered_df())
                 if filtered_n != n:
                     st.caption(f"当前筛选：{filtered_n} 条 / 共 {n} 条")
+        else:
+            # 单条记录：渲染禁用的空白 date_input 保持 key 稳定
+            st.date_input(
+                "📅 数据时间范围筛选（单条记录，不可用）",
+                value=(),
+                key="_filter_date_range_input",
+                disabled=True,
+            )
+            st.session_state.pop("_filter_date_range", None)
 
     # 使用原生 Streamlit 组件确保刷新正确
     with st.container(border=False, key="summary_card"):
@@ -990,15 +999,22 @@ if st.session_state["active_tab"] == 3:
     warnings_result = render_analysis_tab(st.session_state["df"])
     if st.session_state["df"] is not None:
         all_w = []
-        all_w += check_high_temperature(st.session_state["df"])
-        all_w += check_cold_wave(st.session_state["df"])
-        all_w += check_gale(st.session_state["df"])
-        all_w += check_fog(st.session_state["df"])
-        all_w += check_rainstorm(st.session_state["df"])
-        all_w += check_frost(st.session_state["df"])
-        all_w += check_thunderstorm(st.session_state["df"])
-        all_w += check_haze(st.session_state["df"])
-        all_w += check_against_extremes(st.session_state["df"])
+        checks = [
+            ("高温", check_high_temperature),
+            ("寒潮", check_cold_wave),
+            ("大风", check_gale),
+            ("大雾", check_fog),
+            ("暴雨", check_rainstorm),
+            ("霜冻", check_frost),
+            ("雷电", check_thunderstorm),
+            ("霾", check_haze),
+            ("极值", check_against_extremes),
+        ]
+        for name, fn in checks:
+            try:
+                all_w += fn(st.session_state["df"])
+            except Exception as e:
+                st.warning(f"{name}检测因数据问题跳过: {e}")
         st.session_state["warnings_list"] = all_w
 
 # ---- Tab 4: 报告导出 ----

@@ -42,7 +42,8 @@ def fetch_climate_normal(lat, lon, month):
                 df = pd.DataFrame(data["daily"])
                 df["year"] = year
                 all_data.append(df)
-        except Exception:
+        except Exception as e:
+            st.warning(f"气候态 {year} 年数据获取异常: {e}")
             continue
 
     if not all_data:
@@ -209,4 +210,7 @@ def render_climate_ref_tab(df):
             "历史最大日降水": "mm", "历史最大风速": "m/s",
         }
         for key, data in extreme.items():
-            st.caption(f"{key}: {data['value']:.1f} {labels.get(key, '')} ({data['year']}年)")
+            if data["value"] is not None and data["year"] is not None:
+                st.caption(f"{key}: {data['value']:.1f} {labels.get(key, '')} ({data['year']}年)")
+            else:
+                st.caption(f"{key}: 数据暂缺")
