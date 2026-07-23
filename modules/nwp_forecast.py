@@ -17,16 +17,13 @@ import streamlit as st
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from config import COLORS, safe_chart
+from config import COLORS, safe_chart, _is_dark, WARN_LEVEL_ORDER
 
 # ---- 工具导入 ----
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import retry_with_backoff
 
-# ---- 暗色模式适配 ----
-def _is_dark():
-    return st.session_state.get("dark_mode", False)
 
 # ============================================================
 # 一、模式选项
@@ -943,8 +940,7 @@ def _render_forecast_advice(analysis):
     # 预警
     if analysis["warnings"]:
         st.write("#### 预警信号")
-        level_order = {"红色": 0, "橙色": 1, "黄色": 2, "蓝色": 3}
-        sorted_w = sorted(analysis["warnings"], key=lambda w: level_order.get(w["level"], 4))
+        sorted_w = sorted(analysis["warnings"], key=lambda w: WARN_LEVEL_ORDER.get(w["level"], 4))
         cols = st.columns(min(len(sorted_w), 2))
         dark_ws = {
             "蓝色": {"color": "#60a5fa", "bg": "#1e3a5f"},

@@ -2,7 +2,6 @@
 气象报文解码模块：SYNOP、METAR 标准编码报文解析
 """
 
-import pandas as pd
 import streamlit as st
 from datetime import datetime
 

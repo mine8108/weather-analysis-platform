@@ -3,7 +3,6 @@
 """
 
 import pandas as pd
-import numpy as np
 import streamlit as st
 import plotly.graph_objects as go
 import plotly.express as px
@@ -11,7 +10,7 @@ from plotly.subplots import make_subplots
 from config import (
     COLORS, WIND_DIRECTIONS,
     get_beaufort_level, get_wind_direction_name, get_dominant_wind_direction,
-    safe_chart,
+    safe_chart, FIELD_LABELS,
 )
 
 

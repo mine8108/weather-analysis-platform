@@ -12,7 +12,7 @@ from datetime import datetime
 # 确保模块路径可导入
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from config import PAGE_CONFIG
+from config import PAGE_CONFIG, FIELD_LABELS
 from modules.data_loader import (
     render_file_upload_section,
     render_manual_input_section,
@@ -92,12 +92,7 @@ def _render_data_summary_card():
     weather_present = [f for f in weather_fields if f in df.columns]
     pollution_present = [f for f in pollution_fields if f in df.columns]
 
-    weather_labels = {"temperature": "气温", "pressure": "气压", "humidity": "湿度",
-                       "wind_speed": "风速", "wind_direction": "风向", "precipitation": "降水",
-                       "visibility": "能见度", "cloud_cover": "云量"}
-    pollution_labels = {"so2": "SO₂", "nox": "NOx", "tsp": "TSP", "pm25": "PM2.5", "pm10": "PM10"}
-
-    weather_text = " · ".join([weather_labels.get(f, f) for f in weather_present[:5]])
+    weather_text = " · ".join([FIELD_LABELS.get(f, f).split(" (")[0] for f in weather_present[:5]])
     if len(weather_present) > 5:
         weather_text += f" 等{len(weather_present)}项"
     if not weather_text:
@@ -105,7 +100,7 @@ def _render_data_summary_card():
 
     pollution_text = ""
     if pollution_present:
-        pollution_text = " · ".join([pollution_labels.get(f, f) for f in pollution_present])
+        pollution_text = " · ".join([FIELD_LABELS.get(f, f).split(" (")[0] for f in pollution_present])
         pollution_text = f" | 污染物: {pollution_text}"
 
     # 日期范围筛选器（始终渲染，避免 widget 消失触发 DOM 不一致）

@@ -25,7 +25,6 @@ FIELD_ALIASES = {
     "TIMESTAMP": "timestamp",
     "obs_time": "timestamp",
     "record_time": "timestamp",
-    "t": "timestamp",
     "温度": "temperature",
     "气温": "temperature",
     "temp": "temperature",
@@ -33,7 +32,6 @@ FIELD_ALIASES = {
     "temperature": "temperature",
     "t2m": "temperature",
     "2m_temperature": "temperature",
-    "t": "temperature",
     "气压": "pressure",
     "本站气压": "pressure",
     "海平面气压": "pressure",
@@ -513,7 +511,7 @@ COLORS = {
 # 各污染物浓度→AQI分指数计算断点 (μg/m³, CO为mg/m³)
 # HJ 633-2026 更新了 PM2.5/PM10 断点以匹配新标准
 # 格式: (浓度下限, 浓度上限, AQI下限, AQI上限)
-_AQI_BREAKPOINTS = {
+AQI_BREAKPOINTS = {
     "so2":  [(0, 50, 0, 50), (51, 100, 51, 100), (101, 200, 101, 150),
              (201, 400, 151, 200), (401, 800, 201, 300), (801, 1600, 301, 500)],
     "nox":  [(0, 40, 0, 50), (41, 60, 51, 100), (81, 120, 101, 150),

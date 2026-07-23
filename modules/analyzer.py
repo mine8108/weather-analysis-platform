@@ -11,8 +11,8 @@ from config import (
     FOG_WARNING, RAINSTORM_WARNING, FROST_WARNING,
     THUNDER_WARNING, HAZE_WARNING,
     PUBLIC_ADVICE, AGRI_ADVICE, WARN_STYLES,
-    _AQI_BREAKPOINTS, AQI_LEVELS, AQI_ADVICE, AIR_POLLUTANT_LIMITS,
-    get_beaufort_level,
+    AQI_BREAKPOINTS, AQI_LEVELS, AQI_ADVICE, AIR_POLLUTANT_LIMITS,
+    get_beaufort_level, FIELD_LABELS, WARN_LEVEL_ORDER,
 )
 
 # 可配置的事件检测规则（用户可在侧边栏自定义覆盖）
@@ -313,9 +313,9 @@ def check_haze(df):
 
 def _calc_single_aqi(conc, pollutant):
     """计算单个污染物的AQI分指数 (IAQI)"""
-    if pollutant not in _AQI_BREAKPOINTS or np.isnan(conc):
+    if pollutant not in AQI_BREAKPOINTS or np.isnan(conc):
         return 0
-    bp = _AQI_BREAKPOINTS[pollutant]
+    bp = AQI_BREAKPOINTS[pollutant]
     for (clo, chi, ilo, ihi) in bp:
         if clo <= conc <= chi:
             return (ihi - ilo) / (chi - clo) * (conc - clo) + ilo
@@ -529,11 +529,7 @@ def _render_trend_section(df):
         st.info("暂无足够数据用于趋势分析")
         return
 
-    labels = {
-        "temperature": "气温", "humidity": "湿度", "pressure": "气压",
-        "wind_speed": "风速", "pm25": "PM2.5", "pm10": "PM10",
-        "so2": "SO₂", "nox": "NOx",
-    }
+    labels = {k: v.split(" (")[0] for k, v in FIELD_LABELS.items()}
 
     results = []
     import numpy as np
@@ -780,8 +776,7 @@ def render_analysis_tab(df):
 
     if all_warnings:
         # 按严重程度排序（红>橙>黄>蓝）
-        level_order = {"红色": 0, "橙色": 1, "黄色": 2, "蓝色": 3}
-        all_warnings.sort(key=lambda w: level_order.get(w["level"], 4))
+        all_warnings.sort(key=lambda w: WARN_LEVEL_ORDER.get(w["level"], 4))
 
         cols = st.columns(min(len(all_warnings), 3))
         is_dark = st.session_state.get("dark_mode", False)
