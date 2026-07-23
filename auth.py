@@ -7,6 +7,9 @@
 - 密钥从 Streamlit Secrets 读取：SUPABASE_URL / SUPABASE_ANON_KEY。
 """
 
+import socket
+from urllib.parse import urlparse
+
 import streamlit as st
 
 
@@ -49,18 +52,31 @@ def get_supabase():
         st.stop()
         return None
 
+    # 提前解析域名：create_client 本身不会立即联网，真正出错往往在 sign_up/sign_in
+    parsed = urlparse(url)
+    host = parsed.hostname or url.replace("https://", "").replace("http://", "").split("/")[0]
+    try:
+        socket.getaddrinfo(host, 443)
+    except socket.gaierror as e:
+        st.error(
+            f"❌ DNS 解析失败：{e}\n\n"
+            f"当前 SUPABASE_URL：`{url}`\n"
+            f"解析主机名：`{host}`\n\n"
+            "请检查：\n"
+            "1. Streamlit Cloud Secrets 里的 URL 是否完整、无多余空格；\n"
+            "2. Supabase 项目是否已创建完成（Project Settings → API 里的 URL）；\n"
+            "3. 如刚创建项目，DNS 生效可能需要 3–5 分钟；\n"
+            "4. 复制 URL 时不要带 `/rest/v1/` 路径。"
+        )
+        st.stop()
+        return None
+
     try:
         return create_client(url, key)
-    except OSError as e:
-        # DNS 或网络不可达时给出诊断信息，帮助排查 URL/网络问题
+    except Exception as e:
         st.error(
-            f"❌ 无法连接到 Supabase：{e}\n\n"
-            f"当前使用的 SUPABASE_URL：`{url}`\n\n"
-            "请检查：\n"
-            "1. Secrets 里的 URL 是否拼写正确；\n"
-            "2. Streamlit Cloud 是否已完成部署（Manage app → Logs 查看）；\n"
-            "3. 浏览器能否直接打开该 URL；\n"
-            "4. 刚创建的 Supabase 项目可能需要 3–5 分钟 DNS 生效。"
+            f"❌ 创建 Supabase 客户端失败：{e}\n\n"
+            f"当前 SUPABASE_URL：`{url}`"
         )
         st.stop()
         return None
