@@ -995,8 +995,11 @@ def render_template_download():
     st.subheader("[导入] 模板下载")
     template_path = "templates/data_template.csv"
     try:
-        with open(template_path, "r", encoding="utf-8") as f:
-            template_content = f.read()
+        # 模块级缓存，避免每次 render 都读磁盘
+        if "_template_cache" not in st.session_state:
+            with open(template_path, "r", encoding="utf-8") as f:
+                st.session_state["_template_cache"] = f.read()
+        template_content = st.session_state["_template_cache"]
         st.download_button(
             label="[下载] 下载标准数据模板 (CSV)",
             data=template_content,

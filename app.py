@@ -993,6 +993,9 @@ if st.session_state["active_tab"] == 2:
 if st.session_state["active_tab"] == 3:
     warnings_result = render_analysis_tab(st.session_state["df"])
     if st.session_state["df"] is not None:
+        fp = _df_fingerprint(st.session_state["df"])
+        if st.session_state.get("_warn_fp") == fp:
+            return  # 数据未变化，跳过重复检测
         all_w = []
         checks = [
             ("高温", check_high_temperature),
@@ -1011,6 +1014,7 @@ if st.session_state["active_tab"] == 3:
             except Exception as e:
                 st.warning(f"{name}检测因数据问题跳过: {e}")
         st.session_state["warnings_list"] = all_w
+        st.session_state["_warn_fp"] = fp
 
 # ---- Tab 4: 报告导出 ----
 if st.session_state["active_tab"] == 4:

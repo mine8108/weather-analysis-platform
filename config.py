@@ -186,8 +186,6 @@ STANDARD_FIELDS = [
     "so2", "nox", "tsp", "pm25", "pm10",
 ]
 
-REQUIRED_FIELDS = ["timestamp"]
-
 # 各字段的有效范围
 FIELD_RANGES = {
     "temperature": (-50, 55),
