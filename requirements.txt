@@ -7,3 +7,4 @@ matplotlib==3.11.0
 openpyxl==3.1.5
 python-docx==1.2.0
 requests==2.34.2
+supabase>=2.0.0

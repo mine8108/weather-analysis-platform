@@ -130,3 +130,36 @@ streamlit run app.py
 ## 📄 许可证
 
 [MIT](LICENSE) © 2026 郑昊 (mine8108)
+
+---
+
+## 🔐 登录与多用户私有数据（Supabase）
+
+平台已内置基于 Supabase 的邮箱密码登录，每位用户的数据按账号**私有隔离**。
+
+### 1. 创建 Supabase 项目
+- 注册 [supabase.com](https://supabase.com) → New Project。
+- Authentication → Providers → Email：建议关闭 `Confirm email` 以便本地测试直接登录（生产可开启）。
+- 复制 Project URL 与 `anon public` 密钥（Settings → API）。
+
+### 2. 建表与行级安全
+- Supabase → SQL Editor → 新建查询 → 粘贴 `supabase/schema.sql` 并执行。
+- 该脚本创建 `datasets` 表并启用 RLS，保证用户只能读写自己的数据。
+
+### 3. 配置密钥
+- 本地：复制 `.streamlit/secrets.toml.example` 为 `.streamlit/secrets.toml` 并填入。
+- Streamlit Cloud：Settings → Secrets 粘贴：
+  ```
+  SUPABASE_URL = "https://xxxx.supabase.co"
+  SUPABASE_ANON_KEY = "eyJ..."
+  ```
+
+### 4. 部署
+- `requirements.txt` 已加入 `supabase`，推送至 GitHub 后 Streamlit Cloud 自动安装。
+- 未配置密钥时页面会提示如何设置，不会崩溃。
+
+### 使用说明
+- 未登录只显示登录/注册页；登录后进入主程序。
+- 导入数据后点「💾 保存到云端」，数据存到本人账号下。
+- 重新登录会自动载入最近一次保存的数据集；侧边栏「📂 我的数据集」可切换/删除。
+- 退出登录会清空当前会话的工作数据，避免串号。

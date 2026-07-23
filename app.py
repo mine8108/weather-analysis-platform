@@ -41,6 +41,7 @@ from modules.codec import render_codec_tab
 from modules.reporter import render_export_tab
 from modules.nwp_forecast import render_forecast_tab
 from utils import df_fingerprint as _df_fingerprint, go_back as _go_back
+from auth import render_auth_page, is_authenticated, sign_out_user
 
 # ============================================================
 # 通用 UI 辅助函数
@@ -150,6 +151,18 @@ def _render_data_summary_card():
             with b_col3:
                 if cur_tab != 4 and st.button("📤 导出", use_container_width=True, key="jump_export"):
                     _navigate_to(4)
+
+    # 保存当前数据集到用户私有云端（按 user_id 隔离）
+    sc1, sc2 = st.columns([3, 1])
+    with sc1:
+        st.caption("数据仅保存在你自己的账号下，他人不可见。")
+    with sc2:
+        if st.button("💾 保存到云端", use_container_width=True, key="save_cloud"):
+            from db import save_dataset
+            _save_name = f"{src} @ {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+            if save_dataset(df, _save_name):
+                st.success("已保存到云端 ✓")
+                st.rerun()
 
     # 记录导入历史（首次检测到新数据时）
     fp_key = "_last_df_fp"
@@ -311,6 +324,13 @@ def _record_import(source, df):
 
 # 页面配置
 st.set_page_config(**PAGE_CONFIG)
+
+# ============================================================
+# 登录门禁：未登录只渲染登录页，已登录才进入主程序
+# ============================================================
+if not is_authenticated():
+    render_auth_page()
+    st.stop()
 
 # ============================================================
 # 视觉系统 — CSS 变量统一亮/暗模式
@@ -706,10 +726,48 @@ def init_session():
 
 init_session()
 
+# 登录后自动载入当前用户最近一次保存的数据集（仅当本次会话尚无数据，且每会话只尝试一次）
+if st.session_state.get("df") is None and not st.session_state.get("_auto_load_done"):
+    st.session_state["_auto_load_done"] = True
+    from db import load_latest_dataset
+    _auto_df, _auto_name = load_latest_dataset()
+    if _auto_df is not None:
+        st.session_state["df"] = _auto_df
+        st.session_state["source"] = _auto_name or "云端数据"
+
 # ============================================================
 # 侧边栏：自定义检测阈值
 # ============================================================
 with st.sidebar:
+    # ---- 用户面板（登录态） ----
+    _auth_user = st.session_state.get("auth_user")
+    if _auth_user:
+        st.caption(f"👤 已登录：{_auth_user.get('email', '')}")
+        if st.button("退出登录", key="logout_btn", use_container_width=True):
+            sign_out_user()
+            st.rerun()
+
+        with st.expander("📂 我的数据集", expanded=False):
+            from db import list_datasets, load_dataset, delete_dataset
+            _my_ds = list_datasets()
+            if not _my_ds:
+                st.caption("暂无保存的数据，导入后可点「保存到云端」。")
+            for _d in _my_ds:
+                _dc1, _dc2 = st.columns([4, 1])
+                with _dc1:
+                    if st.button(_d["name"], key=f"load_{_d['id']}",
+                                 use_container_width=True):
+                        _ldf, _lname = load_dataset(_d["id"])
+                        if _ldf is not None:
+                            st.session_state["df"] = _ldf
+                            st.session_state["source"] = _lname
+                            st.rerun()
+                with _dc2:
+                    if st.button("🗑", key=f"del_{_d['id']}"):
+                        delete_dataset(_d["id"])
+                        st.rerun()
+        st.divider()
+
     st.header("[设置] 自定义检测阈值")
 
     with st.expander("[工具] 调整阈值（覆盖国家标准）", expanded=False):
