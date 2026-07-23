@@ -17,7 +17,7 @@ import streamlit as st
 def get_supabase():
     """返回 Supabase 客户端（带缓存，避免重复连接）。
 
-    缺失依赖或密钥时，给出可读提示并终止当前脚本渲染。
+    缺失依赖、密钥或网络不可达时，给出可读提示并终止当前脚本渲染。
     """
     try:
         from supabase import create_client
@@ -49,7 +49,21 @@ def get_supabase():
         st.stop()
         return None
 
-    return create_client(url, key)
+    try:
+        return create_client(url, key)
+    except OSError as e:
+        # DNS 或网络不可达时给出诊断信息，帮助排查 URL/网络问题
+        st.error(
+            f"❌ 无法连接到 Supabase：{e}\n\n"
+            f"当前使用的 SUPABASE_URL：`{url}`\n\n"
+            "请检查：\n"
+            "1. Secrets 里的 URL 是否拼写正确；\n"
+            "2. Streamlit Cloud 是否已完成部署（Manage app → Logs 查看）；\n"
+            "3. 浏览器能否直接打开该 URL；\n"
+            "4. 刚创建的 Supabase 项目可能需要 3–5 分钟 DNS 生效。"
+        )
+        st.stop()
+        return None
 
 
 # ============================================================
