@@ -28,8 +28,16 @@ def get_supabase():
         st.stop()
         return None
 
-    url = st.secrets.get("SUPABASE_URL")
-    key = st.secrets.get("SUPABASE_ANON_KEY")
+    url = str(st.secrets.get("SUPABASE_URL", "")).strip()
+    key = str(st.secrets.get("SUPABASE_ANON_KEY", "")).strip()
+    # 清理常见复制错误：去掉 REST 路径、协议前后空格、尾部斜杠
+    if url.endswith("/rest/v1/"):
+        url = url[:-9]
+    elif url.endswith("/rest/v1"):
+        url = url[:-8]
+    url = url.rstrip("/")
+    if url and not url.startswith(("http://", "https://")):
+        url = "https://" + url
     if not url or not key:
         st.error(
             "❌ 未配置 Supabase 密钥。\n\n"
