@@ -323,8 +323,8 @@ st.markdown("""
     --text-muted: #94a3b8;
     --border-color: #e2e8f0;
     --border-hover: #3b82f6;
-    --accent: #2563eb;
-    --accent-hover: #1d4ed8;
+    --accent: #1d4ed8;
+    --accent-hover: #1e3a8a;
     --accent-soft: #eff6ff;
     --success-bg: #f0fdf4;
     --warning-bg: #fffbeb;
@@ -439,13 +439,16 @@ p, span, label, .stMarkdown {
     box-shadow: var(--shadow-sm);
 }
 button[kind="primary"] {
-    background: var(--accent) !important;
+    background: #1d4ed8 !important;
     color: #ffffff !important;
-    border-color: var(--accent) !important;
+    border-color: #1e40af !important;
+    box-shadow: 0 2px 4px rgba(29, 78, 216, 0.25), var(--shadow-sm) !important;
+    font-weight: 600 !important;
 }
 button[kind="primary"]:hover {
-    background: var(--accent-hover) !important;
-    border-color: var(--accent-hover) !important;
+    background: #1e40af !important;
+    border-color: #1e3a8a !important;
+    box-shadow: 0 4px 8px rgba(29, 78, 216, 0.35), var(--shadow-md) !important;
 }
 
 /* ===== 输入框 ===== */
