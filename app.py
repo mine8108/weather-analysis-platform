@@ -439,16 +439,16 @@ p, span, label, .stMarkdown {
     box-shadow: var(--shadow-sm);
 }
 button[kind="primary"] {
-    background: #1d4ed8 !important;
-    color: #ffffff !important;
-    border-color: #1e40af !important;
-    box-shadow: 0 2px 4px rgba(29, 78, 216, 0.25), var(--shadow-sm) !important;
+    background: #faf6ef !important;
+    color: #1e293b !important;
+    border-color: #e8e0d0 !important;
+    box-shadow: 0 1px 2px rgba(120, 90, 40, 0.08), var(--shadow-sm) !important;
     font-weight: 600 !important;
 }
 button[kind="primary"]:hover {
-    background: #1e40af !important;
-    border-color: #1e3a8a !important;
-    box-shadow: 0 4px 8px rgba(29, 78, 216, 0.35), var(--shadow-md) !important;
+    background: #f3eddf !important;
+    border-color: #d4c8a8 !important;
+    box-shadow: 0 2px 4px rgba(120, 90, 40, 0.12), var(--shadow-md) !important;
 }
 
 /* ===== 输入框 ===== */
