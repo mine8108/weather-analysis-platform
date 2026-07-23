@@ -346,7 +346,7 @@ st.markdown("""
     font-family: var(--font-ui);
 }
 .block-container {
-    padding: 1.5rem 2rem !important;
+    padding: 3.5rem 2rem 1.5rem !important;
     max-width: 1200px !important;
 }
 
@@ -356,7 +356,9 @@ st.markdown("""
     font-weight: 700;
     color: var(--accent);
     letter-spacing: -0.02em;
+    margin-top: 0;
     margin-bottom: 4px;
+    padding-top: 0.5rem;
 }
 .sub-header {
     font-size: 0.85rem;
