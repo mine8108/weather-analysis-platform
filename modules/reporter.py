@@ -1,13 +1,14 @@
 """
-报告导出模块：图表 PNG 导出、增强 Word 分析报告、数据 CSV 导出
+报告导出模块：图�� PNG 导出、增强 Word 分析报告、数据 CSV 导出
 """
+
+from io import BytesIO
+from datetime import datetime
+import traceback
 
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
-from io import BytesIO
-from datetime import datetime
-import traceback
 
 # 报告用：字段名别名映射（预报字段 → 标准字段）
 _FIELD_ALIAS_REPORT = {

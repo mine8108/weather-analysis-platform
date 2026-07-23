@@ -760,13 +760,13 @@ def render_visualization_tab(df):
             st.rerun()
         return
 
-    # 子Tab
-    viz_tab1, viz_tab2, viz_tab3, viz_tab4, viz_tab5, viz_tab6, viz_tab7 = st.tabs([
-        "[统计] 综合看板", "[风] 风场分析", "[实验] 要素关系", "[列表] 统计摘要",
-        "[分布] 要素分布", "[大气] 空气质量", "[双轴] 时序双要素"
-    ])
+    # 惰性子模块选择（避免 7 个Tab 全量渲染）
+    subtab_labels = ["综合看板", "风场分析", "要素关系", "统计摘要", "要素分布", "空气质量", "时序双要素"]
+    active = st.selectbox("图表模块", subtab_labels, key="viz_subtab",
+                          label_visibility="collapsed")
+    active_idx = subtab_labels.index(active) if active in subtab_labels else 0
 
-    with viz_tab1:
+    if active_idx == 0:
         # 显示缺失字段提示
         dashboard_fields = ["temperature", "pressure", "humidity", "wind_speed"]
         missing = [f for f in dashboard_fields if f not in df.columns or df[f].dropna().empty]
@@ -784,7 +784,7 @@ def render_visualization_tab(df):
         else:
             st.warning("缺少可视化所需的时间序列数据")
 
-    with viz_tab2:
+    if active_idx == 1:
         col_a, col_b = st.columns(2)
         with col_a:
             wind_rose = wind_rose_chart(df)
@@ -819,7 +819,7 @@ def render_visualization_tab(df):
                     st.metric("平均风速", f"{avg_ws:.1f} m/s", f"{bf_name} ({bf_level}级)")
                     st.metric("主导风向", dom_dir_label)
 
-    with viz_tab3:
+    if active_idx == 2:
         scatter = scatter_matrix(df)
         if scatter:
             safe_chart(scatter, "要素关系散点矩阵", key="viz_scatter")
@@ -866,7 +866,7 @@ def render_visualization_tab(df):
         else:
             st.info("至少需要两个以上有效数值要素")
 
-    with viz_tab4:
+    if active_idx == 3:
         # 统计摘要
         stats_fields = ["temperature", "pressure", "humidity", "wind_speed", "visibility",
                        "precipitation", "cloud_cover", "so2", "nox", "tsp", "pm25", "pm10"]
@@ -880,7 +880,7 @@ def render_visualization_tab(df):
         # 多站点对比
         multi_station_comparison(df)
 
-    with viz_tab5:
+    if active_idx == 4:
         st.write("### [分布] 要素分布直方图")
         st.caption("用于查看各气象要素的取值分布，默认展示降水量（可叠加其他要素对比）")
         hist_fig = distribution_histogram(df)
@@ -889,10 +889,10 @@ def render_visualization_tab(df):
         else:
             st.info("当前数据中缺少可用于分布统计的要素字段")
 
-    with viz_tab6:
+    if active_idx == 5:
         _render_pollution_panel(df)
 
-    with viz_tab7:
+    if active_idx == 6:
         st.write("### [双轴] 时序双要素对比")
         st.caption("自由选择两个气象要素，系统自动适配图表类型（柱状/折线），支持双y轴独立缩放")
         if "timestamp" in df.columns:

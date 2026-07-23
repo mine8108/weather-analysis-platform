@@ -5,9 +5,10 @@
 
 import sys
 import os
+from datetime import datetime
+
 import streamlit as st
 import pandas as pd
-from datetime import datetime
 
 # 确保模块路径可导入
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -991,30 +992,26 @@ if st.session_state["active_tab"] == 2:
 
 # ---- Tab 3: 智能分析与建议 ----
 if st.session_state["active_tab"] == 3:
-    warnings_result = render_analysis_tab(st.session_state["df"])
+    # 数据指纹缓存：数据未变化时跳过重复检测
     if st.session_state["df"] is not None:
         fp = _df_fingerprint(st.session_state["df"])
-        if st.session_state.get("_warn_fp") == fp:
-            return  # 数据未变化，跳过重复检测
-        all_w = []
-        checks = [
-            ("高温", check_high_temperature),
-            ("寒潮", check_cold_wave),
-            ("大风", check_gale),
-            ("大雾", check_fog),
-            ("暴雨", check_rainstorm),
-            ("霜冻", check_frost),
-            ("雷电", check_thunderstorm),
-            ("霾", check_haze),
-            ("极值", check_against_extremes),
-        ]
-        for name, fn in checks:
-            try:
-                all_w += fn(st.session_state["df"])
-            except Exception as e:
-                st.warning(f"{name}检测因数据问题跳过: {e}")
-        st.session_state["warnings_list"] = all_w
-        st.session_state["_warn_fp"] = fp
+        if st.session_state.get("_warn_fp") != fp:
+            all_w = []
+            checks = [
+                ("高温", check_high_temperature), ("寒潮", check_cold_wave),
+                ("大风", check_gale), ("大雾", check_fog),
+                ("暴雨", check_rainstorm), ("霜冻", check_frost),
+                ("雷电", check_thunderstorm), ("霾", check_haze),
+                ("极值", check_against_extremes),
+            ]
+            for name, fn in checks:
+                try:
+                    all_w += fn(st.session_state["df"])
+                except Exception as e:
+                    st.warning(f"{name}检测因数据问题跳过: {e}")
+            st.session_state["warnings_list"] = all_w
+            st.session_state["_warn_fp"] = fp
+    warnings_result = render_analysis_tab(st.session_state["df"])
 
 # ---- Tab 4: 报告导出 ----
 if st.session_state["active_tab"] == 4:
