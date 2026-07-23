@@ -307,165 +307,348 @@ def _record_import(source, df):
 # 页面配置
 st.set_page_config(**PAGE_CONFIG)
 
-# 自定义CSS
+# ============================================================
+# 视觉系统 — CSS 变量统一亮/暗模式
+# ============================================================
 st.markdown("""
 <style>
-    .main-header {
-        font-size: 2rem;
-        font-weight: 700;
-        color: #1f77b4;
-        margin-bottom: 0.5rem;
-    }
-    .sub-header {
-        font-size: 1rem;
-        color: #888;
-        margin-bottom: 1.5rem;
-    }
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 4px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        padding: 8px 16px;
-        border-radius: 4px 4px 0 0;
-    }
+/* ===== 变量: 亮色模式 ===== */
+:root {
+    --bg-primary: #ffffff;
+    --bg-secondary: #f8fafc;
+    --bg-tertiary: #f1f5f9;
+    --bg-hover: #e2e8f0;
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #94a3b8;
+    --border-color: #e2e8f0;
+    --border-hover: #3b82f6;
+    --accent: #2563eb;
+    --accent-hover: #1d4ed8;
+    --accent-soft: #eff6ff;
+    --success-bg: #f0fdf4;
+    --warning-bg: #fffbeb;
+    --error-bg: #fef2f2;
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-md: 0 4px 12px -2px rgba(0,0,0,0.06);
+    --shadow-lg: 0 12px 24px -4px rgba(0,0,0,0.08);
+    --transition: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+}
+
+/* ===== 布局基础 ===== */
+.stApp {
+    background: var(--bg-primary);
+    font-family: var(--font-ui);
+}
+.block-container {
+    padding: 1.5rem 2rem !important;
+    max-width: 1200px !important;
+}
+
+/* ===== 标题层级 ===== */
+.main-header {
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: -0.02em;
+    margin-bottom: 4px;
+}
+.sub-header {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    letter-spacing: 0.01em;
+    margin-bottom: 1.2rem;
+}
+h1, h2, h3 {
+    color: var(--text-primary) !important;
+    letter-spacing: -0.01em;
+}
+h1 { font-size: 1.5rem !important; font-weight: 700 !important; }
+h2 { font-size: 1.2rem !important; font-weight: 600 !important; }
+h3 { font-size: 1.05rem !important; font-weight: 600 !important; }
+
+/* ===== 文本 ===== */
+p, span, label, .stMarkdown {
+    color: var(--text-secondary) !important;
+    line-height: 1.6;
+}
+.stCaption {
+    color: var(--text-muted) !important;
+    font-size: 0.8rem;
+}
+
+/* ===== 卡片 (st.container border / stMetric / stAlert / stExpander) ===== */
+[data-testid="stVerticalBlockBorderWrapper"] {
+    background: var(--bg-secondary) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: var(--radius-md) !important;
+    box-shadow: var(--shadow-sm) !important;
+    transition: border-color var(--transition);
+}
+[data-testid="stMetric"] {
+    background: var(--bg-secondary) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: var(--radius-md) !important;
+    box-shadow: var(--shadow-sm) !important;
+    padding: 14px !important;
+    transition: border-color var(--transition), box-shadow var(--transition);
+}
+[data-testid="stMetric"]:hover {
+    border-color: var(--border-hover) !important;
+    box-shadow: var(--shadow-md) !important;
+}
+[data-testid="stMetric"] label {
+    color: var(--text-muted) !important;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+[data-testid="stMetricValue"] {
+    color: var(--text-primary) !important;
+    font-family: var(--font-mono);
+    font-size: 1.5rem !important;
+    font-weight: 700;
+}
+
+/* ===== 按钮 ===== */
+.stButton > button {
+    background: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: var(--radius-sm) !important;
+    font-family: var(--font-ui);
+    font-size: 0.875rem;
+    font-weight: 500;
+    padding: 6px 16px !important;
+    transition: all var(--transition);
+    box-shadow: var(--shadow-sm);
+}
+.stButton > button:hover {
+    background: var(--bg-hover) !important;
+    border-color: var(--accent) !important;
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+}
+.stButton > button:active {
+    transform: translateY(0);
+    box-shadow: var(--shadow-sm);
+}
+button[kind="primary"] {
+    background: var(--accent) !important;
+    color: #ffffff !important;
+    border-color: var(--accent) !important;
+}
+button[kind="primary"]:hover {
+    background: var(--accent-hover) !important;
+    border-color: var(--accent-hover) !important;
+}
+
+/* ===== 输入框 ===== */
+.stTextInput input, .stNumberInput input, .stSelectbox [data-baseweb="select"] {
+    background: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: var(--radius-sm) !important;
+    font-family: var(--font-ui);
+    transition: border-color var(--transition), box-shadow var(--transition);
+}
+.stTextInput input:focus, .stNumberInput input:focus {
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1) !important;
+}
+.stNumberInput button {
+    background: var(--bg-tertiary) !important;
+    color: var(--text-secondary) !important;
+    border-color: var(--border-color) !important;
+}
+
+/* ===== 展开器 ===== */
+[data-testid="stExpander"] {
+    background: var(--bg-secondary) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: var(--radius-md) !important;
+    box-shadow: var(--shadow-sm);
+}
+[data-testid="stExpander"] summary {
+    color: var(--text-primary) !important;
+    font-weight: 500;
+    transition: color var(--transition);
+}
+[data-testid="stExpander"] summary:hover {
+    color: var(--accent) !important;
+}
+
+/* ===== 提示框 ===== */
+div[data-testid="stAlert"] {
+    background: var(--bg-secondary) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: var(--radius-md) !important;
+    box-shadow: var(--shadow-sm);
+}
+.stSuccess { background: var(--success-bg) !important; border-left: 3px solid #22c55e !important; }
+.stWarning { background: var(--warning-bg) !important; border-left: 3px solid #f59e0b !important; }
+.stError   { background: var(--error-bg) !important;   border-left: 3px solid #ef4444 !important; }
+
+/* ===== 数据表格 ===== */
+[data-testid="stDataFrame"] {
+    border: 1px solid var(--border-color) !important;
+    border-radius: var(--radius-md) !important;
+    overflow: hidden;
+}
+[data-testid="stDataFrame"] thead th {
+    background: var(--bg-tertiary) !important;
+    color: var(--text-secondary) !important;
+    font-weight: 600;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    border-bottom: 2px solid var(--border-color) !important;
+}
+[data-testid="stDataFrame"] tbody tr:nth-child(even) {
+    background: var(--bg-secondary);
+}
+[data-testid="stDataFrame"] tbody td {
+    color: var(--text-secondary) !important;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+}
+
+/* ===== Tab ===== */
+.stTabs [data-baseweb="tab"] {
+    color: var(--text-muted) !important;
+    font-weight: 500;
+    transition: color var(--transition);
+}
+.stTabs [data-baseweb="tab"][aria-selected="true"] {
+    color: var(--accent) !important;
+    font-weight: 600;
+}
+.stTabs [data-baseweb="tab-list"] {
+    border-bottom: 2px solid var(--border-color) !important;
+    gap: 0;
+}
+
+/* ===== Radio (主 Tab 导航) ===== */
+[data-testid="stRadio"] [role="radiogroup"] {
+    gap: 4px;
+}
+[data-testid="stRadio"] [role="radiogroup"] label {
+    color: var(--text-secondary) !important;
+    font-weight: 500;
+    font-size: 0.875rem;
+    padding: 8px 18px;
+    border-radius: var(--radius-sm);
+    transition: all var(--transition);
+}
+[data-testid="stRadio"] [role="radiogroup"] label:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary) !important;
+}
+[data-testid="stRadio"] [data-baseweb="radio"]:has(input:checked) + div label {
+    background: var(--accent-soft);
+    color: var(--accent) !important;
+    font-weight: 600;
+}
+
+/* ===== 侧边栏 ===== */
+[data-testid="stSidebar"] {
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border-color);
+}
+[data-testid="stSidebar"] .stMarkdown,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] p {
+    color: var(--text-secondary) !important;
+}
+
+/* ===== 分割线 ===== */
+hr {
+    border: none;
+    border-top: 1px solid var(--border-color) !important;
+    margin: 1rem 0;
+}
+
+/* ===== 文件上传 ===== */
+[data-testid="stFileUploader"] section {
+    background: var(--bg-secondary) !important;
+    border: 1px dashed var(--border-color) !important;
+    border-radius: var(--radius-md) !important;
+    transition: border-color var(--transition);
+}
+[data-testid="stFileUploader"] section:hover {
+    border-color: var(--accent) !important;
+}
+[data-testid="stFileUploader"] section p {
+    color: var(--text-muted) !important;
+}
+
+/* ===== 滚动条 ===== */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-primary); }
+::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ===== Plotly 图表容器 ===== */
+.js-plotly-plot, .plot-container {
+    border-radius: var(--radius-md) !important;
+}
+.js-plotly-plot .plotly .main-svg {
+    border-radius: var(--radius-md);
+}
+
+/* ===== 移动端 ===== */
+@media screen and (max-width: 768px) {
+    .block-container { padding: 1rem 0.5rem !important; }
+    .main-header { font-size: 1.3rem !important; }
+    .sub-header { font-size: 0.75rem !important; }
+    [data-testid="column"] { flex: 1 1 100% !important; min-width: 100% !important; }
+    .stTabs [data-baseweb="tab"] { padding: 6px 10px !important; font-size: 0.75rem !important; }
+    .stButton > button { width: 100% !important; }
+    [data-testid="stRadio"] [role="radiogroup"] { flex-direction: column !important; gap: 2px; }
+    [data-testid="stRadio"] [role="radiogroup"] label { padding: 6px 12px !important; font-size: 0.8rem !important; }
+    [data-testid="stMetric"] { padding: 10px !important; }
+    .js-plotly-plot, .plot-container { max-height: 280px !important; }
+    [data-testid="stDataFrame"] { overflow-x: auto !important; font-size: 0.75rem !important; }
+}
+@media screen and (min-width: 769px) and (max-width: 1024px) {
+    .block-container { padding: 1.2rem 1rem !important; }
+    .main-header { font-size: 1.5rem !important; }
+}
 </style>
 """, unsafe_allow_html=True)
 
-# ---- 暗色模式 CSS ----
+# ---- 暗色模式 CSS (仅覆盖变量) ----
 if st.session_state.get("dark_mode", False):
     st.markdown("""
     <style>
-        /* ===== 全局 ===== */
-        .stApp { background: #0f172a; }
-        .main-header { color: #e2e8f0 !important; }
-        .sub-header { color: #94a3b8 !important; }
-        h1, h2, h3, h4 { color: #e2e8f0 !important; }
-        p, span, label, .stMarkdown { color: #cbd5e1 !important; }
-
-        /* ===== 卡片/容器 (st.container border=True) ===== */
-        [data-testid="stVerticalBlockBorderWrapper"] {
-            background: #1e293b !important;
-            border-color: #334155 !important;
-        }
-
-        /* ===== 按钮 ===== */
-        .stButton > button {
-            background: #1e293b !important;
-            color: #e2e8f0 !important;
-            border-color: #475569 !important;
-        }
-        .stButton > button:hover {
-            background: #334155 !important;
-            border-color: #60a5fa !important;
-            color: #e2e8f0 !important;
-        }
-        button[kind="primary"] {
-            background: #2563eb !important;
-        }
-        button[kind="primary"]:hover {
-            background: #1d4ed8 !important;
-        }
-
-        /* ===== 输入框 ===== */
-        .stTextInput input, .stNumberInput input {
-            background: #1e293b !important;
-            color: #e2e8f0 !important;
-            border-color: #475569 !important;
-        }
-        .stNumberInput button {
-            background: #334155 !important;
-            color: #e2e8f0 !important;
-        }
-
-        /* ===== 展开器 ===== */
-        [data-testid="stExpander"] {
-            background: #1e293b !important;
-            border-color: #334155 !important;
-        }
-        [data-testid="stExpander"] summary {
-            color: #e2e8f0 !important;
-        }
-        [data-testid="stExpander"] summary:hover {
-            color: #60a5fa !important;
-        }
-
-        /* ===== 提示框 ===== */
-        div.stAlert {
-            background: #1e293b !important;
-            border-color: #334155 !important;
-        }
-        div[data-testid="stAlert"] {
-            background: #1e293b !important;
-        }
-
-        /* ===== 指标 ===== */
-        [data-testid="stMetric"] {
-            background: #1e293b !important;
-            border-color: #334155 !important;
-        }
-        [data-testid="stMetric"] label { color: #94a3b8 !important; }
-        [data-testid="stMetricValue"] { color: #e2e8f0 !important; }
-
-        /* ===== 数据表格 ===== */
-        [data-testid="stDataFrame"] { border-color: #334155; }
-        [data-testid="stDataFrame"] thead th { background: #1e3a5f !important; }
-        [data-testid="stDataFrame"] tbody tr:nth-child(even) { background: #1a2332; }
-        [data-testid="stDataFrame"] tbody td { color: #cbd5e1 !important; }
-
-        /* ===== Tab ===== */
-        .stTabs [data-baseweb="tab"] { color: #94a3b8 !important; }
-        .stTabs [data-baseweb="tab"][aria-selected="true"] { color: #60a5fa !important; }
-        .stTabs [data-baseweb="tab-list"] { border-bottom-color: #334155; }
-
-        /* ===== Radio (Tab 导航) ===== */
-        .stRadio label { color: #e2e8f0 !important; }
-        [data-testid="stRadio"] [role="radiogroup"] label {
-            color: #e2e8f0 !important;
-        }
-
-        /* ===== 侧边栏 ===== */
-        [data-testid="stSidebar"] { background: #0a0f1a; }
-
-        /* ===== 复选框 ===== */
-        .stCheckbox label { color: #e2e8f0 !important; }
-        .stCheckbox label span { color: #e2e8f0 !important; }
-
-        /* ===== 分割线 ===== */
-        hr { border-color: #334155 !important; }
-
-        /* ===== 文件上传 ===== */
-        [data-testid="stFileUploader"] section {
-            background: #1e293b !important;
-            border-color: #475569 !important;
-        }
-        [data-testid="stFileUploader"] section p {
-            color: #94a3b8 !important;
-        }
-
-        /* ===== 滚动条 ===== */
-        ::-webkit-scrollbar-thumb { background: #475569; }
-
-        /* ===== st.caption + st.success ===== */
-        .stCaption { color: #94a3b8 !important; }
-        .stSuccess { background: #064e3b !important; }
-
-        /* ===== 移动端适配 ===== */
-        @media screen and (max-width: 768px) {
-            .main-header { font-size: 1.3rem !important; }
-            .sub-header { font-size: 0.8rem !important; }
-            [data-testid="column"] { flex: 1 1 100% !important; min-width: 100% !important; }
-            .stTabs [data-baseweb="tab"] { padding: 6px 8px !important; font-size: 0.75rem !important; }
-            .stButton > button { width: 100% !important; }
-            [data-testid="stRadio"] [role="radiogroup"] { flex-direction: column !important; }
-            [data-testid="stMetric"] { padding: 8px !important; }
-            .js-plotly-plot, .plot-container { max-height: 300px !important; }
-            [data-testid="stDataFrame"] { overflow-x: auto !important; }
-            .block-container { padding: 1rem 0.5rem !important; }
-        }
-        @media screen and (min-width: 769px) and (max-width: 1024px) {
-            .main-header { font-size: 1.6rem !important; }
-            .block-container { padding: 1.5rem 1rem !important; }
-        }
+    :root {
+        --bg-primary: #0f172a;
+        --bg-secondary: #1e293b;
+        --bg-tertiary: #334155;
+        --bg-hover: #475569;
+        --text-primary: #f1f5f9;
+        --text-secondary: #94a3b8;
+        --text-muted: #64748b;
+        --border-color: #334155;
+        --border-hover: #60a5fa;
+        --accent: #3b82f6;
+        --accent-hover: #60a5fa;
+        --accent-soft: #1e3a5f;
+        --success-bg: #064e3b;
+        --warning-bg: #78350f;
+        --error-bg: #7f1d1d;
+        --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+        --shadow-md: 0 4px 12px -2px rgba(0,0,0,0.4);
+        --shadow-lg: 0 12px 24px -4px rgba(0,0,0,0.5);
+    }
     </style>
     """, unsafe_allow_html=True)
 
