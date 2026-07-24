@@ -5,9 +5,12 @@
   无需自建后端。匿名密钥可安全暴露在前端。
 - 所有用户数据按 user_id 隔离，由数据库 RLS 强制保证（见 supabase/schema.sql）。
 - 密钥从 Streamlit Secrets 读取：SUPABASE_URL / SUPABASE_ANON_KEY。
-- 登录页背景为 Three.js + 自定义 GLSL 实现的实时粒子雨景，降雨强度由
-  用户当地实时降水数据驱动（ipapi.co 定位 + Open-Meteo 降水）。
-- 登录/注册表单使用标准 Streamlit 控件，输入框与提示更明显、可访问性更好。
+- 登录页背景为 Three.js + 自定义 GLSL 实现的**全天气实时场景**：按用户当地
+  实时 WMO 天气代码（Open-Meteo）渲染晴/多云/雾/雨（牛毛↔瓢泼分级）/雪/雷暴，
+  并由昼夜状态联动色温。定位用 ipapi.co。
+- 登录/注册表单使用标准 Streamlit 控件，输入框与提示更明显、可访问性更好；
+  交互卡片为黑色透明「液态玻璃」质感（backdrop-filter + SVG 湍流折射），
+  文字用互补色保证可读性。
 """
 
 import json
@@ -105,168 +108,24 @@ def sign_out_user():
 
 
 # ============================================================
-# 三、沉浸式雨景背景（Three.js + GLSL）
+# 三、全天气沉浸式背景（Three.js + GLSL）
 # ============================================================
-RAIN_BG_HTML = r"""
-<!DOCTYPE html>
-<html lang="zh">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { height: 100%; background: #070b14; overflow: hidden; }
-  #rain-canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
-  #loc { position: fixed; top: 14px; right: 14px; color: rgba(148,163,184,0.7);
-    font-family: system-ui, -apple-system, sans-serif; font-size: 12px;
-    background: rgba(0,0,0,0.25); padding: 6px 10px; border-radius: 8px;
-    pointer-events: none; z-index: 2; }
-</style>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-</head>
-<body>
-<canvas id="rain-canvas"></canvas>
-<div id="loc">正在获取当地降雨数据…</div>
-<script>
-(function () {
-  const canvas = document.getElementById('rain-canvas');
-  const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+def load_weather_html() -> str:
+    """读取 assets/login_weather.html 作为登录页全屏背景。
 
-  const scene = new THREE.Scene();
-  scene.fog = new THREE.FogExp2(0x070b14, 0.022);
-  const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 120);
-  camera.position.set(0, 2.5, 16);
-  camera.lookAt(0, 0, -6);
-
-  let targetIntensity = 0.5;
-  let currentIntensity = 0.5;
-
-  // --- 粒子雨 ---
-  const COUNT = 6000;
-  const geo = new THREE.BufferGeometry();
-  const pos = new Float32Array(COUNT * 3);
-  const aSpeed = new Float32Array(COUNT);
-  const aOffset = new Float32Array(COUNT);
-  for (let i = 0; i < COUNT; i++) {
-    pos[i * 3] = (Math.random() - 0.5) * 46;
-    pos[i * 3 + 1] = Math.random() * 24;
-    pos[i * 3 + 2] = (Math.random() - 0.5) * 34 - 12;
-    aSpeed[i] = 0.5 + Math.random() * 1.8;
-    aOffset[i] = Math.random();
-  }
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setAttribute('aSpeed', new THREE.BufferAttribute(aSpeed, 1));
-  geo.setAttribute('aOffset', new THREE.BufferAttribute(aOffset, 1));
-
-  const rainMat = new THREE.ShaderMaterial({
-    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-    uniforms: { uTime: { value: 0 }, uIntensity: { value: 0.5 } },
-    vertexShader: [
-      'uniform float uTime;',
-      'uniform float uIntensity;',
-      'attribute float aSpeed;',
-      'attribute float aOffset;',
-      'varying float vAlpha;',
-      'void main() {',
-      '  vec3 p = position;',
-      '  float fall = mod(uTime * (1.6 + aSpeed * 2.2) + aOffset, 1.0);',
-      '  p.y = 14.0 - fall * 28.0;',
-      '  vec4 mv = modelViewMatrix * vec4(p, 1.0);',
-      '  gl_PointSize = (1.4 + uIntensity * 4.0) * (340.0 / -mv.z);',
-      '  gl_Position = projectionMatrix * mv;',
-      '  vAlpha = 0.22 + uIntensity * 0.55;',
-      '}'
-    ].join('\n'),
-    fragmentShader: [
-      'varying float vAlpha;',
-      'void main() {',
-      '  vec2 c = gl_PointCoord - vec2(0.5);',
-      '  float d = length(c * vec2(1.0, 3.6));',
-      '  if (d > 0.5) discard;',
-      '  float a = smoothstep(0.5, 0.0, d) * vAlpha;',
-      '  gl_FragColor = vec4(0.72, 0.82, 1.0, a);',
-      '}'
-    ].join('\n')
-  });
-  const rain = new THREE.Points(geo, rainMat);
-  scene.add(rain);
-
-  // --- 水面波纹 ---
-  const waterGeo = new THREE.PlaneGeometry(90, 70, 1, 1);
-  const waterMat = new THREE.ShaderMaterial({
-    uniforms: { uTime: { value: 0 }, uIntensity: { value: 0.5 } },
-    vertexShader: [
-      'varying vec2 vUv;',
-      'void main() {',
-      '  vUv = uv;',
-      '  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);',
-      '}'
-    ].join('\n'),
-    fragmentShader: [
-      'uniform float uTime;',
-      'uniform float uIntensity;',
-      'varying vec2 vUv;',
-      'void main() {',
-      '  vec2 uv = vUv * 9.0;',
-      '  float w = sin(uv.x * 3.0 + uTime * 2.0) * 0.5 + sin(uv.y * 2.5 - uTime * 1.7) * 0.5;',
-      '  w += sin((uv.x + uv.y) * 4.0 + uTime * 3.0) * 0.25;',
-      '  w *= (0.28 + uIntensity * 0.72);',
-      '  float shade = 0.04 + w * 0.06 + uIntensity * 0.05;',
-      '  vec3 col = vec3(0.04, 0.09, 0.18) + shade * vec3(0.4, 0.6, 1.0);',
-      '  gl_FragColor = vec4(col, 1.0);',
-      '}'
-    ].join('\n')
-  });
-  const water = new THREE.Mesh(waterGeo, waterMat);
-  water.rotation.x = -Math.PI / 2;
-  water.position.y = -6.5;
-  scene.add(water);
-
-  function onResize() {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-  }
-  window.addEventListener('resize', onResize);
-
-  function animate(t) {
-    const time = t * 0.001;
-    currentIntensity += (targetIntensity - currentIntensity) * 0.02;
-    rainMat.uniforms.uTime.value = time;
-    rainMat.uniforms.uIntensity.value = currentIntensity;
-    waterMat.uniforms.uTime.value = time;
-    waterMat.uniforms.uIntensity.value = currentIntensity;
-    camera.position.x = Math.sin(time * 0.15) * 0.7;
-    camera.lookAt(0, 0, -6);
-    renderer.render(scene, camera);
-    requestAnimationFrame(animate);
-  }
-  requestAnimationFrame(animate);
-
-  // 实时降雨数据 → 强度
-  async function getIntensity() {
-    const locEl = document.getElementById('loc');
-    try {
-      const ip = await fetch('https://ipapi.co/json/').then(function (r) { return r.json(); });
-      const lat = ip.latitude, lon = ip.longitude;
-      const meteo = await fetch('https://api.open-meteo.com/v1/forecast?latitude=' +
-        lat + '&longitude=' + lon + '&current=precipitation').then(function (r) { return r.json(); });
-      const precip = (meteo.current && meteo.current.precipitation) || 0;
-      targetIntensity = Math.max(0.08, Math.min(precip / 8.0, 1.0));
-      locEl.textContent = '当地实时降雨：' + precip.toFixed(1) + ' mm/h · 雨景已同步';
-    } catch (e) {
-      targetIntensity = 0.5;
-      locEl.textContent = '无法获取当地降雨，已使用默认雨景';
-    }
-  }
-  getIntensity();
-})();
-</script>
-</body>
-</html>
-"""
+    该文件是自包含的 Three.js + GLSL 天气引擎，按用户当地实时 WMO 天气代码
+    渲染晴/多云/雾/雨/雪/雷暴，并随昼夜联动。天气数据在 HTML 内部自取，
+    不回传 Python（Streamlit component 当前不支持稳定双向通信）。
+    """
+    import os
+    path = os.path.join(os.path.dirname(__file__), "assets", "login_weather.html")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return (
+            "<!DOCTYPE html><html><body style='background:#070b14'></body></html>"
+        )
 
 
 # ============================================================
@@ -283,6 +142,18 @@ def render_auth_page():
         """
         <style>
         @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+        :root {
+            --glass-bg: rgba(5, 7, 12, 0.55);
+            --glass-bg-soft: rgba(5, 7, 12, 0.32);
+            --glass-border: rgba(255, 255, 255, 0.14);
+            --accent: #ffcf8f;            /* 深蓝场景的互补色：暖琥珀 */
+            --accent-strong: #ff9d5c;
+            --text: #eef3fb;
+            --text-dim: #aebfd6;
+            --label: #c7d4e8;
+            --err: #ff7a8a;
+        }
 
         html, body, [data-testid="stAppViewContainer"], .stApp {
             background: #070b14 !important;
@@ -310,25 +181,38 @@ def render_auth_page():
             border: none;
         }
 
-        /* 登录卡片：玻璃拟态 */
+        /* 液态玻璃登录卡片：黑色透明 + 折射边，文字互补色 */
         form[data-testid="stForm"] {
+            position: relative;
             max-width: 440px;
-            margin: 10vh auto 0;
-            padding: 38px 36px 32px;
-            background: rgba(11, 17, 30, 0.82);
-            border: 1px solid rgba(79, 156, 255, 0.22);
-            border-radius: 20px;
-            box-shadow: 0 30px 70px -24px rgba(0,0,0,0.8);
-            backdrop-filter: blur(10px);
+            margin: 9vh auto 0;
+            padding: 40px 38px 34px;
+            border-radius: 22px;
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 30px 80px -28px rgba(0,0,0,0.85),
+                        inset 0 1px 0 rgba(255,255,255,0.16);
             font-family: 'Space Grotesk', system-ui, sans-serif;
+            isolation: isolate;
+        }
+        form[data-testid="stForm"]::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            z-index: -1;
+            border-radius: 22px;
+            background: var(--glass-bg);
+            -webkit-backdrop-filter: blur(18px) saturate(140%);
+            backdrop-filter: blur(18px) saturate(140%);
+            filter: url(#liquidGlass);   /* SVG 湍流折射（不支持时自动降级为纯模糊） */
         }
         form[data-testid="stForm"] h2 {
-            color: #e8eef7 !important;
-            margin-bottom: 0.2rem;
+            color: var(--accent) !important;
+            margin-bottom: 0.25rem;
             font-family: 'Space Grotesk', system-ui, sans-serif;
+            letter-spacing: .3px;
         }
         form[data-testid="stForm"] .stMarkdown p {
-            color: #8da2c0 !important;
+            color: var(--text-dim) !important;
         }
         form[data-testid="stForm"] .stRadio > div {
             flex-direction: row;
@@ -336,41 +220,61 @@ def render_auth_page():
         }
         form[data-testid="stForm"] .stRadio label,
         form[data-testid="stForm"] .stTextInput label {
-            color: #b8c6dd !important;
+            color: var(--label) !important;
         }
         form[data-testid="stForm"] .stTextInput input {
-            background: rgba(255, 255, 255, 0.05);
-            border: 2px solid rgba(255, 255, 255, 0.1);
-            color: #e8eef7;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            color: var(--text);
             border-radius: 12px;
+            transition: border-color .18s, box-shadow .18s;
+        }
+        form[data-testid="stForm"] .stTextInput input::placeholder {
+            color: rgba(174, 191, 214, 0.55);
         }
         form[data-testid="stForm"] .stTextInput input:focus {
-            border-color: #4f9cff;
-            box-shadow: 0 0 0 2px rgba(79, 156, 255, 0.15);
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px rgba(255, 207, 143, 0.18);
         }
         form[data-testid="stForm"] .stButton > button {
             width: 100%;
-            background: #4f9cff;
-            color: #04101f;
+            background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+            color: #1a1205;
             border: none;
             border-radius: 12px;
-            font-weight: 600;
+            font-weight: 700;
+            letter-spacing: .5px;
             padding: 14px;
+            transition: filter .18s, transform .12s;
         }
         form[data-testid="stForm"] .stButton > button:hover {
-            background: #6aacff;
+            filter: brightness(1.07);
+        }
+        form[data-testid="stForm"] .stButton > button:active {
+            transform: translateY(1px);
         }
         form[data-testid="stForm"] .stAlert {
-            background: rgba(79, 156, 255, 0.09);
-            border-left: 3px solid #4f9cff;
+            background: rgba(255, 122, 138, 0.10);
+            border-left: 3px solid var(--err);
         }
         </style>
+
+        <!-- 液态玻璃折射滤镜：feTurbulence + 位移贴图 -->
+        <svg style="position:absolute;width:0;height:0;pointer-events:none" aria-hidden="true">
+          <filter id="liquidGlass">
+            <feTurbulence type="fractalNoise" baseFrequency="0.009 0.013"
+                          numOctaves="2" seed="7" result="noise"/>
+            <feGaussianBlur in="noise" stdDeviation="0.5" result="blur"/>
+            <feDisplacementMap in="SourceGraphic" in2="blur" scale="13"
+                              xChannelSelector="R" yChannelSelector="G"/>
+          </filter>
+        </svg>
         """,
         unsafe_allow_html=True,
     )
 
-    # 全屏雨景背景（不传递 key，st.components.v1.html 不支持）
-    components.html(RAIN_BG_HTML, height=820, scrolling=False)
+    # 全屏全天气背景（不传递 key，st.components.v1.html 不支持）
+    components.html(load_weather_html(), height=820, scrolling=False)
 
     # 标准 Streamlit 登录/注册表单
     with st.form("auth_form"):
