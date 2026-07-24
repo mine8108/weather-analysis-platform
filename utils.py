@@ -3,6 +3,8 @@
 import functools
 import hashlib
 import time
+
+import requests
 import streamlit as st
 import pandas as pd
 
@@ -35,8 +37,8 @@ def tab_fingerprint_match(tab_name, df):
 # 二、API 重试 + 降级
 # ============================================================
 
-def retry_with_backoff(max_retries=3, base_delay=2, backoff_factor=2):
-    """带指数退避的重试装饰器"""
+def retry_with_backoff(max_retries=3, base_delay=2, backoff_factor=2, max_delay=60):
+    """带指数退避的重试装饰器，针对 429 做特殊处理"""
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -50,18 +52,45 @@ def retry_with_backoff(max_retries=3, base_delay=2, backoff_factor=2):
                     return result
                 except Exception as e:
                     last_error = e
+                    is_429 = False
+                    retry_after = None
+                    if isinstance(e, requests.exceptions.HTTPError):
+                        resp = getattr(e, "response", None)
+                        if resp is not None and resp.status_code == 429:
+                            is_429 = True
+                            raw_ra = resp.headers.get("Retry-After")
+                            try:
+                                retry_after = int(raw_ra)
+                            except (TypeError, ValueError):
+                                retry_after = None
+
                     if attempt < max_retries:
-                        delay = base_delay * (backoff_factor ** (attempt - 1))
-                        st.warning(
-                            f"请求失败（{attempt}/{max_retries}），{delay}s 后重试… "
-                            f"({str(e)[:80]})"
-                        )
+                        if is_429 and retry_after:
+                            delay = min(retry_after, max_delay)
+                        else:
+                            delay = min(base_delay * (backoff_factor ** (attempt - 1)), max_delay)
+
+                        if is_429:
+                            st.warning(
+                                f"请求过于频繁（429），{delay}s 后重试（{attempt}/{max_retries}）…"
+                            )
+                        else:
+                            st.warning(
+                                f"请求失败（{attempt}/{max_retries}），{delay}s 后重试… "
+                                f"({str(e)[:80]})"
+                            )
                         time.sleep(delay)
                     else:
-                        st.error(
-                            f"请求失败，已达最大重试（{max_retries} 次）: "
-                            f"{str(e)[:200]}"
-                        )
+                        if is_429:
+                            st.error(
+                                "请求过于频繁（429），已达最大重试。"
+                                "Open-Meteo 免费 API 有速率限制，请减少并发或稍后重试。"
+                            )
+                        else:
+                            st.error(
+                                f"请求失败，已达最大重试（{max_retries} 次）: "
+                                f"{str(e)[:200]}"
+                            )
             # 全部重试失败，降级
             cache_key = f"_api_cache_{func.__name__}"
             cached = st.session_state.get(cache_key)

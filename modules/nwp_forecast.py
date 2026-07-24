@@ -58,6 +58,14 @@ _FC_HOURLY = [
 # ============================================================
 # 二、数据获取
 # ============================================================
+
+
+def _gfs_forecast_cache_key(lat, lon, days, model):
+    """基于请求参数生成短周期缓存 key（避免同一参数反复触发限流）"""
+    model_part = model if model else "blend"
+    return f"gfs_fc_cache_{lat:.4f}_{lon:.4f}_{int(days)}_{model_part}"
+
+
 @retry_with_backoff(max_retries=3, base_delay=3, backoff_factor=2)
 def fetch_gfs_forecast(lat, lon, days=7, model="gfs_seamless"):
     """获取 GFS 单点逐时预报 (Open-Meteo, 免注册)。
@@ -67,11 +75,17 @@ def fetch_gfs_forecast(lat, lon, days=7, model="gfs_seamless"):
     apparent_temperature, precipitation, wind_speed, wind_direction,
     pressure, cloud_cover, weather_code, station_id。
     """
+    cache_key = _gfs_forecast_cache_key(lat, lon, days, model)
+    cached = st.session_state.get(cache_key)
+    if cached is not None:
+        return cached, None
+
     url = "https://api.open-meteo.com/v1/forecast"
     params = {
         "latitude": lat,
         "longitude": lon,
-        "hourly": _FC_HOURLY,
+        # 使用逗号分隔字符串，减少 URL 长度与同名参数数量
+        "hourly": ",".join(_FC_HOURLY),
         "forecast_days": int(days),
         "timezone": "Asia/Shanghai",
         "temperature_unit": "celsius",
@@ -81,12 +95,9 @@ def fetch_gfs_forecast(lat, lon, days=7, model="gfs_seamless"):
     if model:
         params["models"] = model
 
-    try:
-        resp = requests.get(url, params=params, timeout=60)
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception as e:  # noqa: BLE001
-        return None, f"请求失败: {e}"
+    resp = requests.get(url, params=params, timeout=60)
+    resp.raise_for_status()
+    data = resp.json()
 
     if "hourly" not in data:
         return None, f"API 返回异常: {data}"
@@ -105,12 +116,22 @@ def fetch_gfs_forecast(lat, lon, days=7, model="gfs_seamless"):
         "weather_code": h["weather_code"],
     })
     df["station_id"] = f"GFS({lat:.2f},{lon:.2f})"
+
+    st.session_state[cache_key] = df
     return df, None
+
+
+def _gfs_spatial_cache_key(center_lat, center_lon, step, half, days, model, variable):
+    model_part = model if model else "blend"
+    return (
+        f"gfs_spatial_cache_{center_lat:.4f}_{center_lon:.4f}_"
+        f"{step:.2f}_{half:.2f}_{int(days)}_{model_part}_{variable}"
+    )
 
 
 @retry_with_backoff(max_retries=3, base_delay=3, backoff_factor=2)
 def fetch_gfs_spatial_grid(center_lat, center_lon, step=0.5, half=1.5,
-                           days=1, model="gfs_seamless", variable="temperature_2m"):
+                             days=1, model="gfs_seamless", variable="temperature_2m"):
     """抓取以 center 为中心、步长 step、半宽 half 的网格点 GFS 预报。
 
     通过 Open-Meteo 的多坐标点单次请求实现，避免逐点调用。
@@ -119,11 +140,12 @@ def fetch_gfs_spatial_grid(center_lat, center_lon, step=0.5, half=1.5,
       - times: DatetimeIndex
       - field3d: shape (n_lat, n_lon, n_time) 的预报场
     失败时 field3d 为 None，error_msg 含错误信息。
-
-    注：Open-Meteo 多坐标点返回的是「坐标点列表」结构
-    [{latitude, longitude, hourly:{time:[...], <var>:[...]}}, ...]，
-    每个点的变量为扁平数组；本函数按输入顺序重组为网格。
     """
+    cache_key = _gfs_spatial_cache_key(center_lat, center_lon, step, half, days, model, variable)
+    cached = st.session_state.get(cache_key)
+    if cached is not None:
+        return cached
+
     lat_coords, lon_coords = [], []
     grid_lats, grid_lons = [], []
     la = center_lat - half
@@ -151,19 +173,16 @@ def fetch_gfs_spatial_grid(center_lat, center_lon, step=0.5, half=1.5,
     params = {
         "latitude": ",".join(str(x) for x in lat_coords),
         "longitude": ",".join(str(x) for x in lon_coords),
-        "hourly": [variable],
+        "hourly": variable,
         "forecast_days": int(days),
         "timezone": "Asia/Shanghai",
     }
     if model:
         params["models"] = model
 
-    try:
-        resp = requests.get(url, params=params, timeout=90)
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception as e:  # noqa: BLE001
-        return None, None, None, None, f"请求失败: {e}"
+    resp = requests.get(url, params=params, timeout=90)
+    resp.raise_for_status()
+    data = resp.json()
 
     # 统一为坐标点列表结构
     locs = data if isinstance(data, list) else [data]
@@ -188,7 +207,9 @@ def fetch_gfs_spatial_grid(center_lat, center_lon, step=0.5, half=1.5,
 
     lats_arr = np.array(sorted(set(round(x, 4) for x in grid_lats)))
     lons_arr = np.array(sorted(set(round(x, 4) for x in grid_lons)))
-    return lats_arr, lons_arr, times, field3d, None
+    result = (lats_arr, lons_arr, times, field3d, None)
+    st.session_state[cache_key] = result
+    return result
 
 
 # ============================================================
