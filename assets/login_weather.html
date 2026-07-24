@@ -174,8 +174,8 @@
   clouds.material.uniforms.uSize.value = 46.0;
   // 尘埃（晴日暖色微尘）
   const dust = softPoints(500, [70, 30], 2, 22, 3.0, new THREE.Color(1.0, 0.86, 0.62), 0.0);
-  // 星点（晴夜）
-  const stars = softPoints(700, [140, 60], 6, 30, 4.0, new THREE.Color(0.95, 0.97, 1.0), 0.0);
+  // 星点（晴夜）：更稀疏、更小，后续在 animate 里做闪烁
+  const stars = softPoints(320, [150, 64], 8, 30, 3.0, new THREE.Color(0.92, 0.96, 1.0), 0.0);
 
   // ---------- 雨（程序化竖向拖尾，密度/粗细/速度/倾角随强度） ----------
   const RCOUNT = 7000;
@@ -250,8 +250,8 @@
     blending: THREE.AdditiveBlending, depthWrite: false
   });
   const moon = new THREE.Sprite(moonMat);
-  moon.scale.set(14, 14, 1);
-  moon.position.set(8, 10, -22);
+  moon.scale.set(7, 7, 1);
+  moon.position.set(7, 9, -22);
   scene.add(moon);
 
   // ---------- 水面波纹 ----------
@@ -393,8 +393,10 @@
 
     // 系统透明度
     sunMat.opacity = C.clear * C.isDay * 0.9;
-    moonMat.opacity = C.clear * (1 - C.isDay) * 0.8;
-    stars.material.uniforms.uOpacity.value = C.clear * (1 - C.isDay);
+    moonMat.opacity = C.clear * (1 - C.isDay) * 0.5;
+    stars.material.uniforms.uOpacity.value = C.clear * (1 - C.isDay) * 0.9;
+    // 星点闪烁：随时间微调强度，制造明暗呼吸感
+    stars.material.uniforms.uIntensity.value = 0.35 + 0.45 * Math.sin(time * 1.6);
     dust.material.uniforms.uOpacity.value = C.clear * C.isDay * 0.5;
     clouds.material.uniforms.uOpacity.value = Math.max(C.cloudy, C.rain * 0.6, C.thunder * 0.6, C.snow * 0.4);
     rainMat.uniforms.uOpacity.value = Math.max(C.rain, C.thunder);

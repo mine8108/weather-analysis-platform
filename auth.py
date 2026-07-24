@@ -144,15 +144,15 @@ def render_auth_page():
         @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap');
 
         :root {
-            --glass-bg: rgba(5, 7, 12, 0.55);
-            --glass-bg-soft: rgba(5, 7, 12, 0.32);
-            --glass-border: rgba(255, 255, 255, 0.14);
-            --accent: #ffcf8f;            /* 深蓝场景的互补色：暖琥珀 */
-            --accent-strong: #ff9d5c;
-            --text: #eef3fb;
-            --text-dim: #aebfd6;
-            --label: #c7d4e8;
-            --err: #ff7a8a;
+            --glass-bg: rgba(10, 26, 58, 0.72);   /* 藏蓝液态玻璃 */
+            --glass-bg-soft: rgba(5, 14, 36, 0.50);
+            --glass-border: rgba(37, 99, 255, 0.38); /* 宝蓝高光边 */
+            --accent: #2563ff;                   /* 宝蓝 */
+            --accent-strong: #1e6bff;
+            --text: #e2f0ff;
+            --text-dim: #7fb3ff;
+            --label: #a6cdff;
+            --err: #ff4d6d;
         }
 
         html, body, [data-testid="stAppViewContainer"], .stApp {
@@ -181,7 +181,7 @@ def render_auth_page():
             border: none;
         }
 
-        /* 液态玻璃登录卡片：黑色透明 + 折射边，文字互补色 */
+        /* 液态玻璃登录卡片：藏蓝透明 + 折射边，文字宝蓝 */
         form[data-testid="stForm"] {
             position: relative;
             max-width: 440px;
@@ -189,10 +189,20 @@ def render_auth_page():
             padding: 40px 38px 34px;
             border-radius: 22px;
             border: 1px solid var(--glass-border);
-            box-shadow: 0 30px 80px -28px rgba(0,0,0,0.85),
-                        inset 0 1px 0 rgba(255,255,255,0.16);
+            background: transparent !important;
+            box-shadow: 0 30px 80px -28px rgba(2, 8, 20, 0.92),
+                        inset 0 1px 0 rgba(120, 170, 255, 0.20);
             font-family: 'Space Grotesk', system-ui, sans-serif;
             isolation: isolate;
+        }
+        /* 抹掉 Streamlit 默认白底容器，露出藏蓝玻璃 */
+        form[data-testid="stForm"] > div,
+        form[data-testid="stForm"] .stForm,
+        form[data-testid="stForm"] .element-container,
+        form[data-testid="stForm"] [data-testid="stVerticalBlock"] {
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
         }
         form[data-testid="stForm"]::before {
             content: "";
@@ -222,25 +232,29 @@ def render_auth_page():
         form[data-testid="stForm"] .stTextInput label {
             color: var(--label) !important;
         }
+        form[data-testid="stForm"] .stTextInput,
+        form[data-testid="stForm"] .stTextInput > div {
+            background: transparent !important;
+        }
         form[data-testid="stForm"] .stTextInput input {
-            background: rgba(255, 255, 255, 0.06);
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            color: var(--text);
+            background: rgba(10, 26, 58, 0.55) !important;
+            border: 1px solid rgba(37, 99, 255, 0.30) !important;
+            color: var(--text) !important;
             border-radius: 12px;
             transition: border-color .18s, box-shadow .18s;
         }
         form[data-testid="stForm"] .stTextInput input::placeholder {
-            color: rgba(174, 191, 214, 0.55);
+            color: rgba(127, 179, 255, 0.55) !important;
         }
         form[data-testid="stForm"] .stTextInput input:focus {
-            border-color: var(--accent);
-            box-shadow: 0 0 0 2px rgba(255, 207, 143, 0.18);
+            border-color: var(--accent) !important;
+            box-shadow: 0 0 0 2px rgba(37, 99, 255, 0.20) !important;
         }
         form[data-testid="stForm"] .stButton > button {
             width: 100%;
-            background: linear-gradient(135deg, var(--accent), var(--accent-strong));
-            color: #1a1205;
-            border: none;
+            background: linear-gradient(135deg, var(--accent), var(--accent-strong)) !important;
+            color: #ffffff !important;
+            border: none !important;
             border-radius: 12px;
             font-weight: 700;
             letter-spacing: .5px;
@@ -254,8 +268,14 @@ def render_auth_page():
             transform: translateY(1px);
         }
         form[data-testid="stForm"] .stAlert {
-            background: rgba(255, 122, 138, 0.10);
-            border-left: 3px solid var(--err);
+            background: rgba(37, 99, 255, 0.10) !important;
+            border-left: 3px solid var(--accent) !important;
+            color: var(--text-dim) !important;
+        }
+        form[data-testid="stForm"] [data-testid="stError"] {
+            background: rgba(255, 77, 109, 0.12) !important;
+            border-left: 3px solid var(--err) !important;
+            color: #ffc1cc !important;
         }
         </style>
 
