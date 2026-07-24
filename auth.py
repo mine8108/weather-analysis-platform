@@ -5,12 +5,7 @@
   无需自建后端。匿名密钥可安全暴露在前端。
 - 所有用户数据按 user_id 隔离，由数据库 RLS 强制保证（见 supabase/schema.sql）。
 - 密钥从 Streamlit Secrets 读取：SUPABASE_URL / SUPABASE_ANON_KEY。
-- 登录页背景为 Three.js + 自定义 GLSL 实现的**全天气实时场景**：按用户当地
-  实时 WMO 天气代码（Open-Meteo）渲染晴/多云/雾/雨（牛毛↔瓢泼分级）/雪/雷暴，
-  并由昼夜状态联动色温。定位用 ipapi.co。
-- 登录/注册表单使用标准 Streamlit 控件，输入框与提示更明显、可访问性更好；
-  交互卡片为黑色透明「液态玻璃」质感（backdrop-filter + SVG 湍流折射），
-  文字用互补色保证可读性。
+- 登录页为标准 Streamlit 表单，简洁清晰，无额外动画背景。
 """
 
 import json
@@ -18,7 +13,6 @@ import socket
 from urllib.parse import urlparse
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 
 # ============================================================
@@ -108,199 +102,18 @@ def sign_out_user():
 
 
 # ============================================================
-# 三、全天气沉浸式背景（Three.js + GLSL）
-# ============================================================
-def load_weather_html() -> str:
-    """读取 assets/login_weather.html 作为登录页全屏背景。
-
-    该文件是自包含的 Three.js + GLSL 天气引擎，按用户当地实时 WMO 天气代码
-    渲染晴/多云/雾/雨/雪/雷暴，并随昼夜联动。天气数据在 HTML 内部自取，
-    不回传 Python（Streamlit component 当前不支持稳定双向通信）。
-    """
-    import os
-    path = os.path.join(os.path.dirname(__file__), "assets", "login_weather.html")
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return f.read()
-    except FileNotFoundError:
-        return (
-            "<!DOCTYPE html><html><body style='background:#070b14'></body></html>"
-        )
-
-
-# ============================================================
-# 四、登录/注册页面
+# 三、登录/注册页面
 # ============================================================
 def render_auth_page():
-    """渲染沉浸式雨景登录/注册页。
+    """渲染简洁的登录/注册页。
 
-    用 st.components.v1.html 嵌入全屏 Three.js 雨景背景；
-    用标准 Streamlit 表单承载登录/注册，输入框和提示更明显。
+    使用标准 Streamlit 表单，输入框与提示明显、可读性好。
     调用方在判断未登录后应紧接着 st.stop()。
     """
-    st.markdown(
-        """
-        <style>
-        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap');
+    st.markdown("## 气象数据交互分析平台")
+    st.caption("登录或注册后使用 · 数据按账号私有隔离")
 
-        :root {
-            --glass-bg: rgba(10, 26, 58, 0.72);   /* 藏蓝液态玻璃 */
-            --glass-bg-soft: rgba(5, 14, 36, 0.50);
-            --glass-border: rgba(37, 99, 255, 0.38); /* 宝蓝高光边 */
-            --accent: #2563ff;                   /* 宝蓝 */
-            --accent-strong: #1e6bff;
-            --text: #e2f0ff;
-            --text-dim: #7fb3ff;
-            --label: #a6cdff;
-            --err: #ff4d6d;
-        }
-
-        html, body, [data-testid="stAppViewContainer"], .stApp {
-            background: #070b14 !important;
-        }
-        header[data-testid="stHeader"] { display: none !important; }
-        [data-testid="stToolbar"] { display: none !important; }
-        footer { display: none !important; }
-        [data-testid="stAppViewBlockContainer"] { padding: 0 !important; }
-
-        /* 背景组件容器：不占空间，iframe 全屏固定 */
-        .stHtml {
-            height: 0 !important;
-            min-height: 0 !important;
-            padding: 0 !important;
-            margin: 0 !important;
-            overflow: visible !important;
-        }
-        .stHtml > iframe {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            z-index: -1;
-            border: none;
-        }
-
-        /* 液态玻璃登录卡片：藏蓝透明 + 折射边，文字宝蓝 */
-        form[data-testid="stForm"] {
-            position: relative;
-            max-width: 440px;
-            margin: 9vh auto 0;
-            padding: 40px 38px 34px;
-            border-radius: 22px;
-            border: 1px solid var(--glass-border);
-            background: transparent !important;
-            box-shadow: 0 30px 80px -28px rgba(2, 8, 20, 0.92),
-                        inset 0 1px 0 rgba(120, 170, 255, 0.20);
-            font-family: 'Space Grotesk', system-ui, sans-serif;
-            isolation: isolate;
-        }
-        /* 抹掉 Streamlit 默认白底容器，露出藏蓝玻璃 */
-        form[data-testid="stForm"] > div,
-        form[data-testid="stForm"] .stForm,
-        form[data-testid="stForm"] .element-container,
-        form[data-testid="stForm"] [data-testid="stVerticalBlock"] {
-            background: transparent !important;
-            border: none !important;
-            box-shadow: none !important;
-        }
-        form[data-testid="stForm"]::before {
-            content: "";
-            position: absolute;
-            inset: 0;
-            z-index: -1;
-            border-radius: 22px;
-            background: var(--glass-bg);
-            -webkit-backdrop-filter: blur(18px) saturate(140%);
-            backdrop-filter: blur(18px) saturate(140%);
-            filter: url(#liquidGlass);   /* SVG 湍流折射（不支持时自动降级为纯模糊） */
-        }
-        form[data-testid="stForm"] h2 {
-            color: var(--accent) !important;
-            margin-bottom: 0.25rem;
-            font-family: 'Space Grotesk', system-ui, sans-serif;
-            letter-spacing: .3px;
-        }
-        form[data-testid="stForm"] .stMarkdown p {
-            color: var(--text-dim) !important;
-        }
-        form[data-testid="stForm"] .stRadio > div {
-            flex-direction: row;
-            gap: 8px;
-        }
-        form[data-testid="stForm"] .stRadio label,
-        form[data-testid="stForm"] .stTextInput label {
-            color: var(--label) !important;
-        }
-        form[data-testid="stForm"] .stTextInput,
-        form[data-testid="stForm"] .stTextInput > div {
-            background: transparent !important;
-        }
-        form[data-testid="stForm"] .stTextInput input {
-            background: rgba(10, 26, 58, 0.55) !important;
-            border: 1px solid rgba(37, 99, 255, 0.30) !important;
-            color: var(--text) !important;
-            border-radius: 12px;
-            transition: border-color .18s, box-shadow .18s;
-        }
-        form[data-testid="stForm"] .stTextInput input::placeholder {
-            color: rgba(127, 179, 255, 0.55) !important;
-        }
-        form[data-testid="stForm"] .stTextInput input:focus {
-            border-color: var(--accent) !important;
-            box-shadow: 0 0 0 2px rgba(37, 99, 255, 0.20) !important;
-        }
-        form[data-testid="stForm"] .stButton > button {
-            width: 100%;
-            background: linear-gradient(135deg, var(--accent), var(--accent-strong)) !important;
-            color: #ffffff !important;
-            border: none !important;
-            border-radius: 12px;
-            font-weight: 700;
-            letter-spacing: .5px;
-            padding: 14px;
-            transition: filter .18s, transform .12s;
-        }
-        form[data-testid="stForm"] .stButton > button:hover {
-            filter: brightness(1.07);
-        }
-        form[data-testid="stForm"] .stButton > button:active {
-            transform: translateY(1px);
-        }
-        form[data-testid="stForm"] .stAlert {
-            background: rgba(37, 99, 255, 0.10) !important;
-            border-left: 3px solid var(--accent) !important;
-            color: var(--text-dim) !important;
-        }
-        form[data-testid="stForm"] [data-testid="stError"] {
-            background: rgba(255, 77, 109, 0.12) !important;
-            border-left: 3px solid var(--err) !important;
-            color: #ffc1cc !important;
-        }
-        </style>
-
-        <!-- 液态玻璃折射滤镜：feTurbulence + 位移贴图 -->
-        <svg style="position:absolute;width:0;height:0;pointer-events:none" aria-hidden="true">
-          <filter id="liquidGlass">
-            <feTurbulence type="fractalNoise" baseFrequency="0.009 0.013"
-                          numOctaves="2" seed="7" result="noise"/>
-            <feGaussianBlur in="noise" stdDeviation="0.5" result="blur"/>
-            <feDisplacementMap in="SourceGraphic" in2="blur" scale="13"
-                              xChannelSelector="R" yChannelSelector="G"/>
-          </filter>
-        </svg>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    # 全屏全天气背景（不传递 key，st.components.v1.html 不支持）
-    components.html(load_weather_html(), height=820, scrolling=False)
-
-    # 标准 Streamlit 登录/注册表单
     with st.form("auth_form"):
-        st.markdown("## 气象数据交互分析平台")
-        st.caption("登录或注册后使用 · 数据按账号私有隔离")
-
         mode = st.radio("操作", ["登录", "注册"], horizontal=True, key="auth_mode")
         email = st.text_input("邮箱", placeholder="you@example.com", key="auth_email")
         password = st.text_input(
@@ -317,19 +130,19 @@ def render_auth_page():
                 st.session_state.pop("auth_error", None)
                 _do_auth(mode, email, password)
 
-        error = st.session_state.get("auth_error")
-        if error:
-            if isinstance(error, str):
-                st.error(error)
-            else:
-                # 旧版本可能遗留非字符串值，清空避免 st.error 报错
-                st.session_state.pop("auth_error", None)
-                st.error("登录状态异常，请刷新页面后重试。")
+    error = st.session_state.get("auth_error")
+    if error:
+        if isinstance(error, str):
+            st.error(error)
+        else:
+            # 旧版本可能遗留非字符串值，清空避免 st.error 报错
+            st.session_state.pop("auth_error", None)
+            st.error("登录状态异常，请刷新页面后重试。")
 
-        st.info(
-            "首次使用请选「注册」。若注册后无法登录，"
-            "请到 Supabase 控制台关闭 Confirm email。"
-        )
+    st.info(
+        "首次使用请选「注册」。若注册后无法登录，"
+        "请到 Supabase 控制台关闭 Confirm email。"
+    )
 
 
 def _do_auth(mode: str, email: str, password: str):
