@@ -395,7 +395,12 @@ def render_auth_page():
 
         error = st.session_state.get("auth_error")
         if error:
-            st.error(error)
+            if isinstance(error, str):
+                st.error(error)
+            else:
+                # 旧版本可能遗留非字符串值，清空避免 st.error 报错
+                st.session_state.pop("auth_error", None)
+                st.error("登录状态异常，请刷新页面后重试。")
 
         st.info(
             "首次使用请选「注册」。若注册后无法登录，"
