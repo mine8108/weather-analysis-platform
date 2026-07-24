@@ -41,16 +41,13 @@ SPATIAL_VAR_LABELS = {
     "wind_speed_10m": "风速 (m/s)",
 }
 
-# 单点预报返回的变量 -> 标准字段映射
+# 单点预报返回的变量 -> 标准字段映射（均衡集：核心四要素 + 湿度 + 风速）
 _FC_HOURLY = [
     "temperature_2m",
     "relative_humidity_2m",
     "apparent_temperature",
     "precipitation",
     "wind_speed_10m",
-    "wind_direction_10m",
-    "surface_pressure",
-    "cloud_cover",
     "weather_code",
 ]
 
@@ -72,8 +69,8 @@ def fetch_gfs_forecast(lat, lon, days=7, model="gfs_seamless"):
 
     返回 (DataFrame, error_msg)。成功时 error_msg 为 None。
     DataFrame 含标准字段：timestamp, temperature, humidity,
-    apparent_temperature, precipitation, wind_speed, wind_direction,
-    pressure, cloud_cover, weather_code, station_id。
+    apparent_temperature, precipitation, wind_speed, weather_code, station_id。
+    （均衡集：保留核心四要素 + 湿度 + 风速；气压/云量/风向由空间图独立请求）
     """
     cache_key = _gfs_forecast_cache_key(lat, lon, days, model)
     cached = st.session_state.get(cache_key)
@@ -110,9 +107,6 @@ def fetch_gfs_forecast(lat, lon, days=7, model="gfs_seamless"):
         "apparent_temperature": h["apparent_temperature"],
         "precipitation": h["precipitation"],
         "wind_speed": h["wind_speed_10m"],
-        "wind_direction": h["wind_direction_10m"],
-        "pressure": h["surface_pressure"],
-        "cloud_cover": h["cloud_cover"],
         "weather_code": h["weather_code"],
     })
     df["station_id"] = f"GFS({lat:.2f},{lon:.2f})"
