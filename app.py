@@ -52,6 +52,35 @@ if "_nav_stack" not in st.session_state:
     st.session_state["_nav_stack"] = []
 
 
+def _tab_error(name, exc):
+    """顶层错误边界：单 tab 异常隔离，显示友好提示而非整页白屏。"""
+    st.error("⚠️「%s」页面加载出现异常，已隔离处理，不影响其他功能。" % name)
+    with st.expander("查看错误详情（可截图反馈开发者）"):
+        st.exception(exc)
+    st.caption("💡 可点击上方导航切换到其他页面继续操作。")
+    if st.button("🔄 重置会话并回到首页", key="reset_%s" % name):
+        _safe_reset()
+
+
+def _safe_render(name, fn, *args, **kwargs):
+    """包裹 tab 渲染调用，异常时走 _tab_error 而非抛出白屏。"""
+    try:
+        return fn(*args, **kwargs)
+    except Exception as _exc:
+        _tab_error(name, _exc)
+        return None
+
+
+def _safe_reset():
+    """错误恢复：清除应用数据，保留导航默认值，回到导入页。"""
+    for _k in list(st.session_state.keys()):
+        if _k not in ("active_tab", "import_step", "import_method", "_nav_stack"):
+            del st.session_state[_k]
+    st.session_state["active_tab"] = 0
+    st.session_state["import_step"] = 0
+    st.session_state["import_method"] = None
+
+
 def _navigate_to(tab_idx):
     """统一跳转入口：入栈当前 tab，跳转目标 tab"""
     cur = st.session_state.get("active_tab", 0)
@@ -926,15 +955,15 @@ if st.session_state["active_tab"] == 0:
             st.rerun()
 
         if method == "file":
-            df_file, source_file = render_file_upload_section()
-            render_template_download()
+            df_file, source_file = _safe_render("导入-文件", render_file_upload_section) or (None, None)
+            _safe_render("导入-模板", render_template_download)
             if df_file is not None:
                 st.session_state["df"] = df_file
                 st.session_state["source"] = source_file
                 st.session_state["import_step"] = 2
                 st.rerun()
         elif method == "manual":
-            df_manual = render_manual_input_section()
+            df_manual = _safe_render("导入-手动", render_manual_input_section)
             if df_manual is not None:
                 try:
                     df_manual["timestamp"] = pd.to_datetime(df_manual["timestamp"])
@@ -948,7 +977,7 @@ if st.session_state["active_tab"] == 0:
                 st.session_state["import_step"] = 2
                 st.rerun()
         elif method == "api":
-            df_api, source_api = render_api_section()
+            df_api, source_api = _safe_render("导入-API", render_api_section) or (None, None)
             if df_api is not None:
                 st.session_state["df"] = df_api
                 if source_api:
@@ -1018,13 +1047,13 @@ if st.session_state["active_tab"] == 0:
         # 跳过向导：传统多标签模式
         sub_tab1, sub_tab2, sub_tab3 = st.tabs(["[文件] 文件导入", "[编辑] 手动录入", "[网络] API 获取"])
         with sub_tab1:
-            df_file, source_file = render_file_upload_section()
+            df_file, source_file = _safe_render("导入-文件", render_file_upload_section) or (None, None)
             if df_file is not None:
                 st.session_state["df"] = df_file
                 st.session_state["source"] = source_file
-            render_template_download()
+            _safe_render("导入-模板", render_template_download)
         with sub_tab2:
-            df_manual = render_manual_input_section()
+            df_manual = _safe_render("导入-手动", render_manual_input_section)
             if df_manual is not None:
                 try:
                     df_manual["timestamp"] = pd.to_datetime(df_manual["timestamp"])
@@ -1036,7 +1065,7 @@ if st.session_state["active_tab"] == 0:
                 else:
                     st.session_state["df"] = df_manual
         with sub_tab3:
-            df_api, source_api = render_api_section()
+            df_api, source_api = _safe_render("导入-API", render_api_section) or (None, None)
             if df_api is not None:
                 st.session_state["df"] = df_api
                 st.session_state["source"] = source_api
@@ -1054,7 +1083,8 @@ if st.session_state["active_tab"] == 0:
 
 # ---- Tab 2: 可视化 ----
 if st.session_state["active_tab"] == 2:
-    render_visualization_tab(_get_filtered_df())
+    _viz_df = _safe_render("可视化-数据", _get_filtered_df)
+    _safe_render("可视化", render_visualization_tab, _viz_df)
 
 # ---- Tab 3: 智能分析与建议 ----
 if st.session_state["active_tab"] == 3:
@@ -1077,11 +1107,13 @@ if st.session_state["active_tab"] == 3:
                     st.warning(f"{name}检测因数据问题跳过: {e}")
             st.session_state["warnings_list"] = all_w
             st.session_state["_warn_fp"] = fp
-    warnings_result = render_analysis_tab(st.session_state["df"])
+    warnings_result = _safe_render("智能分析", render_analysis_tab, st.session_state["df"])
 
 # ---- Tab 4: 报告导出 ----
 if st.session_state["active_tab"] == 4:
-    render_export_tab(
+    _safe_render(
+        "报告导出",
+        render_export_tab,
         st.session_state["df"],
         st.session_state.get("warnings_list", []),
         st.session_state.get("quality_score", 0.0),
@@ -1090,15 +1122,15 @@ if st.session_state["active_tab"] == 4:
 
 # ---- Tab 5: 气候态参照 ----
 if st.session_state["active_tab"] == 5:
-    render_climate_ref_tab(st.session_state["df"])
+    _safe_render("气候态", render_climate_ref_tab, st.session_state["df"])
 
 # ---- Tab 6: 报文解码 ----
 if st.session_state["active_tab"] == 6:
-    render_codec_tab()
+    _safe_render("报文解码", render_codec_tab)
 
 # ---- Tab 1: 数值预报 ----
 if st.session_state["active_tab"] == 1:
-    render_forecast_tab()
+    _safe_render("数值预报", render_forecast_tab)
 
     # P1: 预报完成后自动传递到智能分析（保留备用按钮）
     fc_df = st.session_state.get("fc_df", None)
