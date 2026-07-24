@@ -7,6 +7,7 @@
 - 密钥从 Streamlit Secrets 读取：SUPABASE_URL / SUPABASE_ANON_KEY。
 - 登录页背景为 Three.js + 自定义 GLSL 实现的实时粒子雨景，降雨强度由
   用户当地实时降水数据驱动（ipapi.co 定位 + Open-Meteo 降水）。
+- 登录/注册表单使用标准 Streamlit 控件，输入框与提示更明显、可访问性更好。
 """
 
 import json
@@ -104,139 +105,30 @@ def sign_out_user():
 
 
 # ============================================================
-# 三、沉浸式雨景登录页（Three.js + GLSL）
+# 三、沉浸式雨景背景（Three.js + GLSL）
 # ============================================================
-# 该 HTML 通过 streamlit-component-lib 与 Python 通信：
-#   - JS 用 window.Streamlit.setComponentValue({mode, email, password, ts})
-#     把凭证回传 Python；
-#   - Python 把 auth_error 以 __ERROR_JSON__ 占位符注入，JS 读取并显示。
-RAIN_LOGIN_HTML = r"""
+RAIN_BG_HTML = r"""
 <!DOCTYPE html>
 <html lang="zh">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body {
-    height: 100%; background: #070b14; color: #e8eef7; overflow: hidden;
-    font-family: 'Space Grotesk', system-ui, -apple-system, sans-serif;
-  }
-  #rain-canvas { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; display: block; }
-
-  .auth-wrap {
-    position: relative; z-index: 10;
-    width: min(440px, 90vw); margin: 9vh auto 0; padding: 40px 38px 34px;
-    background: rgba(11, 17, 30, 0.78);
-    border: 1px solid rgba(79, 156, 255, 0.22);
-    border-radius: 20px;
-    box-shadow: 0 30px 70px -24px rgba(0,0,0,0.8);
-    backdrop-filter: blur(10px);
-  }
-  .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
-  .brand .dot { width: 10px; height: 10px; border-radius: 50%; background: #4f9cff; box-shadow: 0 0 14px #4f9cff; }
-  .brand h1 { font-size: 1.4rem; font-weight: 600; letter-spacing: -0.02em; }
-  .sub { color: #8da2c0; font-size: 0.9rem; margin-bottom: 26px; }
-
-  .mode-tabs { display: flex; gap: 6px; margin-bottom: 24px; padding: 4px;
-    background: rgba(255,255,255,0.04); border-radius: 13px; }
-  .mode-tabs button { flex: 1; padding: 11px; border: none; background: transparent;
-    color: #8da2c0; font-family: inherit; font-size: 0.95rem; font-weight: 500;
-    border-radius: 9px; cursor: pointer; transition: all 0.22s; }
-  .mode-tabs button.active { background: #4f9cff; color: #04101f; font-weight: 600; }
-
-  .field { margin-bottom: 18px; }
-  .field label { display: block; font-size: 0.82rem; font-weight: 500;
-    color: #b8c6dd; margin-bottom: 8px; letter-spacing: 0.02em; }
-  .field input { width: 100%; padding: 15px 16px; font-family: inherit; font-size: 1rem;
-    color: #e8eef7; background: rgba(255,255,255,0.05);
-    border: 2px solid rgba(255,255,255,0.1); border-radius: 12px; outline: none;
-    transition: border-color 0.2s, background 0.2s; }
-  .field input:focus { border-color: #4f9cff; background: rgba(79,156,255,0.07); }
-  .field input::placeholder { color: #5a6b85; }
-
-  .hint { font-size: 0.8rem; color: #7e90ad; margin: 2px 0 20px; line-height: 1.55;
-    padding: 11px 14px; background: rgba(79,156,255,0.09);
-    border-left: 3px solid #4f9cff; border-radius: 0 9px 9px 0; }
-  .error { color: #ff8a8a; font-size: 0.85rem; margin-bottom: 14px; min-height: 1.1em; font-weight: 500; }
-
-  .submit-btn { width: 100%; padding: 16px; font-family: inherit; font-size: 1.04rem;
-    font-weight: 600; color: #04101f; background: #4f9cff; border: none; border-radius: 12px;
-    cursor: pointer; transition: background 0.2s, transform 0.1s; }
-  .submit-btn:hover { background: #6aacff; }
-  .submit-btn:active { transform: scale(0.985); }
-
-  .loc { position: fixed; bottom: 18px; left: 0; right: 0; text-align: center; z-index: 10;
-    font-size: 0.74rem; color: rgba(141,162,192,0.55); letter-spacing: 0.02em; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; background: #070b14; overflow: hidden; }
+  #rain-canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  #loc { position: fixed; top: 14px; right: 14px; color: rgba(148,163,184,0.7);
+    font-family: system-ui, -apple-system, sans-serif; font-size: 12px;
+    background: rgba(0,0,0,0.25); padding: 6px 10px; border-radius: 8px;
+    pointer-events: none; z-index: 2; }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/streamlit-component-lib@1.0.0/streamlit.js"></script>
 </head>
 <body>
 <canvas id="rain-canvas"></canvas>
-
-<div class="auth-wrap">
-  <div class="brand"><span class="dot"></span><h1>气象数据交互分析平台</h1></div>
-  <p class="sub">登录或注册后使用 · 数据按账号私有隔离</p>
-
-  <div class="mode-tabs">
-    <button id="tab-login" class="active" data-mode="login">登录</button>
-    <button id="tab-signup" data-mode="signup">注册</button>
-  </div>
-
-  <div class="field">
-    <label for="email">邮箱</label>
-    <input id="email" type="email" placeholder="you@example.com" autocomplete="email" />
-  </div>
-  <div class="field">
-    <label for="password">密码</label>
-    <input id="password" type="password" placeholder="至少 6 位" autocomplete="current-password" />
-  </div>
-
-  <p class="hint" id="hint">首次使用请选「注册」。若开启邮箱验证，请先查收确认邮件再登录。</p>
-  <div class="error" id="error"></div>
-  <button class="submit-btn" id="submit">进入</button>
-</div>
-
-<div class="loc" id="loc">正在获取当地降雨数据…</div>
-
+<div id="loc">正在获取当地降雨数据…</div>
 <script>
 (function () {
-  // ---------- 表单交互 ----------
-  let currentMode = 'login';
-  const tabs = document.querySelectorAll('.mode-tabs button');
-  const hintEl = document.getElementById('hint');
-  const errEl = document.getElementById('error');
-
-  tabs.forEach(function (b) {
-    b.addEventListener('click', function () {
-      tabs.forEach(function (x) { x.classList.remove('active'); });
-      b.classList.add('active');
-      currentMode = b.dataset.mode;
-      hintEl.textContent = currentMode === 'login'
-        ? '输入注册时的邮箱与密码登录。'
-        : '设置邮箱与密码（至少 6 位）创建新账号。';
-    });
-  });
-
-  // 注入 Python 传来的错误信息
-  const ERROR_MSG = __ERROR_JSON__;
-  if (ERROR_MSG) errEl.textContent = ERROR_MSG;
-
-  document.getElementById('submit').addEventListener('click', function () {
-    const email = document.getElementById('email').value.trim();
-    const password = document.getElementById('password').value;
-    if (!email || !password) { errEl.textContent = '请输入邮箱和密码。'; return; }
-    if (password.length < 6) { errEl.textContent = '密码至少 6 位。'; return; }
-    errEl.textContent = '';
-    if (window.Streamlit && window.Streamlit.setComponentValue) {
-      window.Streamlit.setComponentValue({ mode: currentMode, email: email, password: password, ts: Date.now() });
-    }
-  });
-
-  // ---------- Three.js 雨景 ----------
   const canvas = document.getElementById('rain-canvas');
   const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -353,7 +245,7 @@ RAIN_LOGIN_HTML = r"""
   }
   requestAnimationFrame(animate);
 
-  // ---------- 实时降雨数据 → 强度 ----------
+  // 实时降雨数据 → 强度
   async function getIntensity() {
     const locEl = document.getElementById('loc');
     try {
@@ -377,33 +269,138 @@ RAIN_LOGIN_HTML = r"""
 """
 
 
+# ============================================================
+# 四、登录/注册页面
+# ============================================================
 def render_auth_page():
     """渲染沉浸式雨景登录/注册页。
 
-    通过 st.components.v1.html 嵌入 Three.js 雨景背景 + 明显表单。
+    用 st.components.v1.html 嵌入全屏 Three.js 雨景背景；
+    用标准 Streamlit 表单承载登录/注册，输入框和提示更明显。
     调用方在判断未登录后应紧接着 st.stop()。
     """
-    # 登录态强制深色背景，避免雨景 iframe 周围出现白底
     st.markdown(
-        "<style>"
-        "html,body,[data-testid='stAppViewContainer'],"
-        "[data-testid='stHeader']{background:#070b14 !important;}"
-        "[data-testid='stAppViewBlockContainer']{padding-top:0;}"
-        "</style>",
+        """
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+        html, body, [data-testid="stAppViewContainer"], .stApp {
+            background: #070b14 !important;
+        }
+        header[data-testid="stHeader"] { display: none !important; }
+        [data-testid="stToolbar"] { display: none !important; }
+        footer { display: none !important; }
+        [data-testid="stAppViewBlockContainer"] { padding: 0 !important; }
+
+        /* 背景组件容器：不占空间，iframe 全屏固定 */
+        .stHtml {
+            height: 0 !important;
+            min-height: 0 !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            overflow: visible !important;
+        }
+        .stHtml > iframe {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: -1;
+            border: none;
+        }
+
+        /* 登录卡片：玻璃拟态 */
+        form[data-testid="stForm"] {
+            max-width: 440px;
+            margin: 10vh auto 0;
+            padding: 38px 36px 32px;
+            background: rgba(11, 17, 30, 0.82);
+            border: 1px solid rgba(79, 156, 255, 0.22);
+            border-radius: 20px;
+            box-shadow: 0 30px 70px -24px rgba(0,0,0,0.8);
+            backdrop-filter: blur(10px);
+            font-family: 'Space Grotesk', system-ui, sans-serif;
+        }
+        form[data-testid="stForm"] h2 {
+            color: #e8eef7 !important;
+            margin-bottom: 0.2rem;
+            font-family: 'Space Grotesk', system-ui, sans-serif;
+        }
+        form[data-testid="stForm"] .stMarkdown p {
+            color: #8da2c0 !important;
+        }
+        form[data-testid="stForm"] .stRadio > div {
+            flex-direction: row;
+            gap: 8px;
+        }
+        form[data-testid="stForm"] .stRadio label,
+        form[data-testid="stForm"] .stTextInput label {
+            color: #b8c6dd !important;
+        }
+        form[data-testid="stForm"] .stTextInput input {
+            background: rgba(255, 255, 255, 0.05);
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            color: #e8eef7;
+            border-radius: 12px;
+        }
+        form[data-testid="stForm"] .stTextInput input:focus {
+            border-color: #4f9cff;
+            box-shadow: 0 0 0 2px rgba(79, 156, 255, 0.15);
+        }
+        form[data-testid="stForm"] .stButton > button {
+            width: 100%;
+            background: #4f9cff;
+            color: #04101f;
+            border: none;
+            border-radius: 12px;
+            font-weight: 600;
+            padding: 14px;
+        }
+        form[data-testid="stForm"] .stButton > button:hover {
+            background: #6aacff;
+        }
+        form[data-testid="stForm"] .stAlert {
+            background: rgba(79, 156, 255, 0.09);
+            border-left: 3px solid #4f9cff;
+        }
+        </style>
+        """,
         unsafe_allow_html=True,
     )
 
-    error = st.session_state.get("auth_error", "")
-    html = RAIN_LOGIN_HTML.replace("__ERROR_JSON__", json.dumps(error))
-    res = components.html(html, height=820, scrolling=False, key="auth_rain")
+    # 全屏雨景背景（不传递 key，st.components.v1.html 不支持）
+    components.html(RAIN_BG_HTML, height=820, scrolling=False)
 
-    # 只处理一次提交（用 ts 去重，避免 rerun 后重复触发）
-    if res and isinstance(res, dict):
-        ts = res.get("ts", 0)
-        if ts and ts != st.session_state.get("_last_auth_ts", 0):
-            st.session_state["_last_auth_ts"] = ts
-            st.session_state.pop("auth_error", None)
-            _do_auth(res.get("mode"), res.get("email"), res.get("password"))
+    # 标准 Streamlit 登录/注册表单
+    with st.form("auth_form"):
+        st.markdown("## 气象数据交互分析平台")
+        st.caption("登录或注册后使用 · 数据按账号私有隔离")
+
+        mode = st.radio("操作", ["登录", "注册"], horizontal=True, key="auth_mode")
+        email = st.text_input("邮箱", placeholder="you@example.com", key="auth_email")
+        password = st.text_input(
+            "密码", type="password", placeholder="至少 6 位", key="auth_password"
+        )
+
+        submitted = st.form_submit_button("进入平台", use_container_width=True)
+        if submitted:
+            if not email or not password:
+                st.error("请输入邮箱和密码。")
+            elif len(password) < 6:
+                st.error("密码至少 6 位。")
+            else:
+                st.session_state.pop("auth_error", None)
+                _do_auth(mode, email, password)
+
+        error = st.session_state.get("auth_error")
+        if error:
+            st.error(error)
+
+        st.info(
+            "首次使用请选「注册」。若注册后无法登录，"
+            "请到 Supabase 控制台关闭 Confirm email。"
+        )
 
 
 def _do_auth(mode: str, email: str, password: str):
@@ -442,11 +439,16 @@ def _do_auth(mode: str, email: str, password: str):
             st.session_state.pop("auth_error", None)
             st.rerun()
     except Exception as e:
-        msg = str(e)
-        if "Invalid login" in msg or "invalid" in msg.lower():
-            st.session_state["auth_error"] = "登录失败：邮箱或密码错误。"
-        elif "User already registered" in msg:
-            st.session_state["auth_error"] = "该邮箱已注册，请直接登录。"
+        # 常见错误：Invalid login credentials / Email not confirmed / weak password
+        msg = str(e).lower()
+        if "invalid login credentials" in msg or "invalid_credentials" in msg:
+            st.session_state["auth_error"] = "邮箱或密码错误，请重新输入。"
+        elif "email not confirmed" in msg or "email_not_confirmed" in msg:
+            st.session_state["auth_error"] = (
+                "邮箱尚未确认。请查收邮件，或到 Supabase 控制台关闭 Confirm email。"
+            )
+        elif "weak password" in msg or "password" in msg and "6" in msg:
+            st.session_state["auth_error"] = "密码强度不足：至少 6 位。"
         else:
-            st.session_state["auth_error"] = f"操作失败：{msg[:200]}"
+            st.session_state["auth_error"] = f"登录/注册失败：{e}"
         st.rerun()
