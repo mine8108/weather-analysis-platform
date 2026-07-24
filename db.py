@@ -18,7 +18,10 @@ def _user_id() -> str | None:
 
 
 def save_dataset(df: pd.DataFrame, name: str, dataset_id: str | None = None) -> bool:
-    """保存/更新一个数据集。df 序列化为 CSV 文本存入 csv_text 字段。"""
+    """保存/更新一个数据集。df 序列化为 CSV 文本存入 csv_text 字段。
+
+    写入前按用户配额预检：当前用量 + 新数据大小超过配额则拒绝并提示。
+    """
     uid = _user_id()
     if uid is None or df is None or df.empty:
         return False
@@ -27,6 +30,24 @@ def save_dataset(df: pd.DataFrame, name: str, dataset_id: str | None = None) -> 
         return False
 
     csv_text = df.to_csv(index=False)
+    csv_bytes = len(csv_text.encode("utf-8"))
+
+    # 配额预检
+    try:
+        used = sb.rpc("get_storage_usage", {"p_user_id": uid}).execute()
+        quota = sb.rpc("get_storage_quota", {"p_user_id": uid}).execute()
+        used_b = int(used.data or 0)
+        quota_b = int(quota.data or 10485760)
+    except Exception:
+        used_b, quota_b = 0, 10485760
+    if used_b + csv_bytes > quota_b:
+        st.error(
+            f"❌ 存储配额不足：当前已用 {used_b / 1048576:.2f} MB，"
+            f"本次需 {csv_bytes / 1048576:.2f} MB，配额 {quota_b / 1048576:.2f} MB。"
+            "请删除部分数据集或联系管理员提升配额。"
+        )
+        return False
+
     payload = {"user_id": uid, "name": name, "csv_text": csv_text}
 
     try:
@@ -40,6 +61,38 @@ def save_dataset(df: pd.DataFrame, name: str, dataset_id: str | None = None) -> 
     except Exception as e:
         st.error(f"保存失败：{str(e)[:200]}")
         return False
+
+
+def get_storage_usage_bytes(uid: str | None = None) -> int:
+    """返回指定用户（默认当前登录用户）已用存储字节数。"""
+    if uid is None:
+        uid = _user_id()
+    if uid is None:
+        return 0
+    sb = get_supabase()
+    if sb is None:
+        return 0
+    try:
+        res = sb.rpc("get_storage_usage", {"p_user_id": uid}).execute()
+        return int(res.data or 0)
+    except Exception:
+        return 0
+
+
+def get_storage_quota_bytes(uid: str | None = None) -> int:
+    """返回指定用户（默认当前登录用户）的存储配额字节数。"""
+    if uid is None:
+        uid = _user_id()
+    if uid is None:
+        return 10485760
+    sb = get_supabase()
+    if sb is None:
+        return 10485760
+    try:
+        res = sb.rpc("get_storage_quota", {"p_user_id": uid}).execute()
+        return int(res.data or 10485760)
+    except Exception:
+        return 10485760
 
 
 def list_datasets():

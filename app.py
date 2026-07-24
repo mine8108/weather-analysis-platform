@@ -747,6 +747,14 @@ with st.sidebar:
             sign_out_user()
             st.rerun()
 
+        # 云存储用量
+        from db import get_storage_usage_bytes, get_storage_quota_bytes
+        _used = get_storage_usage_bytes()
+        _quota = get_storage_quota_bytes()
+        _ratio = (_used / _quota) if _quota else 0.0
+        st.progress(min(1.0, _ratio),
+                    text=f"☁️ 云存储 {_used / 1048576:.1f} / {_quota / 1048576:.0f} MB")
+
         with st.expander("📂 我的数据集", expanded=False):
             from db import list_datasets, load_dataset, delete_dataset
             _my_ds = list_datasets()

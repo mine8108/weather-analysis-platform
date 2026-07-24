@@ -139,8 +139,11 @@ streamlit run app.py
 
 ### 1. 创建 Supabase 项目
 - 注册 [supabase.com](https://supabase.com) → New Project。
-- Authentication → Providers → Email：建议关闭 `Confirm email` 以便本地测试直接登录（生产可开启）。
+- Authentication → Providers → Email：
+  - 关闭 `Confirm email` 以便本地测试直接登录（生产可开启）。
+  - **关闭 `Allow new users to sign up`（允许公开注册）**：本平台采用「邀请码授权注册」，注册账号必须经管理员发放的邀请码、由服务端建账号，因此必须关闭公开注册。
 - 复制 Project URL 与 `anon public` 密钥（Settings → API）。
+- 复制 `service_role` 密钥（Settings → API，标记为 secret，**切勿在前端暴露**），用于服务端管理操作。
 
 ### 2. 建表与行级安全
 - Supabase → SQL Editor → 新建查询 → 粘贴 `supabase/schema.sql` 并执行。
@@ -151,12 +154,19 @@ streamlit run app.py
 - Streamlit Cloud：Settings → Secrets 粘贴：
   ```
   SUPABASE_URL = "https://xxxx.supabase.co"
-  SUPABASE_ANON_KEY = "eyJ..."
+  SUPABASE_ANON_KEY = "eyJ..."              # anon public 密钥（可前端暴露）
+  SUPABASE_SERVICE_ROLE_KEY = "eyJ..."     # service_role 密钥（仅服务端，严禁泄露）
+  ADMIN_PASSWORD = "你的管理员密码"          # 管理员面板解锁密码
   ```
 
 ### 4. 部署
 - `requirements.txt` 已加入 `supabase`，推送至 GitHub 后 Streamlit Cloud 自动安装。
 - 未配置密钥时页面会提示如何设置，不会崩溃。
+
+### 5. 邀请码注册与存储配额
+- **注册授权**：公开注册已关闭。管理员在登录页底部「🔧 管理员入口」输入 `ADMIN_PASSWORD` 解锁后，可生成邀请码（每码一次性）发给用户；用户注册时填邀请码 → 服务端校验并建账号 → 自动登录。
+- **存储配额**：每位用户默认 10 MB（数据以 CSV 文本存于 `datasets.csv_text`）。保存数据集前按 `OCTET_LENGTH(csv_text)` 累计校验，超额拒绝并提示。管理员可在面板内按用户调整配额（MB）。
+- 侧边栏实时显示「☁️ 云存储 已用 / 配额 MB」进度条。
 
 ### 使用说明
 - 未登录只显示登录/注册页；登录后进入主程序。
