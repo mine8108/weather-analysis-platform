@@ -72,11 +72,27 @@ create policy "profiles_insert_service"
 -- ============================================================
 create table if not exists public.invite_codes (
     code       text primary key,
-    created_by uuid references auth.users(id),
-    used_by    uuid references auth.users(id),
+    created_by uuid references auth.users(id) on delete set null,
+    used_by    uuid references auth.users(id) on delete set null,
     used_at    timestamptz,
     created_at timestamptz not null default now()
 );
+
+-- 已有旧表的外键可能是 ON DELETE RESTRICT（默认），删除用户时会阻塞；
+-- 以下把现存的两个外键约束重建为 ON DELETE SET NULL，使 Supabase 控制台可正常删除用户。
+do $$
+begin
+    alter table public.invite_codes
+        drop constraint if exists invite_codes_created_by_fkey,
+        drop constraint if exists invite_codes_used_by_fkey;
+    alter table public.invite_codes
+        add constraint invite_codes_created_by_fkey
+            foreign key (created_by) references auth.users(id) on delete set null,
+        add constraint invite_codes_used_by_fkey
+            foreign key (used_by) references auth.users(id) on delete set null;
+exception
+    when others then null;
+end $$;
 
 alter table public.invite_codes enable row level security;
 -- 不创建任何面向 anon/authenticated 的 policy：
