@@ -12,6 +12,8 @@ Streamlit Cloud 的标签编码要求。
 
 import sys
 import os
+import json
+from datetime import datetime, timezone, timedelta
 
 import numpy as np
 import pandas as pd
@@ -63,19 +65,88 @@ def _gfs_forecast_cache_key(lat, lon, days, model):
     return f"gfs_fc_cache_{lat:.4f}_{lon:.4f}_{int(days)}_{model_part}"
 
 
+# TTL：缓存 1 小时内有效（GFS 约每小时更新一次）
+_GFS_CACHE_TTL_HOURS = 1
+
+
+def _gfs_df_to_records(df):
+    """DataFrame -> list[dict]（timestamp 转 ISO 字符串供 jsonb 存储）"""
+    return json.loads(df.to_json(orient="records", date_format="iso"))
+
+
+def _gfs_records_to_df(records):
+    """list[dict] -> DataFrame（timestamp 转回 datetime）"""
+    df = pd.DataFrame(records)
+    if "timestamp" in df.columns:
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+    return df
+
+
+def _load_gfs_from_cache(cache_key):
+    """从 Supabase 读取二级缓存（跨用户 / 跨重启共享）。失败返回 None。"""
+    try:
+        if not st.secrets.get("SUPABASE_URL") or not st.secrets.get("SUPABASE_ANON_KEY"):
+            return None
+        from auth import get_supabase
+        sb = get_supabase()
+        if sb is None:
+            return None
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=_GFS_CACHE_TTL_HOURS)).isoformat()
+        res = (
+            sb.table("gfs_cache")
+            .select("*")
+            .eq("cache_key", cache_key)
+            .gte("created_at", cutoff)
+            .execute()
+        )
+        if res.data:
+            return _gfs_records_to_df(res.data[0]["data_json"])
+    except Exception:
+        return None
+    return None
+
+
+def _save_gfs_to_cache(cache_key, lat, lon, days, model, df):
+    """写入 Supabase 二级缓存（失败静默忽略，不影响返回）。"""
+    try:
+        if not st.secrets.get("SUPABASE_URL") or not st.secrets.get("SUPABASE_ANON_KEY"):
+            return
+        from auth import get_supabase
+        sb = get_supabase()
+        if sb is None:
+            return
+        sb.table("gfs_cache").upsert({
+            "cache_key": cache_key,
+            "lat": float(lat),
+            "lon": float(lon),
+            "days": int(days),
+            "model": model or "blend",
+            "data_json": _gfs_df_to_records(df),
+        }).execute()
+    except Exception:
+        pass
+
+
 @retry_with_backoff(max_retries=3, base_delay=3, backoff_factor=2)
 def fetch_gfs_forecast(lat, lon, days=7, model="gfs_seamless"):
     """获取 GFS 单点逐时预报 (Open-Meteo, 免注册)。
 
+    三级缓存：① 会话内 session_state → ② Supabase 跨用户/跨重启 → ③ Open-Meteo 实时请求。
     返回 (DataFrame, error_msg)。成功时 error_msg 为 None。
     DataFrame 含标准字段：timestamp, temperature, humidity,
     apparent_temperature, precipitation, wind_speed, weather_code, station_id。
     （均衡集：保留核心四要素 + 湿度 + 风速；气压/云量/风向由空间图独立请求）
     """
     cache_key = _gfs_forecast_cache_key(lat, lon, days, model)
+    # 第一层：同一会话内同参数直接命中
     cached = st.session_state.get(cache_key)
     if cached is not None:
         return cached, None
+    # 第二层：Supabase 跨用户 / 跨重启共享缓存
+    sb_df = _load_gfs_from_cache(cache_key)
+    if sb_df is not None:
+        st.session_state[cache_key] = sb_df
+        return sb_df, None
 
     url = "https://api.open-meteo.com/v1/forecast"
     params = {
@@ -112,6 +183,8 @@ def fetch_gfs_forecast(lat, lon, days=7, model="gfs_seamless"):
     df["station_id"] = f"GFS({lat:.2f},{lon:.2f})"
 
     st.session_state[cache_key] = df
+    # 第三层落地后写入二级缓存（失败静默忽略）
+    _save_gfs_to_cache(cache_key, lat, lon, days, model, df)
     return df, None
 
 

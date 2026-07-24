@@ -185,3 +185,36 @@ $$;
 
 grant execute on function public.get_storage_usage(uuid) to authenticated, service_role;
 grant execute on function public.get_storage_quota(uuid) to authenticated, service_role;
+
+-- ============================================================
+-- 7. gfs_cache：GFS 预报跨用户 / 跨重启共享缓存
+--    目的：多人查同一坐标时只打一次 Open-Meteo，降低 429 限流概率。
+--    该表是公开可写的缓存层（非敏感数据），anon 即可读写。
+-- ============================================================
+create table if not exists public.gfs_cache (
+    cache_key   text primary key,
+    lat         double precision not null,
+    lon         double precision not null,
+    days        integer not null,
+    model       text not null,
+    data_json   jsonb not null,
+    created_at  timestamptz not null default now()
+);
+
+create index if not exists gfs_cache_created_idx on public.gfs_cache (created_at);
+
+alter table public.gfs_cache enable row level security;
+
+-- 公开可读：任何访客都能读缓存，避免重复请求 Open-Meteo
+drop policy if exists "gfs_cache_public_read" on public.gfs_cache;
+create policy "gfs_cache_public_read"
+    on public.gfs_cache for select using (true);
+
+-- 公开可写：任何人可 upsert 缓存（仅缓存数据，被滥用最多显示旧数据）
+drop policy if exists "gfs_cache_public_write" on public.gfs_cache;
+create policy "gfs_cache_public_write"
+    on public.gfs_cache for insert with check (true);
+
+drop policy if exists "gfs_cache_public_update" on public.gfs_cache;
+create policy "gfs_cache_public_update"
+    on public.gfs_cache for update using (true) with check (true);
