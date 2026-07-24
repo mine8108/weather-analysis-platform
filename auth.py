@@ -234,7 +234,7 @@ def _register_with_invite(sb, email: str, password: str, code: str):
     try:
         valid = sb.rpc("is_invite_code_valid", {"p_code": code}).execute()
     except Exception as e:
-        st.session_state["auth_error"] = f"邀请码校验失败：{str(e)[:150]}"
+        st.session_state["auth_error"] = _schema_error_msg(e)
         st.rerun()
         return
     if not (valid.data):
@@ -277,7 +277,7 @@ def _register_with_invite(sb, email: str, password: str, code: str):
     except Exception:
         # 消费失败不阻断登录，但记录提醒
         st.session_state["auth_error"] = (
-            "账号已创建，但邀请码核销异常，请联系管理员。"
+            "账号已创建，但邀请码核销异常：" + _schema_error_msg(e)
         )
         # 仍尝试登录，避免用户被卡住
         _auto_login(sb, email, password)
@@ -337,6 +337,16 @@ def _render_admin_panel():
 
         st.success("已解锁。以下操作仅管理员可见。")
 
+        # --- schema 健康检查 ---
+        missing = _missing_tables(sb_admin, ["invite_codes", "profiles", "datasets"])
+        if missing:
+            st.error(
+                f"⚠️ 数据库表未创建：{', '.join(missing)}\n\n"
+                "请前往 **Supabase 控制台 → SQL Editor**，"
+                "粘贴并运行 `supabase/schema.sql` 中的全部内容，然后刷新本页面。"
+            )
+            return
+
         # --- 5.1 生成邀请码 ---
         st.subheader("生成邀请码")
         col1, col2 = st.columns([1, 2])
@@ -351,8 +361,9 @@ def _render_admin_panel():
                         [{"code": c} for c in codes]
                     ).execute()
                     st.session_state["invite_codes_out"] = codes
+                    st.success("已生成，请复制下方邀请码。")
                 except Exception as e:
-                    st.error(f"生成失败：{str(e)[:150]}")
+                    st.error(_schema_error_msg(e))
         codes_out = st.session_state.get("invite_codes_out")
         if codes_out:
             st.code("\n".join(codes_out), language="text")
@@ -367,6 +378,8 @@ def _render_admin_panel():
         except Exception as e:
             st.error(f"获取用户失败：{str(e)[:150]}")
             users = []
+        if not users:
+            st.caption("暂无用户或获取失败。")
         if users:
             user_opts = {f"{u['email']} ({u['id'][:8]})": u["id"] for u in users}
             sel = st.selectbox("选择用户", list(user_opts.keys()), key="admin_user_sel")
@@ -404,17 +417,62 @@ def _gen_code() -> str:
     return secrets.token_hex(6).upper()
 
 
+# ============================================================
+# 六、工具函数
+# ============================================================
+def _user_dict(u) -> dict:
+    """将 gotrue User 对象或字典统一为字典。"""
+    if isinstance(u, dict):
+        return u
+    if hasattr(u, "model_dump"):
+        return u.model_dump()
+    if hasattr(u, "to_dict"):
+        return u.to_dict()
+    return {
+        "id": getattr(u, "id", ""),
+        "email": getattr(u, "email", ""),
+        "created_at": getattr(u, "created_at", ""),
+    }
+
+
 def _list_users(sb_admin) -> list:
     """返回用户列表（dict），兼容不同 supabase-py 版本。"""
     res = sb_admin.auth.admin.list_users()
-    # 新版返回对象含 .users；旧版可能直接是列表
+    users = []
     if hasattr(res, "users"):
-        return res.users
-    if isinstance(res, list):
-        return res
-    if isinstance(res, dict) and "users" in res:
-        return res["users"]
-    return []
+        users = res.users
+    elif isinstance(res, list):
+        users = res
+    elif isinstance(res, dict):
+        users = res.get("users", [])
+    return [_user_dict(u) for u in users if _user_dict(u)]
+
+
+def _missing_tables(sb_admin, tables: list) -> list:
+    """检查 public 下哪些表不存在（通过试读 limit 0）。"""
+    missing = []
+    for t in tables:
+        try:
+            sb_admin.table(t).select("*", count="exact").limit(0).execute()
+        except Exception:
+            missing.append(t)
+    return missing
+
+
+def _schema_error_msg(e) -> str:
+    """把常见 Supabase/PostgREST 报错翻译成中文操作指引。"""
+    msg = str(e).lower()
+    if "could not find the table" in msg or "pgrst205" in msg:
+        return (
+            "数据库表未创建：请在 Supabase 控制台 → SQL Editor 中，"
+            "运行 `supabase/schema.sql` 全部内容，然后刷新页面。"
+        )
+    if "could not find the function" in msg or "pgrst201" in msg:
+        return (
+            "数据库函数未创建：请在 Supabase 控制台 → SQL Editor 中，"
+            "运行 `supabase/schema.sql` 全部内容，然后刷新页面。"
+        )
+    return f"操作失败：{str(e)[:150]}"
 
 
 def _fmt_mb(b: int) -> str:
