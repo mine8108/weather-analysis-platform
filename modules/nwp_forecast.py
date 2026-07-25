@@ -13,6 +13,7 @@ Streamlit Cloud 的标签编码要求。
 import sys
 import os
 import json
+import time
 from datetime import datetime, timezone, timedelta
 
 import numpy as np
@@ -188,6 +189,46 @@ def fetch_gfs_forecast(lat, lon, days=7, model="gfs_seamless"):
     # 第三层落地后写入二级缓存（失败静默忽略）
     _save_gfs_to_cache(cache_key, lat, lon, days, model, df)
     return df, None
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _fetch_gfs_current(lat, lon, model="gfs_seamless"):
+    """获取单点实时实测 (Open-Meteo `current=` 参数)，TTL 600 秒。
+    返回 dict: {temperature, humidity, apparent_temperature, wind_speed,
+                precipitation, precipitation_probability, weather_code}
+    失败返回 None。**不依赖服务器时钟**，每次返回 Open-Meteo 当时的真"当前时刻"实测。
+    """
+    try:
+        url = "https://api.open-meteo.com/v1/forecast"
+        params = {
+            "latitude": float(lat),
+            "longitude": float(lon),
+            "current": "temperature_2m,relative_humidity_2m,apparent_temperature,"
+                       "wind_speed_10m,precipitation,precipitation_probability,weather_code",
+            "timezone": "Asia/Shanghai",
+            "temperature_unit": "celsius",
+            "wind_speed_unit": "ms",
+            "precipitation_unit": "mm",
+        }
+        if model:
+            params["models"] = model
+        resp = requests.get(url, params=params, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        cur = data.get("current")
+        if not cur:
+            return None
+        return {
+            "temperature": cur.get("temperature_2m"),
+            "humidity": cur.get("relative_humidity_2m"),
+            "apparent_temperature": cur.get("apparent_temperature"),
+            "wind_speed": cur.get("wind_speed_10m"),
+            "precipitation": cur.get("precipitation"),
+            "precipitation_probability": cur.get("precipitation_probability"),
+            "weather_code": cur.get("weather_code"),
+        }
+    except Exception:
+        return None
 
 
 def _gfs_spatial_cache_key(center_lat, center_lon, step, half, days, model, variable):
@@ -1117,23 +1158,43 @@ def _get_now_row(fdf):
 # 五-2、当前实况卡片
 # ============================================================
 def _render_current_conditions(fdf):
-    """渲染当前实况卡片：气温 / 风等级 / 湿度 / 降水概率"""
+    """渲染当前实况卡片：气温 / 风等级 / 湿度 / 降水概率
+    优先用 Open-Meteo `current=` 真实时实测；服务器时钟异常或失败时 fallback 到 fdf 当前小时行。
+    """
     from config import get_beaufort_level
 
     if fdf is None or fdf.empty:
         return
 
-    now_row = _get_now_row(fdf)
-    dark = _is_dark()
+    # 真实时实测(独立 API 调用,不依赖服务器时钟)
+    lat = st.session_state.get("fc_lat")
+    lon = st.session_state.get("fc_lon")
+    model_label = st.session_state.get("fc_model", "GFS 无缝混合 (gfs_seamless)")
+    model_value = GFS_MODELS.get(model_label, "gfs_seamless")
+    cur = _fetch_gfs_current(lat, lon, model_value) if (lat is not None and lon is not None) else None
 
-    # --- 数据提取 ---
-    temp = float(now_row.get("temperature", 0))
-    app_temp = float(now_row.get("apparent_temperature", temp))
-    wind = float(now_row.get("wind_speed", 0))
-    humid = float(now_row.get("humidity", 0))
-    precip_prob = float(now_row.get("precipitation_probability", 0))
+    if cur and cur.get("temperature") is not None:
+        # 真实时实测路径
+        temp = float(cur["temperature"])
+        app_temp = float(cur.get("apparent_temperature") or temp)
+        wind = float(cur.get("wind_speed") or 0)
+        humid = float(cur.get("humidity") or 0)
+        precip_prob = float(cur.get("precipitation_probability") or 0)
+        source = "实测"
+    else:
+        # Fallback: 用 fdf 当前小时行(可能受服务器时钟影响)
+        now_row = _get_now_row(fdf)
+        if now_row is None:
+            return
+        temp = float(now_row.get("temperature", 0))
+        app_temp = float(now_row.get("apparent_temperature", temp))
+        wind = float(now_row.get("wind_speed", 0))
+        humid = float(now_row.get("humidity", 0))
+        precip_prob = float(now_row.get("precipitation_probability", 0))
+        source = "预报"
 
     bf_level, bf_name = get_beaufort_level(wind)
+    dark = _is_dark()
 
     # --- 干湿描述 ---
     if humid >= 80:
@@ -1182,7 +1243,7 @@ def _render_current_conditions(fdf):
         </div>
         """
 
-    st.write("### 当前实况")
+    st.write(f"### 当前实况  · {source}")
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         st.markdown(_card("[T]", "气温", f"{temp:.1f}", "C",
@@ -1214,23 +1275,41 @@ def _calc_ssd(temp, humidity, wind_speed):
 
 
 def _calc_life_indices(fdf):
-    """计算 7 项生活指标，返回 dict"""
+    """计算 7 项生活指标，返回 dict。优先用 Open-Meteo current= 真实时数据。"""
     if fdf is None or fdf.empty:
         return {}
 
-    now_row = _get_now_row(fdf)
-    if now_row is None:
-        return {}
-    # 取未来 72h 数据用于部分指标
-    h72 = fdf.head(72) if len(fdf) >= 72 else fdf
+    # 真实时实测(独立 API 调用,不依赖服务器时钟)
+    lat = st.session_state.get("fc_lat")
+    lon = st.session_state.get("fc_lon")
+    model_label = st.session_state.get("fc_model", "GFS 无缝混合 (gfs_seamless)")
+    model_value = GFS_MODELS.get(model_label, "gfs_seamless")
+    cur = _fetch_gfs_current(lat, lon, model_value) if (lat is not None and lon is not None) else None
 
-    temp = float(now_row.get("temperature", 20))
-    app_temp = float(now_row.get("apparent_temperature", temp))
-    humid = float(now_row.get("humidity", 50))
-    wind = float(now_row.get("wind_speed", 2))
-    precip = float(now_row.get("precipitation", 0))
-    precip_prob = float(now_row.get("precipitation_probability", 0))
-    wcode = float(now_row.get("weather_code", 0))
+    if cur and cur.get("temperature") is not None:
+        # 真实时实测路径
+        temp = float(cur["temperature"])
+        app_temp = float(cur.get("apparent_temperature") or temp)
+        humid = float(cur.get("humidity") or 50)
+        wind = float(cur.get("wind_speed") or 2)
+        precip = float(cur.get("precipitation") or 0)
+        precip_prob = float(cur.get("precipitation_probability") or 0)
+        wcode = float(cur.get("weather_code") or 0)
+    else:
+        # Fallback: fdf 当前小时行
+        now_row = _get_now_row(fdf)
+        if now_row is None:
+            return {}
+        temp = float(now_row.get("temperature", 20))
+        app_temp = float(now_row.get("apparent_temperature", temp))
+        humid = float(now_row.get("humidity", 50))
+        wind = float(now_row.get("wind_speed", 2))
+        precip = float(now_row.get("precipitation", 0))
+        precip_prob = float(now_row.get("precipitation_probability", 0))
+        wcode = float(now_row.get("weather_code", 0))
+
+    # 取未来 72h 数据用于部分指标(始终从 fdf 取,不受真实时接口影响)
+    h72 = fdf.head(72) if len(fdf) >= 72 else fdf
 
     avg_temp_72 = float(h72["temperature"].mean())
     total_precip_72 = float(h72["precipitation"].sum())
