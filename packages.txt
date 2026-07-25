@@ -1,5 +1,3 @@
-# Streamlit Cloud 系统依赖：kaleido 1.x 需要 Chrome 才能导出图表 PNG
-# kaleido 会自动下载/查找 Chrome，这里补齐 Chrome 运行所需的系统库
 libnss3
 libatk1.0-0
 libatk-bridge2.0-0
