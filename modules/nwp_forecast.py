@@ -1060,17 +1060,21 @@ def _render_forecast_advice(analysis, life_indices=None):
     # 总述
     st.markdown(f"**总结**：{analysis['summary']}")
 
-    # 极端值卡片
+    # 极端值卡片（统一卡片样式）
     ex = analysis["extremes"]
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        st.metric("最高气温", f"{ex['max_temp'][0]:.0f}C", ex["max_temp"][1])
+        st.markdown(_uni_card("最高气温", f"{ex['max_temp'][0]:.0f}", "C",
+                               delta=ex["max_temp"][1], color="#ef4444"), unsafe_allow_html=True)
     with c2:
-        st.metric("最低气温", f"{ex['min_temp'][0]:.0f}C", ex["min_temp"][1])
+        st.markdown(_uni_card("最低气温", f"{ex['min_temp'][0]:.0f}", "C",
+                               delta=ex["min_temp"][1], color="#3b82f6"), unsafe_allow_html=True)
     with c3:
-        st.metric("累计降水", f"{ex['total_precip']:.0f} mm")
+        st.markdown(_uni_card("累计降水", f"{ex['total_precip']:.0f}", " mm",
+                               color="#22c55e"), unsafe_allow_html=True)
     with c4:
-        st.metric("最大风速", f"{ex['max_wind'][0]:.1f} m/s", ex["max_wind"][1])
+        st.markdown(_uni_card("最大风速", f"{ex['max_wind'][0]:.1f}", "m/s",
+                               delta=ex["max_wind"][1], color="#f59e0b"), unsafe_allow_html=True)
 
     # 预警
     if analysis["warnings"]:
@@ -1101,17 +1105,21 @@ def _render_forecast_advice(analysis, life_indices=None):
     prec = analysis.get("precision", {})
     if prec:
         st.write("#### 预报精度详情")
-        # 趋势数值
+        # 趋势数值（统一卡片样式）
         tt = prec.get("temp_trend", {})
         if tt:
             c1, c2, c3 = st.columns(3)
             with c1:
-                st.metric("趋势变化", f"{tt['diff_mean']:+.1f}C", f"±{tt['diff_std']:.1f}C")
+                st.markdown(_uni_card("趋势变化", f"{tt['diff_mean']:+.1f}", "C",
+                                       delta=f"±{tt['diff_std']:.1f}C", color="#8b5cf6"), unsafe_allow_html=True)
             with c2:
-                st.metric("波动程度", tt.get("volatility", ""), f"标准差 {tt['overall_std']:.1f}C")
+                st.markdown(_uni_card("波动程度", tt.get("volatility", ""), "",
+                                       delta=f"标准差 {tt['overall_std']:.1f}C", color="#06b6d4"), unsafe_allow_html=True)
             with c3:
-                st.metric("连续高温", f"{prec.get('consecutive_hot', 0)} 天",
-                          f"最长 {prec.get('consecutive_hot', 0)} 天" if prec.get('consecutive_hot', 0) > 0 else None)
+                hot_days = prec.get("consecutive_hot", 0)
+                d = f"最长 {hot_days} 天" if hot_days > 0 else None
+                st.markdown(_uni_card("连续高温", f"{hot_days}", " 天",
+                                       delta=d, color="#ef4444"), unsafe_allow_html=True)
         # 降水精度
         pcat = prec.get("precip_cats", {})
         mp = prec.get("max_6h_precip")
@@ -1152,6 +1160,35 @@ def _get_now_row(fdf):
         if mask.any():
             return fdf[mask].iloc[0]
     return fdf.iloc[-1]
+
+
+# ============================================================
+# 通用统计卡片（统一视觉语言，替代 st.metric）
+# ============================================================
+def _uni_card(label, value, unit="", delta=None, color="#3b82f6", dark=None):
+    """通用统计卡片：彩色左边框 + 标签/大值/副文本，统一替代 st.metric()"""
+    if dark is None:
+        dark = _is_dark()
+    bg = "#1e293b" if dark else "#ffffff"
+    border = "#334155" if dark else "#e2e8f0"
+    label_c = "#94a3b8" if dark else "#64748b"
+    val_c = "#e2e8f0" if dark else "#1e293b"
+
+    delta_html = ""
+    if delta:
+        delta_html = f'<div style="font-size:0.72rem;color:{color};margin-top:4px;">{delta}</div>'
+
+    return f"""
+    <div style="background:{bg};border:1px solid {border};border-radius:12px;
+                padding:16px 14px;position:relative;overflow:hidden;">
+        <div style="position:absolute;left:0;top:0;bottom:0;width:4px;background:{color};border-radius:12px 0 0 12px;"></div>
+        <div style="font-size:0.8rem;color:{label_c};margin-bottom:6px;padding-left:4px;">{label}</div>
+        <div style="font-size:1.75rem;font-weight:700;color:{val_c};line-height:1.2;padding-left:4px;">
+            {value}<span style="font-size:0.9rem;font-weight:400;color:{label_c};margin-left:3px;">{unit}</span>
+        </div>
+        {delta_html}
+    </div>
+    """
 
 
 # ============================================================
@@ -1538,7 +1575,7 @@ def render_forecast_tab():
     # ---- 降水预报 ----
     st.write("### 降水预报")
     total_precip = float(fdf["precipitation"].sum())
-    st.metric("预报期累计降水", f"{total_precip:.1f} mm")
+    st.markdown(_uni_card("预报期累计降水", f"{total_precip:.1f}", " mm", color="#22c55e"), unsafe_allow_html=True)
     daily_fig = _daily_precip_chart(fdf)
     safe_chart(daily_fig, "逐日降水预报", key="fc_daily_precip")
 
@@ -1597,13 +1634,13 @@ def render_forecast_tab():
             if grid_stats is not None:
                 sc1, sc2, sc3, sc4 = st.columns(4)
                 with sc1:
-                    st.metric("最小值", f"{grid_stats['min']:+.1f}" if spatial_mode == "anomaly" else f"{grid_stats['min']:.1f}")
+                    st.markdown(_uni_card("最小值", f"{grid_stats['min']:+.1f}" if spatial_mode == "anomaly" else f"{grid_stats['min']:.1f}", color="#3b82f6"), unsafe_allow_html=True)
                 with sc2:
-                    st.metric("最大值", f"{grid_stats['max']:+.1f}" if spatial_mode == "anomaly" else f"{grid_stats['max']:.1f}")
+                    st.markdown(_uni_card("最大值", f"{grid_stats['max']:+.1f}" if spatial_mode == "anomaly" else f"{grid_stats['max']:.1f}", color="#ef4444"), unsafe_allow_html=True)
                 with sc3:
-                    st.metric("平均值", f"{grid_stats['mean']:+.1f}" if spatial_mode == "anomaly" else f"{grid_stats['mean']:.1f}")
+                    st.markdown(_uni_card("平均值", f"{grid_stats['mean']:+.1f}" if spatial_mode == "anomaly" else f"{grid_stats['mean']:.1f}", color="#f59e0b"), unsafe_allow_html=True)
                 with sc4:
-                    st.metric("网格规模", f"{grid_stats['n_points']}点 ({grid_stats['grid_shape']})")
+                    st.markdown(_uni_card("网格规模", f"{grid_stats['n_points']}", f" {grid_stats['grid_shape']}", color="#6b7280"), unsafe_allow_html=True)
 
     # ---- 智能分析与建议 ----
     with st.spinner("正在生成预报智能分析..."):
