@@ -114,7 +114,8 @@ def _resolve_stats(df, stats_fields):
 
 
 def export_report_word(df, warnings_list, score, source="",
-                       forecast_df=None, forecast_analysis=None, plain_language=False):
+                       forecast_df=None, forecast_analysis=None, plain_language=False,
+                       life_indices=None):
     """生成 Word 分析报告（含嵌入图表、预报摘要）。自动隐藏空节，字段名自适应。"""
     try:
         from docx import Document
@@ -149,8 +150,35 @@ def export_report_word(df, warnings_list, score, source="",
     if source:
         doc.add_paragraph(f"数据来源：{source}")
     if has_obs:
+        # 观测数据时段（溯源元数据）
+        ts_col = _resolve_field(df, "timestamp")
+        if ts_col and len(df) > 0:
+            t0 = df[ts_col].min()
+            t1 = df[ts_col].max()
+            try:
+                doc.add_paragraph(f"观测时段：{t0} ~ {t1}")
+            except Exception:
+                pass
         doc.add_paragraph(f"观测记录数：{len(df)}")
         doc.add_paragraph(f"数据质量评分：{score}/100")
+    if has_fc and forecast_df is not None and not forecast_df.empty:
+        # 预报时段与地点（溯源元数据）
+        fts_col = _resolve_field(forecast_df, "timestamp")
+        if fts_col and len(forecast_df) > 0:
+            ft0 = forecast_df[fts_col].min()
+            ft1 = forecast_df[fts_col].max()
+            try:
+                doc.add_paragraph(f"预报时段：{ft0} ~ {ft1}")
+            except Exception:
+                pass
+        if "latitude" in forecast_df.columns and "longitude" in forecast_df.columns:
+            try:
+                lat = forecast_df["latitude"].dropna().iloc[0]
+                lon = forecast_df["longitude"].dropna().iloc[0]
+                if pd.notna(lat) and pd.notna(lon):
+                    doc.add_paragraph(f"预报坐标：{lat:.4f}N, {lon:.4f}E")
+            except Exception:
+                pass
     doc.add_paragraph("")
 
     section_num = 0
@@ -265,6 +293,23 @@ def export_report_word(df, warnings_list, score, source="",
                 for r in agri[:4]:
                     doc.add_paragraph(f"- {r}", style="List Bullet")
 
+        # 生活出行指南（复用界面 7 项指数，使报告比界面更详尽）
+        if life_indices:
+            from config import LIFE_INDEX_META
+            doc.add_heading("生活出行指南", level=2)
+            for key, info in life_indices.items():
+                icon, name = LIFE_INDEX_META.get(key, ("", key))
+                level = info.get("level", "")
+                advice = info.get("advice", "")
+                p = doc.add_paragraph()
+                run = p.add_run(f"{icon} {name}：{level} — {advice}")
+                color = info.get("color", "")
+                if color and color.startswith("#"):
+                    try:
+                        run.font.color.rgb = RGBColor.from_string(color[1:])
+                    except Exception:
+                        pass
+
     # ---- 五、防御建议（仅当有历史检测结果时） ----
     if has_obs and has_warnings:
         section_num += 1
@@ -277,6 +322,7 @@ def export_report_word(df, warnings_list, score, source="",
                     f"【{warn['type']}{warn['level']}事件】{PUBLIC_ADVICE[warn['type']][warn['level']]}",
                     style="List Bullet",
                 )
+                _append_data_support(doc, warn)
         doc.add_heading("农业生产", level=2)
         for warn in warnings_list:
             if warn["type"] in AGRI_ADVICE and warn["level"] in AGRI_ADVICE[warn["type"]]:
@@ -284,6 +330,7 @@ def export_report_word(df, warnings_list, score, source="",
                     f"【{warn['type']}{warn['level']}事件】{AGRI_ADVICE[warn['type']][warn['level']]}",
                     style="List Bullet",
                 )
+                _append_data_support(doc, warn)
 
     # ---- 无数据友好提示 ----
     if not has_obs and not has_fc:
@@ -327,6 +374,20 @@ def _number(n):
     """中文数字映射"""
     nums = ["", "一", "二", "三", "四", "五", "六"]
     return nums[n] if n < len(nums) else str(n)
+
+
+def _append_data_support(doc, warn):
+    """在防御建议条文后追加『本次数据支撑』附注，消除纯套话感。"""
+    detail = warn.get("detail", "")
+    if not detail:
+        return
+    try:
+        p = doc.add_paragraph(f"    数据支撑：{detail}")
+        for r in p.runs:
+            r.font.size = Pt(9)
+            r.font.color.rgb = RGBColor(120, 120, 120)
+    except Exception:
+        pass
 
 
 def render_export_tab(df, warnings_list, score, source=""):
@@ -383,6 +444,7 @@ def render_export_tab(df, warnings_list, score, source=""):
                     forecast_df=st.session_state.get("fc_df"),
                     forecast_analysis=fc_analysis,
                     plain_language=(report_style == "💬 通俗版"),
+                    life_indices=st.session_state.get("life_indices"),
                 )
                 if doc_data:
                     st.session_state["report_data"] = doc_data

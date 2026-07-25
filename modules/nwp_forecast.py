@@ -24,7 +24,7 @@ from plotly.subplots import make_subplots
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import retry_with_backoff
-from config import COLORS, safe_chart, _is_dark, WARN_LEVEL_ORDER
+from config import COLORS, safe_chart, _is_dark, WARN_LEVEL_ORDER, LIFE_INDEX_META as _LIFE_INDEX_META
 
 
 # ============================================================
@@ -1093,20 +1093,6 @@ def _render_forecast_advice(analysis):
         for c in analysis["coupling"]:
             st.warning(f"{c['icon']} **{c['type']}** ({c['severity']}): {c['detail']}")
 
-    # 建议
-    c1, c2 = st.columns(2)
-    with c1:
-        st.write("#### 出行建议")
-        for s in analysis["recommendations"]["travel"]:
-            st.write(f"- {s}")
-        if not analysis["recommendations"]["travel"]:
-            st.info("天气状况良好，无特殊出行限制。")
-    with c2:
-        st.write("#### 农业建议")
-        for s in analysis["recommendations"]["agri"]:
-            st.write(f"- {s}")
-        if not analysis["recommendations"]["agri"]:
-            st.info("天气状况对农业生产无明显不利影响。")
 
 
 # ============================================================
@@ -1331,16 +1317,7 @@ def _calc_life_indices(fdf):
     return indices
 
 
-# 指标显示名称和图标
-_LIFE_INDEX_META = {
-    "clothing":  ("[衣]", "穿衣指数"),
-    "umbrella":  ("[伞]", "带伞建议"),
-    "comfort":   ("[感]", "体感舒适度"),
-    "exercise":  ("[动]", "运动指数"),
-    "uv":        ("[紫]", "紫外线"),
-    "carwash":   ("[洗]", "洗车指数"),
-    "drying":    ("[晒]", "晾晒指数"),
-}
+# 指标显示名称和图标（定义见 config.LIFE_INDEX_META）
 
 
 def _render_life_indices(indices):
@@ -1533,3 +1510,4 @@ def render_forecast_tab():
     # ---- 生活出行指南 ----
     life_indices = _calc_life_indices(fdf)
     _render_life_indices(life_indices)
+    st.session_state["life_indices"] = life_indices
