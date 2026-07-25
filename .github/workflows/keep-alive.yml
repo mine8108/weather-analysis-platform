@@ -1,0 +1,17 @@
+name: Keep Streamlit App Alive
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  keep-alive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping app URL
+        run: |
+          URL="https://weather-analysis-platform-zyappduswtwhs8pok7e7a9c.streamlit.app"
+          echo "Pinging $URL"
+          curl -sS -m 30 -o /dev/null -w "HTTP=%{http_code} TIME=%{time_total}s\n" "$URL" \
+            || echo "ping failed (app may be sleeping, will retry next cycle)"
