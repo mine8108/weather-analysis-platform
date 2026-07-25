@@ -1009,8 +1009,8 @@ def _analyze_forecast(fdf):
     return results
 
 
-def _render_forecast_advice(analysis):
-    """渲染预报智能分析结果"""
+def _render_forecast_advice(analysis, life_indices=None):
+    """渲染预报智能分析结果。life_indices 传入后作为子节嵌入到『预报精度详情』之前。"""
     from config import WARN_STYLES
 
     st.write("---")
@@ -1051,6 +1051,10 @@ def _render_forecast_advice(analysis):
 <br><span style="color:{detail_color}">{warn['level_num']} | {warn['detail']}</span></div>""", unsafe_allow_html=True)
     else:
         st.success("[OK] 未来预报期内未触发预警信号")
+
+    # ---- 生活出行指南(嵌入智能分析节内,预报精度详情之前) ----
+    if life_indices:
+        _render_life_indices(life_indices, inline=True)
 
     # 精度增强面板
     prec = analysis.get("precision", {})
@@ -1095,6 +1099,20 @@ def _render_forecast_advice(analysis):
 
 
 
+def _get_now_row(fdf):
+    """按当前真实时间在 fdf 中查找对应小时行，session 内跨小时会推进。
+    缓存策略不变（仍是 fetch 时的预报），仅切换"当前小时"指针。
+    """
+    if fdf is None or fdf.empty:
+        return None
+    now = pd.Timestamp.now(tz="Asia/Shanghai").tz_localize(None)
+    if "timestamp" in fdf.columns:
+        mask = fdf["timestamp"] >= now
+        if mask.any():
+            return fdf[mask].iloc[0]
+    return fdf.iloc[-1]
+
+
 # ============================================================
 # 五-2、当前实况卡片
 # ============================================================
@@ -1105,7 +1123,7 @@ def _render_current_conditions(fdf):
     if fdf is None or fdf.empty:
         return
 
-    now_row = fdf.iloc[0]  # 预报首行 = 当前时刻
+    now_row = _get_now_row(fdf)
     dark = _is_dark()
 
     # --- 数据提取 ---
@@ -1200,7 +1218,9 @@ def _calc_life_indices(fdf):
     if fdf is None or fdf.empty:
         return {}
 
-    now_row = fdf.iloc[0]
+    now_row = _get_now_row(fdf)
+    if now_row is None:
+        return {}
     # 取未来 72h 数据用于部分指标
     h72 = fdf.head(72) if len(fdf) >= 72 else fdf
 
@@ -1320,13 +1340,18 @@ def _calc_life_indices(fdf):
 # 指标显示名称和图标（定义见 config.LIFE_INDEX_META）
 
 
-def _render_life_indices(indices):
-    """渲染 7 项生活指标卡片 (4+3 布局)"""
+def _render_life_indices(indices, inline=False):
+    """渲染 7 项生活指标卡片 (4+3 布局)。
+    inline=False: 顶级节,输出 --- 分隔符 + ### 标题(独立调用时使用)
+    inline=True:  子节,输出 #### 标题(嵌入到其他节时使用,无分隔符)
+    """
     if not indices:
         return
 
-    st.write("---")
-    st.write("### 生活出行指南")
+    if not inline:
+        st.write("---")
+    title_level = "####" if inline else "###"
+    st.write(f"{title_level} 生活出行指南")
 
     dark = _is_dark()
     bg = "#1e293b" if dark else "#ffffff"
@@ -1505,9 +1530,9 @@ def render_forecast_tab():
     with st.spinner("正在生成预报智能分析..."):
         analysis = _analyze_forecast(fdf)
     st.session_state["fc_analysis"] = analysis
-    _render_forecast_advice(analysis)
 
-    # ---- 生活出行指南 ----
+    # 生活指南计算提前到此处(将作为子节嵌入智能分析节)
     life_indices = _calc_life_indices(fdf)
-    _render_life_indices(life_indices)
     st.session_state["life_indices"] = life_indices
+
+    _render_forecast_advice(analysis, life_indices=life_indices)

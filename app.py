@@ -72,13 +72,52 @@ def _safe_render(name, fn, *args, **kwargs):
 
 
 def _safe_reset():
-    """错误恢复：清除应用数据，保留导航默认值，回到导入页。"""
+    """错误恢复：清除应用数据，保留导航默认值和登录态，回到导入页。"""
+    keep = {"active_tab", "import_step", "import_method", "_nav_stack", "auth_user"}
+    keep |= {k for k in st.session_state if k.startswith(("auth_", "invite_", "admin_"))}
     for _k in list(st.session_state.keys()):
-        if _k not in ("active_tab", "import_step", "import_method", "_nav_stack"):
+        if _k not in keep:
             del st.session_state[_k]
     st.session_state["active_tab"] = 0
     st.session_state["import_step"] = 0
     st.session_state["import_method"] = None
+
+
+# Tab 名称映射(用于重置按钮显示当前 Tab 名)
+_TAB_NAMES = ["导入", "数值预报", "可视化", "智能分析", "报告导出", "气候态", "报文解码"]
+
+# 每个 Tab 重置时清理的 session_state key(精确匹配 + "_" 前缀动态匹配)
+_RESET_KEYS_BY_TAB = {
+    "导入": ["df", "source", "import_step", "import_method", "manual_data", "raw_df",
+             "import_warnings", "_template_cache", "era5_data", "era5_lat", "era5_lon"],
+    "数值预报": ["fc_df", "fc_analysis", "fc_grid", "fc_hour", "life_indices",
+                 "nwp_forecast_for_analysis", "nwp_combined"],
+    "可视化": ["multi_station_selected"],
+    "智能分析": ["warnings_list", "quality_score", "_warn_fp"],
+    "报告导出": ["report_data"],
+    "气候态": ["climate_data", "climate_extreme"],
+    "报文解码": ["manual_data"],
+}
+
+
+def _reset_current_tab():
+    """清空当前 Tab 的业务数据 key,保留登录态(auth_user)、导航栈、阈值设置。
+    用于侧边栏「重置当前模块数据」按钮。
+    """
+    tab_idx = st.session_state.get("active_tab", 0)
+    tab_name = _TAB_NAMES[tab_idx] if 0 <= tab_idx < len(_TAB_NAMES) else "当前模块"
+    keys = _RESET_KEYS_BY_TAB.get(tab_name, [])
+    removed = []
+    for k in list(st.session_state.keys()):
+        # 精确匹配 + "key_" 前缀动态匹配(如 api_data_xxx)
+        if any(k == p or k.startswith(p + "_") for p in keys):
+            del st.session_state[k]
+            removed.append(k)
+    if removed:
+        st.toast(f"[OK] {tab_name}已重置（清理 {len(removed)} 项）", icon="🧹")
+    else:
+        st.toast(f"[OK] {tab_name}无需清理", icon="✓")
+    st.rerun()
 
 
 def _navigate_to(tab_idx):
@@ -863,6 +902,11 @@ with st.sidebar:
     st.caption("[资料] 中国气象局第16号令 · 气象灾害预警信号发布与传播办法")
     st.caption("© 气象数据交互分析平台 v1.0")
     st.divider()
+    if is_authenticated():
+        if st.button("[刷新] 重置当前模块数据", use_container_width=True,
+                     key="sidebar_reset_current_tab",
+                     help="清空当前 Tab 的业务数据（导入数据/预报/分析结果等），保留登录态和阈值设置"):
+            _reset_current_tab()
     st.caption("※ 本平台分析结果仅供学习参考，不替代国家气象部门权威预报。")
 
 # ============================================================
