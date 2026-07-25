@@ -214,14 +214,33 @@ def _to_image_safe(fig, timeout=15, **kwargs):
         return None
 
 
+# 记录最近一次图表导出的真实失败原因，供 UI 提示暴露（避免一律误报「未安装」）
+_KALEIDO_LAST_ERR = None
+
+
 def export_chart_as_png(fig, filename="chart.png"):
     """导出 Plotly 图为 PNG 字节流(带超时保护)"""
+    global _KALEIDO_LAST_ERR
+    _KALEIDO_LAST_ERR = None
     if fig is None:
         return None
     try:
-        return _to_image_safe(fig, timeout=15,
-                              format="png", scale=2, width=1200, height=800)
+        import kaleido  # 确认包本身已安装
+    except ImportError:
+        _KALEIDO_LAST_ERR = "kaleido 包未安装（requirements 未生效？）"
+        return None
+    # kaleido 1.x 需要 Chrome：主进程提前确保就位（已缓存则秒回，避免子进程超时内下载失败）
+    try:
+        kaleido.get_chrome_sync()
     except Exception:
+        pass  # 失败不阻塞，交由 to_image 内部兜底
+    try:
+        return _to_image_safe(fig, timeout=20,
+                              format="png", scale=2, width=1200, height=800)
+    except Exception as e:
+        _KALEIDO_LAST_ERR = f"{type(e).__name__}: {str(e)[:200]}"
+        if st.session_state.get("debug_mode"):
+            st.error(f"图表导出异常: {e}")
         return None
 
 
@@ -424,7 +443,7 @@ def _insert_chart(doc, key, fig):
             return None
         except Exception as e:
             return f"（图表「{caption}」嵌入失败：{e}）"
-    return f"（图表「{caption}」因缺少 kaleido 包无法嵌入，请在部署环境安装 kaleido）"
+    return f"（图表「{caption}」导出失败：{_KALEIDO_LAST_ERR or '图片引擎(kaleido/Chrome)不可用，请检查部署环境'}）"
 
 
 # ============================================================
@@ -1317,7 +1336,7 @@ def render_export_tab(df, warnings_list, score, source=""):
                         st.plotly_chart(fig, use_container_width=True,
                                         key=f"rpt_chart_{name}")
                     else:
-                        st.info("kaleido 未安装，无法导出图片")
+                        st.info(f"图表导出失败：{_KALEIDO_LAST_ERR or '图片引擎(kaleido/Chrome)不可用'}")
 
     # ---- 统计摘要 ----
     if df is not None and not df.empty:
