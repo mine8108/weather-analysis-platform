@@ -51,6 +51,7 @@ _FC_HOURLY = [
     "precipitation",
     "wind_speed_10m",
     "weather_code",
+    "precipitation_probability",
 ]
 
 
@@ -179,6 +180,7 @@ def fetch_gfs_forecast(lat, lon, days=7, model="gfs_seamless"):
         "precipitation": h["precipitation"],
         "wind_speed": h["wind_speed_10m"],
         "weather_code": h["weather_code"],
+        "precipitation_probability": h.get("precipitation_probability", [0] * len(h["time"])),
     })
     df["station_id"] = f"GFS({lat:.2f},{lon:.2f})"
 
@@ -904,14 +906,18 @@ def _analyze_forecast(fdf):
         if any(precip_cats.values()) else None
     )
 
-    # ----- 6. 耦合分析（同前）-----
+    # ----- 6. 耦合分析（含 SSD 体感舒适度联动）-----
     if len(hot) > 0:
         hot_dates = list(hot.index)
         hot_rh = davg_rh.loc[[d for d in hot_dates if d in davg_rh.index]]
         if len(hot_rh) > 0 and hot_rh.mean() > 60:
+            # 计算 SSD 体感舒适度
+            hot_ws = dmax_ws.loc[[d for d in hot_dates if d in dmax_ws.index]]
+            ssd_hot = _calc_ssd(hot.max(), hot_rh.mean(), hot_ws.mean() if len(hot_ws) > 0 else 2)
+            ssd_note = f"，体感舒适度 SSD={ssd_hot:.1f}（炎热不舒适）" if ssd_hot >= 29 else ""
             results["coupling"].append({
                 "type": "热应激风险", "severity": "危险",
-                "detail": f"高温({hot.max():.1f}C)叠加高湿({hot_rh.mean():.0f}%)，体感温度显著升高，户外活动需防范中暑。",
+                "detail": f"高温({hot.max():.1f}C)叠加高湿({hot_rh.mean():.0f}%)，体感温度显著升高{ssd_note}，户外活动需防范中暑。",
                 "icon": "[热]",
             })
     if len(windy) > 0 and len(heavy) > 0:
@@ -1104,6 +1110,290 @@ def _render_forecast_advice(analysis):
 
 
 # ============================================================
+# 五-2、当前实况卡片
+# ============================================================
+def _render_current_conditions(fdf):
+    """渲染当前实况卡片：气温 / 风等级 / 湿度 / 降水概率"""
+    from config import get_beaufort_level
+
+    if fdf is None or fdf.empty:
+        return
+
+    now_row = fdf.iloc[0]  # 预报首行 = 当前时刻
+    dark = _is_dark()
+
+    # --- 数据提取 ---
+    temp = float(now_row.get("temperature", 0))
+    app_temp = float(now_row.get("apparent_temperature", temp))
+    wind = float(now_row.get("wind_speed", 0))
+    humid = float(now_row.get("humidity", 0))
+    precip_prob = float(now_row.get("precipitation_probability", 0))
+
+    bf_level, bf_name = get_beaufort_level(wind)
+
+    # --- 干湿描述 ---
+    if humid >= 80:
+        humid_desc = "潮湿"
+        humid_color = "#3b82f6"
+    elif humid >= 60:
+        humid_desc = "湿润"
+        humid_color = "#06b6d4"
+    elif humid >= 40:
+        humid_desc = "舒适"
+        humid_color = "#22c55e"
+    else:
+        humid_desc = "干燥"
+        humid_color = "#f59e0b"
+
+    # --- 降水概率描述 ---
+    if precip_prob >= 70:
+        prob_desc = "很可能下雨"
+        prob_color = "#3b82f6"
+    elif precip_prob >= 40:
+        prob_desc = "有可能下雨"
+        prob_color = "#06b6d4"
+    elif precip_prob >= 10:
+        prob_desc = "基本无雨"
+        prob_color = "#22c55e"
+    else:
+        prob_desc = "晴朗"
+        prob_color = "#f59e0b"
+
+    bg = "#1e293b" if dark else "#ffffff"
+    border = "#334155" if dark else "#e2e8f0"
+    label_color = "#94a3b8" if dark else "#64748b"
+    val_color = "#e2e8f0" if dark else "#1e293b"
+
+    def _card(icon, label, value, unit, sub, color):
+        return f"""
+        <div style="background:{bg};border:1px solid {border};border-radius:12px;
+                    padding:16px 12px;text-align:center;position:relative;overflow:hidden;">
+            <div style="position:absolute;left:0;top:0;bottom:0;width:4px;background:{color};"></div>
+            <div style="font-size:1.6rem;margin-bottom:4px;">{icon}</div>
+            <div style="font-size:0.75rem;color:{label_color};margin-bottom:2px;">{label}</div>
+            <div style="font-size:1.8rem;font-weight:700;color:{val_color};line-height:1.2;">
+                {value}<span style="font-size:0.9rem;font-weight:400;color:{label_color};">{unit}</span>
+            </div>
+            <div style="font-size:0.72rem;color:{color};margin-top:4px;">{sub}</div>
+        </div>
+        """
+
+    st.write("### 当前实况")
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.markdown(_card("[T]", "气温", f"{temp:.1f}", "C",
+                         f"体感 {app_temp:.1f}C", "#ef4444"), unsafe_allow_html=True)
+    with c2:
+        st.markdown(_card("[W]", f"风力 {bf_level}级", f"{wind:.1f}", "m/s",
+                         bf_name, "#f39c12"), unsafe_allow_html=True)
+    with c3:
+        st.markdown(_card("[H]", "相对湿度", f"{humid:.0f}", "%",
+                         humid_desc, humid_color), unsafe_allow_html=True)
+    with c4:
+        st.markdown(_card("[P]", "降水概率", f"{precip_prob:.0f}", "%",
+                         prob_desc, prob_color), unsafe_allow_html=True)
+
+
+# ============================================================
+# 五-3、生活指标计算 + 渲染
+# ============================================================
+
+def _calc_ssd(temp, humidity, wind_speed):
+    """体感舒适度指数 (Thom Discomfort Index)
+    SSD = T - 0.55*(1-RH)*(T-14) - V^(1/3)*(T-10)/20
+    高值(>=29)表示炎热不舒适，低值(<10)表示寒冷不舒适，15-19为舒适区。
+    """
+    T = float(temp)
+    RH = float(humidity) / 100.0
+    V = max(float(wind_speed), 0.1)  # 防除零
+    return T - 0.55 * (1 - RH) * (T - 14) - (V ** (1/3)) * (T - 10) / 20
+
+
+def _calc_life_indices(fdf):
+    """计算 7 项生活指标，返回 dict"""
+    if fdf is None or fdf.empty:
+        return {}
+
+    now_row = fdf.iloc[0]
+    # 取未来 72h 数据用于部分指标
+    h72 = fdf.head(72) if len(fdf) >= 72 else fdf
+
+    temp = float(now_row.get("temperature", 20))
+    app_temp = float(now_row.get("apparent_temperature", temp))
+    humid = float(now_row.get("humidity", 50))
+    wind = float(now_row.get("wind_speed", 2))
+    precip = float(now_row.get("precipitation", 0))
+    precip_prob = float(now_row.get("precipitation_probability", 0))
+    wcode = float(now_row.get("weather_code", 0))
+
+    avg_temp_72 = float(h72["temperature"].mean())
+    total_precip_72 = float(h72["precipitation"].sum())
+    avg_humid_72 = float(h72["humidity"].mean())
+    avg_wind_72 = float(h72["wind_speed"].mean())
+
+    ssd = _calc_ssd(temp, humid, wind)
+
+    indices = {}
+
+    # 1. 穿衣指数
+    ref_temp = app_temp if abs(app_temp - temp) > 2 else temp
+    if ref_temp < 5:
+        indices["clothing"] = {"level": "厚冬装", "score": 5, "advice": "羽绒/棉服+毛衣+保暖内衣", "color": "#3b82f6"}
+    elif ref_temp < 12:
+        indices["clothing"] = {"level": "初冬装", "score": 4, "advice": "风衣/外套+毛衣或薄羽绒", "color": "#06b6d4"}
+    elif ref_temp < 18:
+        indices["clothing"] = {"level": "春秋装", "score": 3, "advice": "薄外套/夹克+长裤", "color": "#22c55e"}
+    elif ref_temp < 25:
+        indices["clothing"] = {"level": "轻便", "score": 2, "advice": "长袖/薄衫+单裤", "color": "#84cc16"}
+    elif ref_temp < 30:
+        indices["clothing"] = {"level": "夏装", "score": 1, "advice": "短袖/短裤/短裙", "color": "#f59e0b"}
+    else:
+        indices["clothing"] = {"level": "酷热", "score": 0, "advice": "透气浅色衣物，注意防晒", "color": "#ef4444"}
+
+    # 2. 带伞建议
+    rain_codes = set(range(50, 70)) | set(range(80, 87)) | set(range(95, 100))
+    has_rain_code = wcode in rain_codes
+    if total_precip_72 > 10 or (has_rain_code and precip > 0.5):
+        indices["umbrella"] = {"level": "必带伞", "score": 3, "advice": "未来72h有明显降水，出门务必带伞", "color": "#3b82f6"}
+    elif total_precip_72 > 0.1 or precip_prob >= 40 or has_rain_code:
+        indices["umbrella"] = {"level": "建议备伞", "score": 2, "advice": "有降水可能，建议随身携带雨具", "color": "#06b6d4"}
+    else:
+        indices["umbrella"] = {"level": "无需带伞", "score": 0, "advice": "未来72h无明显降水", "color": "#22c55e"}
+
+    # 3. 体感舒适度 (Thom 不适指数: 高值=炎热, 低值=寒冷, 15-19=舒适)
+    if ssd >= 29:
+        indices["comfort"] = {"level": "炎热不舒适", "score": round(ssd, 1), "advice": "体感闷热，减少户外停留，注意防暑", "color": "#ef4444"}
+    elif ssd >= 24:
+        indices["comfort"] = {"level": "偏热", "score": round(ssd, 1), "advice": "多数人感到偏热，注意通风降温", "color": "#f59e0b"}
+    elif ssd >= 20:
+        indices["comfort"] = {"level": "较舒适", "score": round(ssd, 1), "advice": "少部分人可能感觉微热", "color": "#eab308"}
+    elif ssd >= 15:
+        indices["comfort"] = {"level": "舒适", "score": round(ssd, 1), "advice": "体感舒适宜人，适合户外活动", "color": "#22c55e"}
+    elif ssd >= 10:
+        indices["comfort"] = {"level": "偏凉", "score": round(ssd, 1), "advice": "体感偏凉，适当添衣", "color": "#06b6d4"}
+    else:
+        indices["comfort"] = {"level": "寒冷不舒适", "score": round(ssd, 1), "advice": "体感寒冷，注意保暖防寒", "color": "#3b82f6"}
+
+    # 4. 运动指数
+    exercise_score = 100
+    # 偏离舒适区(15-19)越远越不适合运动
+    if ssd >= 29:
+        exercise_score -= min(40, (ssd - 29) * 8)  # 炎热扣分
+    elif ssd < 10:
+        exercise_score -= min(40, (10 - ssd) * 8)  # 寒冷扣分
+    exercise_score -= min(30, total_precip_72 * 2)
+    exercise_score -= min(20, max(0, (avg_wind_72 - 10.8) * 3))
+    if exercise_score >= 70:
+        indices["exercise"] = {"level": "适宜", "score": int(exercise_score), "advice": "天气适合户外运动", "color": "#22c55e"}
+    elif exercise_score >= 50:
+        indices["exercise"] = {"level": "较适宜", "score": int(exercise_score), "advice": "可适度户外活动", "color": "#84cc16"}
+    elif exercise_score >= 30:
+        indices["exercise"] = {"level": "一般", "score": int(exercise_score), "advice": "建议室内运动为主", "color": "#f59e0b"}
+    else:
+        indices["exercise"] = {"level": "不适宜", "score": int(exercise_score), "advice": "天气条件差，避免户外运动", "color": "#ef4444"}
+
+    # 5. 紫外线指数 (天气码近似推断)
+    sunny_codes = set(range(0, 3))
+    cloudy_codes = set(range(3, 6)) | {45, 48}
+    if wcode in sunny_codes and avg_temp_72 > 15:
+        indices["uv"] = {"level": "很强", "score": 4, "advice": "紫外线强，外出涂防晒霜、戴帽子和太阳镜", "color": "#ef4444"}
+    elif wcode in sunny_codes:
+        indices["uv"] = {"level": "强", "score": 3, "advice": "紫外线较强，注意防晒", "color": "#f59e0b"}
+    elif wcode in cloudy_codes:
+        indices["uv"] = {"level": "中等", "score": 2, "advice": "紫外线中等，可适当防护", "color": "#eab308"}
+    else:
+        indices["uv"] = {"level": "低", "score": 1, "advice": "紫外线弱，无需特别防护", "color": "#22c55e"}
+
+    # 6. 洗车指数 (72h 累计降水)
+    if total_precip_72 < 0.1:
+        indices["carwash"] = {"level": "适宜", "score": 3, "advice": "未来三天基本无雨，放心洗车", "color": "#22c55e"}
+    elif total_precip_72 < 5:
+        indices["carwash"] = {"level": "较适宜", "score": 2, "advice": "小雨可能，影响不大", "color": "#84cc16"}
+    elif total_precip_72 < 15:
+        indices["carwash"] = {"level": "一般", "score": 1, "advice": "有降水，建议暂缓洗车", "color": "#f59e0b"}
+    else:
+        indices["carwash"] = {"level": "不适宜", "score": 0, "advice": "雨水较多，别洗了", "color": "#ef4444"}
+
+    # 7. 晾晒指数
+    dry_score = 100
+    dry_score -= min(40, total_precip_72 * 3)
+    dry_score -= min(30, max(0, (avg_humid_72 - 70) * 2))
+    dry_score += min(20, avg_wind_72 * 2)  # 微风有利晾晒
+    if dry_score >= 70:
+        indices["drying"] = {"level": "非常适宜", "score": int(dry_score), "advice": "天气干燥有风，适合晾晒衣物", "color": "#22c55e"}
+    elif dry_score >= 50:
+        indices["drying"] = {"level": "适宜", "score": int(dry_score), "advice": "可以晾晒，但注意天气变化", "color": "#84cc16"}
+    elif dry_score >= 30:
+        indices["drying"] = {"level": "一般", "score": int(dry_score), "advice": "湿度偏大，晾晒较慢", "color": "#f59e0b"}
+    else:
+        indices["drying"] = {"level": "不适宜", "score": int(dry_score), "advice": "潮湿多雨，不宜室外晾晒", "color": "#ef4444"}
+
+    return indices
+
+
+# 指标显示名称和图标
+_LIFE_INDEX_META = {
+    "clothing":  ("[衣]", "穿衣指数"),
+    "umbrella":  ("[伞]", "带伞建议"),
+    "comfort":   ("[感]", "体感舒适度"),
+    "exercise":  ("[动]", "运动指数"),
+    "uv":        ("[紫]", "紫外线"),
+    "carwash":   ("[洗]", "洗车指数"),
+    "drying":    ("[晒]", "晾晒指数"),
+}
+
+
+def _render_life_indices(indices):
+    """渲染 7 项生活指标卡片 (4+3 布局)"""
+    if not indices:
+        return
+
+    st.write("---")
+    st.write("### 生活出行指南")
+
+    dark = _is_dark()
+    bg = "#1e293b" if dark else "#ffffff"
+    border = "#334155" if dark else "#e2e8f0"
+    label_color = "#94a3b8" if dark else "#64748b"
+    val_color = "#e2e8f0" if dark else "#1e293b"
+
+    def _card(key, info):
+        icon, name = _LIFE_INDEX_META.get(key, ("[?]", key))
+        level = info["level"]
+        score = info["score"]
+        advice = info["advice"]
+        color = info["color"]
+        score_text = f"{score}" if isinstance(score, int) else f"{score:.1f}"
+        return f"""
+        <div style="background:{bg};border:1px solid {border};border-radius:10px;
+                    padding:14px 12px;position:relative;overflow:hidden;">
+            <div style="position:absolute;left:0;top:0;bottom:0;width:4px;background:{color};"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                <span style="font-size:0.82rem;color:{label_color};">{icon} {name}</span>
+                <span style="font-size:0.75rem;font-weight:600;color:{color};background:{color}22;
+                             padding:2px 8px;border-radius:10px;">{level}</span>
+            </div>
+            <div style="font-size:1.4rem;font-weight:700;color:{color};margin-bottom:4px;">{score_text}</div>
+            <div style="font-size:0.72rem;color:{label_color};line-height:1.4;">{advice}</div>
+        </div>
+        """
+
+    order = ["clothing", "umbrella", "comfort", "exercise", "uv", "carwash", "drying"]
+
+    # 第一行 4 卡
+    row1 = st.columns(4)
+    for i, key in enumerate(order[:4]):
+        with row1[i]:
+            st.markdown(_card(key, indices[key]), unsafe_allow_html=True)
+
+    # 第二行 3 卡
+    row2 = st.columns(4)
+    for i, key in enumerate(order[4:]):
+        with row2[i]:
+            st.markdown(_card(key, indices[key]), unsafe_allow_html=True)
+
+
+# ============================================================
 # 六、主渲染入口
 # ============================================================
 def render_forecast_tab():
@@ -1137,6 +1427,9 @@ def render_forecast_tab():
     if fdf is None:
         st.info("点击上方按钮获取 GFS 预报数据")
         return
+
+    # ---- 当前实况卡片 ----
+    _render_current_conditions(fdf)
 
     # ---- 时间图 ----
     st.write("### 时间图：逐时预报序列")
@@ -1236,3 +1529,7 @@ def render_forecast_tab():
         analysis = _analyze_forecast(fdf)
     st.session_state["fc_analysis"] = analysis
     _render_forecast_advice(analysis)
+
+    # ---- 生活出行指南 ----
+    life_indices = _calc_life_indices(fdf)
+    _render_life_indices(life_indices)
