@@ -16,8 +16,8 @@ import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
 
-# spawn 子进程的 target（独立模块，避免嵌套函数无法 pickle + 避免子进程 reimport 触发 streamlit）
-from modules._kaleido_worker import kaleido_export
+# spawn 子进程的 target（已弃用：改用 matplotlib 引擎，不再需要）
+# from modules._kaleido_worker import kaleido_export
 
 # docx 相关依赖（顶层 import 失败时不影响 streamlit 加载）
 try:
@@ -192,60 +192,20 @@ def _number(n):
     return nums[n] if n < len(nums) else str(n)
 
 
-def _to_image_safe(fig, timeout=20, **kwargs):
-    """通过子进程超时保护调用 fig.to_image()。
-    kaleido 0.2.1 在缺 chromium 环境下会挂死整个 Python 进程，
-    用 multiprocessing 在子进程中执行 + 超时杀死来防止整个应用崩溃。
-    子进程 target 为模块级函数 kaleido_export（独立 _kaleido_worker.py），
-    避免嵌套函数无法 pickle 导致 PicklingError。
-    """
-    import multiprocessing
-
-    # plotly Figure 不能直接 pickle，改用 to_dict 后再传
-    fig_dict = fig.to_dict()
-
-    ctx = multiprocessing.get_context("spawn")
-    q = ctx.Queue()
-    p = ctx.Process(target=kaleido_export, args=(q, fig_dict, kwargs))
-    p.start()
-    p.join(timeout)
-    if p.is_alive():
-        p.terminate()
-        p.join(2)
-        if p.is_alive():
-            p.kill()
-            p.join()
-        return None
-    try:
-        status, data = q.get_nowait()
-        return data if status == "ok" else None
-    except Exception:
-        return None
-
-
-# 记录最近一次图表导出的真实失败原因，供 UI 提示暴露（避免一律误报「未安装」）
+# 记录最近一次图表导出的真实失败原因，供 UI 提示暴露
 _KALEIDO_LAST_ERR = None
 
 
 def export_chart_as_png(fig, filename="chart.png"):
-    """导出 Plotly 图为 PNG 字节流(带超时保护)"""
+    """导出 Plotly 图为 PNG 字节流（使用 matplotlib 引擎，无需 Chrome/kaleido）"""
     global _KALEIDO_LAST_ERR
     _KALEIDO_LAST_ERR = None
     if fig is None:
         return None
     try:
-        import kaleido  # 确认包本身已安装
-    except ImportError:
-        _KALEIDO_LAST_ERR = "kaleido 包未安装（requirements 未生效？）"
-        return None
-    # kaleido 1.x 需要 Chrome：主进程提前确保就位（已缓存则秒回，避免子进程超时内下载失败）
-    try:
-        kaleido.get_chrome_sync()
-    except Exception:
-        pass  # 失败不阻塞，交由 to_image 内部兜底
-    try:
-        return _to_image_safe(fig, timeout=20,
-                              format="png", scale=2, width=1200, height=800)
+        # matplotlib 引擎：不依赖外部浏览器，纯 Python 渲染
+        return fig.to_image(format="png", engine="matplotlib",
+                            scale=2, width=1200, height=800)
     except Exception as e:
         _KALEIDO_LAST_ERR = f"{type(e).__name__}: {str(e)[:200]}"
         if st.session_state.get("debug_mode"):
