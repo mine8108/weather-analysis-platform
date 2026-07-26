@@ -123,14 +123,17 @@ class LocalFileSource(ClimateSource):
     name = "localfile"
 
     def __init__(self, prefer: str = "csv", csv_path: Optional[str] = None,
-                 nc_path: Optional[str] = None, df: Optional["__pd.DataFrame"] = None):
-        self.prefer = prefer
+                 nc_path: Optional[str] = None, nc_bytes: Optional[bytes] = None,
+                 df=None):
+        self.prefer = (prefer or "csv").lower()
         self.csv_path = csv_path
         self.nc_path = nc_path
+        self.nc_bytes = nc_bytes  # 网页端上传的 NetCDF 原始字节
         self.df = df  # 网页端上传的 DataFrame，优先于 csv_path
 
     def available(self) -> bool:
-        return self.df is not None or bool(self.csv_path)
+        return (self.df is not None or self.nc_bytes is not None
+                or bool(self._resolve_csv_path()) or bool(self._resolve_nc_path()))
 
     def _resolve_csv_path(self) -> Optional[str]:
         if self.csv_path:
@@ -140,6 +143,27 @@ class LocalFileSource(ClimateSource):
             return st.secrets.get("CLIMATE_LOCAL_CSV") or None
         except Exception:
             return None
+
+    def _resolve_nc_path(self) -> Optional[str]:
+        if self.nc_path:
+            return self.nc_path
+        try:
+            import streamlit as st
+            return st.secrets.get("CLIMATE_LOCAL_NC") or None
+        except Exception:
+            return None
+
+    def _should_use_nc(self) -> bool:
+        """有上传 nc 字节，或偏好 nc，或无 CSV 源但有 nc 源。"""
+        if self.nc_bytes is not None:
+            return True
+        has_csv = self.df is not None or bool(self._resolve_csv_path())
+        has_nc = bool(self._resolve_nc_path())
+        if not has_nc:
+            return False
+        if self.prefer in ("nc", "netcdf"):
+            return True
+        return not has_csv
 
     def _load_table(self):
         """返回宽表 DataFrame，带 session_state 缓存（仅针对路径模式）。"""
@@ -234,13 +258,35 @@ class LocalFileSource(ClimateSource):
         return stats, ext
 
     def fetch_climate_normal(self, lat, lon, month):
+        # NetCDF 优先分支（上传字节 / 偏好 nc / 仅有 nc 源）
+        if self._should_use_nc():
+            try:
+                return self._fetch_from_nc(lat, lon, month)
+            except ClimateFileError:
+                raise
+            except _NcDependencyMissing as e:
+                if _has_streamlit():
+                    import streamlit as st
+                    st.warning(str(e))
+                # 依赖缺失时若还有 CSV 源，继续往下走 CSV；否则返回空
+                if self.nc_bytes is not None or not (
+                        self.df is not None or self._resolve_csv_path()):
+                    return None, None
+            except Exception as e:
+                if _has_streamlit():
+                    import streamlit as st
+                    st.warning(f"NetCDF 气候态读取失败: {e}")
+                if self.nc_bytes is not None:
+                    return None, None
+        # CSV / DataFrame 分支
         try:
             table = self._load_table()
         except ClimateFileError:
             raise
         except Exception as e:
-            import streamlit as st
-            st.warning(f"本地气候态文件读取失败: {e}")
+            if _has_streamlit():
+                import streamlit as st
+                st.warning(f"本地气候态文件读取失败: {e}")
             return None, None
         if table is None:
             return None, None
@@ -249,9 +295,21 @@ class LocalFileSource(ClimateSource):
         except ClimateFileError:
             raise
         except Exception as e:
-            import streamlit as st
-            st.warning(f"本地气候态匹配失败: {e}")
+            if _has_streamlit():
+                import streamlit as st
+                st.warning(f"本地气候态匹配失败: {e}")
             return None, None
+
+    def _fetch_from_nc(self, lat, lon, month):
+        """打开 NetCDF（路径或上传字节），自适应探测变量与维度后取点。"""
+        ds = _open_nc_dataset(nc_bytes=self.nc_bytes, nc_path=self._resolve_nc_path())
+        try:
+            return _read_nc_climate(ds, lat, lon, month)
+        finally:
+            try:
+                ds.close()
+            except Exception:
+                pass
 
 
 def _has_streamlit() -> bool:
@@ -280,6 +338,289 @@ def pd_isna(v) -> bool:
         return bool(pd.isna(v))
     except Exception:
         return v is None or (isinstance(v, float) and math.isnan(v))
+
+
+# ---------------------------------------------------------------------------
+# NetCDF 自适应读取（M2）—— 无固定 schema，靠候选名+维度探测
+# ---------------------------------------------------------------------------
+class _NcDependencyMissing(Exception):
+    """xarray/引擎未安装。触发温和降级而非崩溃。"""
+
+
+# 变量候选（小写；精确优先，其后按“变量名含候选且候选长度>=3”宽松匹配）
+# 顺序敏感：t_max/t_min 先于 t_mean 认领，避免裸词误抢
+_NC_VARS = [
+    ("t_max", ["tmax", "t2m_max", "tasmax", "tmp_max", "temperature_max",
+               "tx", "mx2t", "air_temperature_max"]),
+    ("t_min", ["tmin", "t2m_min", "tasmin", "tmp_min", "temperature_min",
+               "tn", "mn2t", "air_temperature_min"]),
+    ("t_mean", ["t2m", "t2", "tas", "tmean", "t_mean", "tmp", "temp",
+                "temperature", "air_temperature", "air", "tavg"]),
+    ("precip", ["tp", "pr", "precip", "precipitation", "prcp", "rain",
+                "total_precipitation", "pre", "rr", "ppt"]),
+    ("wind_max_mean", ["wind_speed_max", "fg10", "wind_gust", "gust", "si10",
+                       "wind_speed", "sfcwind", "wind", "w10", "fx", "ws"]),
+]
+_NC_LAT = ["lat", "latitude", "y", "nav_lat", "xlat", "g0_lat_1"]
+_NC_LON = ["lon", "longitude", "x", "nav_lon", "xlong", "g0_lon_2"]
+_NC_TIME = ["time", "month", "valid_time", "t", "date"]
+
+
+def _open_nc_dataset(nc_bytes=None, nc_path=None):
+    """打开 NetCDF。统一策略：先物化为 ASCII 临时文件再读。
+
+    原因（Windows 实测）：
+    - netCDF4 C 库不支持内存流（BytesIO），且对含非 ASCII 字符的路径
+      （如中文/OneDrive 目录）会报 PermissionError/Errno 13；
+    - 落盘到系统临时目录（ASCII 路径）后两个问题同时消除。
+    """
+    try:
+        import xarray as xr
+    except Exception:
+        raise _NcDependencyMissing(
+            "NetCDF 支持需要 xarray+netCDF4/h5netcdf，未安装。"
+            "请 pip install xarray netCDF4，或改用 CSV 气候态文件。")
+
+    import shutil
+    import tempfile
+
+    if nc_bytes is None and not (nc_path and os.path.exists(nc_path)):
+        raise ClimateFileError("未找到 NetCDF 源（nc_bytes/nc_path 均为空）")
+
+    def _is_ascii(s: str) -> bool:
+        try:
+            s.encode("ascii")
+            return True
+        except UnicodeEncodeError:
+            return False
+
+    tmp_file = None
+    open_path = nc_path
+    try:
+        if nc_bytes is not None:
+            fd, tmp_file = tempfile.mkstemp(suffix=".nc", prefix="wb_climate_")
+            with os.fdopen(fd, "wb") as f:
+                f.write(nc_bytes)
+            open_path = tmp_file
+        elif not _is_ascii(nc_path):
+            fd, tmp_file = tempfile.mkstemp(suffix=".nc", prefix="wb_climate_")
+            os.close(fd)
+            shutil.copyfile(nc_path, tmp_file)
+            open_path = tmp_file
+
+        last_err = None
+        for eng in ("netcdf4", "h5netcdf", "scipy", None):
+            try:
+                ds = (xr.open_dataset(open_path, engine=eng) if eng
+                      else xr.open_dataset(open_path))
+                # 立即载入内存并关闭文件句柄，便于清理临时文件
+                ds = ds.load()
+                ds.close()
+                return ds
+            except (ImportError, ModuleNotFoundError) as e:
+                last_err = e
+                continue
+            except Exception as e:
+                last_err = e
+                continue
+        raise ClimateFileError(f"NetCDF 无法解析（netcdf4/h5netcdf/scipy 引擎均失败）: {last_err}")
+    finally:
+        if tmp_file:
+            try:
+                os.remove(tmp_file)
+            except OSError:
+                pass
+
+
+def _pick_name(candidates, available, used):
+    """在 available 名字里为一组候选选一个：精确匹配优先，其次宽松包含。"""
+    avail_lower = {str(a).lower(): a for a in available}
+    for cand in candidates:
+        if cand in avail_lower and avail_lower[cand] not in used:
+            return avail_lower[cand]
+    for cand in candidates:
+        if len(cand) < 3:
+            continue
+        for al, orig in avail_lower.items():
+            if cand in al and orig not in used:
+                return orig
+    return None
+
+
+def _find_coord(da, candidates):
+    names = list(da.dims) + [c for c in da.coords]
+    lower = {str(n).lower(): n for n in names}
+    for cand in candidates:
+        if cand in lower:
+            return lower[cand]
+    for cand in candidates:
+        for ln, orig in lower.items():
+            if cand in ln:
+                return orig
+    return None
+
+
+def _to_celsius_if_needed(da):
+    """开尔文→摄氏：优先 units 属性，其次数值启发式（中位数>150 判 K）。"""
+    units = str(da.attrs.get("units", "")).lower()
+    if units in ("k", "kelvin"):
+        return da - 273.15
+    if units in ("degc", "c", "celsius", "deg_c", "℃", "degrees_celsius"):
+        return da
+    try:
+        import numpy as np
+        med = float(np.nanmedian(da.values))
+        if med > 150:
+            return da - 273.15
+    except Exception:
+        pass
+    return da
+
+
+def _scale_precip_if_needed(da):
+    """降水单位 m→mm：仅当 units 明确为米时换算。"""
+    units = str(da.attrs.get("units", "")).lower()
+    if units in ("m", "metre", "meter", "metres", "meters"):
+        return da * 1000.0
+    return da
+
+
+def _read_nc_climate(ds, lat, lon, month):
+    import numpy as np
+    import pandas as pd
+
+    var_map = {}
+    used = []
+    for target, cands in _NC_VARS:
+        name = _pick_name(cands, list(ds.data_vars), used)
+        if name is not None:
+            var_map[target] = name
+            used.append(name)
+
+    if "t_mean" not in var_map and "t_max" not in var_map and "precip" not in var_map:
+        raise ClimateFileError(
+            f"NetCDF 中未识别到气温/降水变量。文件变量: {list(ds.data_vars)}。"
+            "请确认包含气温或降水，或改用 CSV。")
+
+    # 经度约定对齐（0-360 vs -180-180）
+    q_lon = lon
+    any_var = ds[next(iter(var_map.values()))]
+    lonname = _find_coord(any_var, _NC_LON)
+    if lonname is not None:
+        try:
+            lon_vals = ds[lonname].values
+            if float(np.nanmax(lon_vals)) > 180 and q_lon < 0:
+                q_lon = q_lon + 360.0
+        except Exception:
+            pass
+
+    def _point_series(varname):
+        da = ds[varname]
+        la = _find_coord(da, _NC_LAT)
+        lo = _find_coord(da, _NC_LON)
+        sel = {}
+        if la:
+            sel[la] = lat
+        if lo:
+            sel[lo] = q_lon
+        if sel:
+            try:
+                da = da.sel(**sel, method="nearest")
+            except Exception:
+                da = da.sel(**sel)
+        # 压掉残余非时间维
+        tname = _find_coord(da, _NC_TIME)
+        for d in list(da.dims):
+            if d != tname:
+                try:
+                    da = da.isel({d: 0})
+                except Exception:
+                    pass
+        return da, tname
+
+    def _month_values(varname):
+        """返回 (该月数值序列 ndarray, 年份序列 or None)。"""
+        da, tname = _point_series(varname)
+        vals = np.atleast_1d(np.asarray(da.values, dtype="float64"))
+        if tname is None:
+            return vals, None
+        try:
+            coord = ds[tname].values
+        except Exception:
+            coord = None
+        if coord is None or len(coord) != len(vals):
+            return vals, None
+        # 时间坐标判定顺序：先查整数 1-12 月份维（pd.to_datetime 会把整数
+        # 误当纳秒时间戳解析成 1970 年，必须先拦截），再尝试 datetime
+        arr = np.atleast_1d(np.asarray(coord))
+        years = None
+        if np.issubdtype(arr.dtype, np.number) and 1 <= arr.min() and arr.max() <= 12:
+            months = arr.astype(int)
+        else:
+            try:
+                idx = pd.to_datetime(coord)
+                months = idx.month.values
+                years = idx.year.values
+            except Exception:
+                return vals, None
+        mask = months == month
+        if not mask.any():
+            return np.array([]), None
+        return vals[mask], (years[mask] if years is not None else None)
+
+    def _mean_of(target, kelvin=False, precip=False):
+        name = var_map.get(target)
+        if name is None:
+            return None
+        da_full = ds[name]
+        if kelvin:
+            da_full = _to_celsius_if_needed(da_full)
+        if precip:
+            da_full = _scale_precip_if_needed(da_full)
+        ds[name] = da_full  # 就地替换便于下游 _month_values 复用
+        v, _ = _month_values(name)
+        v = v[~np.isnan(v)] if v.size else v
+        return float(np.mean(v)) if v.size else None
+
+    stats = ClimateStats(
+        lat=float(lat), lon=float(lon), month=int(month),
+        t_mean=_mean_of("t_mean", kelvin=True),
+        t_max=_mean_of("t_max", kelvin=True),
+        t_min=_mean_of("t_min", kelvin=True),
+        precip=_mean_of("precip", precip=True),
+        wind_max_mean=_mean_of("wind_max_mean"),
+        base_period=str(ds.attrs.get("base_period",
+                        ds.attrs.get("title", "NetCDF 文件"))) or "NetCDF 文件",
+        source="localfile-nc",
+        raw={"variables": var_map},
+    )
+
+    def _extreme(target, kind):
+        name = var_map.get(target)
+        if name is None:
+            return {"value": None, "year": None}
+        v, years = _month_values(name)
+        if v.size == 0:
+            return {"value": None, "year": None}
+        m = ~np.isnan(v)
+        v2 = v[m]
+        if v2.size == 0:
+            return {"value": None, "year": None}
+        i = int(np.argmax(v2) if kind == "max" else np.argmin(v2))
+        yr = None
+        if years is not None:
+            yv = years[m]
+            if i < len(yv):
+                yr = int(yv[i])
+        return {"value": float(v2[i]), "year": yr}
+
+    ext = ClimateExtreme(
+        t_max_record=_extreme("t_max", "max"),
+        t_min_record=_extreme("t_min", "min"),
+        precip_max_record=_extreme("precip", "max"),
+        wind_max_record=_extreme("wind_max_mean", "max"),
+    )
+    return stats, ext
 
 
 # ---------------------------------------------------------------------------

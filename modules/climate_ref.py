@@ -87,19 +87,31 @@ def render_climate_ref_tab(df):
 
     month = st.selectbox("选择参考月份", range(1, 13), index=inferred_month - 1, key="climate_month")
 
-    # 可选：上传本地气候态 CSV（覆盖 Secrets 配置的文件源）
-    uploaded = st.file_uploader("上传气候态 CSV（可选，覆盖默认文件源）", type=["csv"], key="climate_csv_upload")
+    # 可选：上传本地气候态文件 CSV 或 NetCDF（覆盖 Secrets 配置的文件源）
+    uploaded = st.file_uploader(
+        "上传气候态文件（CSV 或 NetCDF .nc，可选，覆盖默认文件源）",
+        type=["csv", "nc"], key="climate_file_upload")
     local_df = None
+    nc_bytes = None
     if uploaded is not None:
-        try:
-            local_df = pd.read_csv(uploaded)
-        except Exception as e:
-            st.error(f"上传文件读取失败: {e}")
+        if uploaded.name.lower().endswith(".nc"):
+            try:
+                nc_bytes = uploaded.getvalue()
+                st.caption(f"已载入 NetCDF: {uploaded.name}（{len(nc_bytes)//1024} KB），将自动探测变量。")
+            except Exception as e:
+                st.error(f"上传 NetCDF 读取失败: {e}")
+        else:
+            try:
+                local_df = pd.read_csv(uploaded)
+            except Exception as e:
+                st.error(f"上传 CSV 读取失败: {e}")
 
     if st.button("[导入] 获取气候态数据", use_container_width=True, key="fetch_climate"):
         with st.spinner("正在获取气候态数据..."):
             try:
-                if local_df is not None:
+                if nc_bytes is not None:
+                    src = LocalFileSource(nc_bytes=nc_bytes)
+                elif local_df is not None:
                     src = LocalFileSource(df=local_df)
                 else:
                     src = get_climate_source()
@@ -114,13 +126,13 @@ def render_climate_ref_tab(df):
             st.session_state["climate_data"] = climate.to_dict()
             st.session_state["climate_extreme"] = extreme.to_dict() if extreme else None
             st.rerun()
-        elif local_df is not None:
-            st.error("上传文件中未匹配到该坐标的气候态（请检查经纬度，或放宽 CLIMATE_MAX_RADIUS）")
+        elif nc_bytes is not None or local_df is not None:
+            st.error("上传文件中未匹配到该坐标的气候态（请检查经纬度，或放宽 CLIMATE_MAX_RADIUS；NetCDF 请确认变量含气温/降水）")
         else:
             st.error("未能获取气候态数据（无本地文件且 Open-Meteo 不可用）")
 
     if "climate_data" not in st.session_state:
-        st.info("点击上方按钮获取气候态参考数据。默认走 Open-Meteo 近似；可上传本地 CSV 或在 Secrets 配置 CLIMATE_LOCAL_CSV。")
+        st.info("点击上方按钮获取气候态参考数据。默认走 Open-Meteo 近似；可上传本地 CSV / NetCDF(.nc)，或在 Secrets 配置 CLIMATE_LOCAL_CSV / CLIMATE_LOCAL_NC。NetCDF 变量名自动探测（ERA5/CF 及常见命名）。")
         return
 
     climate = st.session_state["climate_data"]
