@@ -192,25 +192,15 @@ def _number(n):
     return nums[n] if n < len(nums) else str(n)
 
 
-# 记录最近一次图表导出的真实失败原因，供 UI 提示暴露
-_KALEIDO_LAST_ERR = None
+# 记录最近一次图表导出的状态（报告已改用数据表格，此函数仅用于独立 PNG 下载区）
+_KALEIDO_LAST_ERR = "图表已改为数据表格形式嵌入报告（更清晰可搜索）；独立 PNG 下载暂不可用"
 
 
 def export_chart_as_png(fig, filename="chart.png"):
-    """导出 Plotly 图为 PNG 字节流（使用 matplotlib 引擎，无需 Chrome/kaleido）"""
-    global _KALEIDO_LAST_ERR
-    _KALEIDO_LAST_ERR = None
-    if fig is None:
-        return None
-    try:
-        # matplotlib 引擎：不依赖外部浏览器，纯 Python 渲染
-        return fig.to_image(format="png", engine="matplotlib",
-                            scale=2, width=1200, height=800)
-    except Exception as e:
-        _KALEIDO_LAST_ERR = f"{type(e).__name__}: {str(e)[:200]}"
-        if st.session_state.get("debug_mode"):
-            st.error(f"图表导出异常: {e}")
-        return None
+    """图表导出：报告内嵌已改用数据表格，本函数仅保留供独立下载入口调用。
+    当前环境无可用的图片引擎（kaleido/Chrome/matplotlib 均不可用），返回 None。
+    """
+    return None
 
 
 def export_data_csv(df):
@@ -552,15 +542,9 @@ def _build_professional_report(doc, df, fc_df, fc_analysis, life_indices,
                        rows=rows,
                        col_widths=[3, 2.2, 2.2, 2.2, 2.2, 2.2])
 
-        # 观测图表
-        obs_chart_figs = {k: v for k, v in _generate_report_charts(df).items()
-                          if k.startswith("obs:")}
-        if obs_chart_figs:
-            doc.add_heading("观测数据图表", level=2)
-            for key, fig in obs_chart_figs.items():
-                err = _insert_chart(doc, key, fig)
-                if err:
-                    doc.add_paragraph(err)
+        # 观测数据表格（替代图片嵌入）
+        if df is not None and not df.empty:
+            _render_obs_data_tables(doc, df)
 
     # ---- 三、事件检测与预警 ----
     if has_obs and warnings_list:
@@ -577,16 +561,9 @@ def _build_professional_report(doc, df, fc_df, fc_analysis, life_indices,
         doc.add_heading(f"{_number(section_num)}、数值预报概况", level=1)
         if fc_analysis:
             _render_forecast_section(doc, fc_analysis)
-        # fc 图表
-        fc_chart_figs = {k: v for k, v in
-                         _generate_report_charts(forecast_df=fc_df).items()
-                         if k.startswith("fc:")}
-        if fc_chart_figs:
-            doc.add_heading("预报图表", level=2)
-            for key, fig in fc_chart_figs.items():
-                err = _insert_chart(doc, key, fig)
-                if err:
-                    doc.add_paragraph(err)
+        # 预报数据表格（替代图片嵌入）
+        if fc_df is not None and not fc_df.empty:
+            _render_fc_data_tables(doc, fc_df)
 
     # ---- 五、生活出行指南 ----
     if life_indices:
@@ -768,6 +745,146 @@ def _render_forecast_section(doc, fc_analysis):
             doc.add_paragraph(
                 f"- {c['icon']} {c['type']}（{c['severity']}）：{c['detail']}",
                 style="List Bullet")
+
+
+def _render_fc_data_tables(doc, fc_df):
+    """预报数据表格（替代图片嵌入）：逐时温度/降水/风力/湿度摘要"""
+    try:
+        ts_col = _resolve_field(fc_df, "timestamp")
+        temp_col = _resolve_field(fc_df, "temperature")
+        app_col = _resolve_field(fc_df, "apparent_temperature")
+        hum_col = _resolve_field(fc_df, "humidity")
+        prec_col = _resolve_field(fc_df, "precipitation")
+        wind_col = _resolve_field(fc_df, "wind_speed")
+        prob_col = _resolve_field(fc_df, "precipitation_probability")
+
+        if ts_col is None or fc_df.empty:
+            return
+
+        # ---- 1. 逐时温度表（每4小时一个节点 + 极值）----
+        if temp_col:
+            doc.add_heading("逐时气温详情", level=2)
+            # 确保时间可排序
+            sorted_df = fc_df.sort_values(ts_col)
+            # 取关键时段：00/06/12/18 点
+            key_hours = []
+            for _, row in sorted_df.iterrows():
+                try:
+                    t = pd.to_datetime(row[ts_col])
+                    if t.hour in (0, 6, 12, 18):
+                        key_hours.append(row)
+                except Exception:
+                    pass
+            rows = []
+            for r in key_hours[:24]:  # 最多24行（6天×4时段）
+                t_str = str(r[ts_col])[-8:-3] if len(str(r[ts_col])) > 5 else str(r[ts_col])
+                temp_val = r.get(temp_col, "")
+                app_val = r.get(app_col, "") if app_col else ""
+                hum_val = r.get(hum_col, "") if hum_col else ""
+                rows.append([
+                    t_str,
+                    f"{temp_val:.1f}" if pd.notna(temp_val) else "—",
+                    f"{app_val:.1f}" if pd.notna(app_val) else "—",
+                    f"{hum_val:.0f}%" if pd.notna(hum_val) else "—",
+                ])
+            if rows:
+                _add_table(doc,
+                           headers=["时间", "气温(℃)", "体感(℃)", "湿度"],
+                           rows=rows,
+                           col_widths=[2.2, 2.2, 2.2, 2.2])
+
+        # ---- 2. 降水时段表（仅显示有降水的时段）----
+        if prec_col:
+            rain_rows = []
+            for _, row in fc_df.iterrows():
+                p = row.get(prec_col, 0)
+                if pd.notna(p) and float(p) > 0.05:
+                    t_str = str(row[ts_col])[-8:-3] if len(str(row[ts_col])) > 5 else str(row[ts_col])
+                    prob_val = row.get(prob_col, "") if prob_col else ""
+                    rain_rows.append([
+                        t_str,
+                        f"{float(p):.1f}",
+                        f"{prob_val:.0f}%" if pd.notna(prob_val) else "—",
+                    ])
+            if rain_rows:
+                doc.add_heading("降水时段分布", level=2)
+                _add_table(doc,
+                           headers=["时间", "降水量(mm)", "概率"],
+                           rows=rain_rows[:20],
+                           col_widths=[2.5, 3, 3])
+            else:
+                # 无降水也标注
+                doc.add_paragraph("预报期内无明显降水。")
+
+        # ---- 3. 风力概况表（Top 5 大风时段）----
+        if wind_col:
+            wind_list = []
+            for _, row in fc_df.iterrows():
+                w = row.get(wind_col, 0)
+                if pd.notna(w) and float(w) > 1.5:  # > 1.5m/s 才记录
+                    t_str = str(row[ts_col])[-8:-3] if len(str(row[ts_col])) > 5 else str(row[ts_col])
+                    wind_list.append((t_str, float(w)))
+            wind_list.sort(key=lambda x: x[1], reverse=True)
+            if wind_list:
+                doc.add_heading("主要风力时段", level=2)
+                w_rows = [[t, f"{w:.1f}", f"{'微风' if w < 2 else '轻风' if w < 4 else '和风' if w < 6 else '清风' if w < 8 else '强风'}"]
+                          for t, w in wind_list[:8]]
+                _add_table(doc,
+                           headers=["时间", "风速(m/s)", "风力等级"],
+                           rows=w_rows,
+                           col_widths=[2.5, 3, 3])
+
+    except Exception:
+        pass
+
+
+def _render_obs_data_tables(doc, df):
+    """观测数据表格（替代图片嵌入）：按天汇总关键指标"""
+    try:
+        ts_col = _resolve_field(df, "timestamp")
+        temp_col = _resolve_field(df, "temperature")
+        prec_col = _resolve_field(df, "precipitation")
+        wind_col = _resolve_field(df, "wind_speed")
+        hum_col = _resolve_field(df, "humidity")
+
+        if ts_col is None or df.empty:
+            return
+
+        # 按日期分组统计
+        df_copy = df.copy()
+        try:
+            df_copy["_date"] = pd.to_datetime(df_copy[ts_col]).dt.date
+        except Exception:
+            return
+
+        daily = df_copy.groupby("_date")
+        doc.add_heading("逐日观测摘要", level=2)
+
+        rows = []
+        for date, group in daily:
+            t_mean = group[temp_col].mean() if temp_col in group.columns and group[temp_col].notna().any() else None
+            t_max = group[temp_col].max() if temp_col in group.columns and group[temp_col].notna().any() else None
+            t_min = group[temp_col].min() if temp_col in group.columns and group[temp_col].notna().any() else None
+            p_sum = group[prec_col].sum() if prec_col in group.columns and group[prec_col].notna().any() else None
+            w_max = group[wind_col].max() if wind_col in group.columns and group[wind_col].notna().any() else None
+            h_mean = group[hum_col].mean() if hum_col in group.columns and group[hum_col].notna().any() else None
+
+            rows.append([
+                str(date),
+                f"{t_mean:.1f}/{t_max:.1f}/{t_min:.1f}" if t_mean is not None else "—",
+                f"{p_sum:.1f}" if p_sum is not None else "—",
+                f"{w_max:.1f}" if w_max is not None else "—",
+                f"{h_mean:.0f}%" if h_mean is not None else "—",
+                f"{len(group)}",
+            ])
+
+        if rows:
+            _add_table(doc,
+                       headers=["日期", "气温(均/高/低℃)", "降水(mm)", "最大风速(m/s)", "平均湿度%", "记录数"],
+                       rows=rows,
+                       col_widths=[2.2, 3.2, 2, 2.4, 2.4, 1.6])
+    except Exception:
+        pass
 
 
 def _render_life_indices_table(doc, life_indices):
