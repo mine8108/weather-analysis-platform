@@ -1,87 +1,28 @@
 """
-气候态背景参照模块：通过 Open-Meteo API 获取 ERA5 气候态数据
+气候态背景参照模块（地基层 M1）
+
+通过抽象层 modules.climate_source 获取气候态：
+- 本地 CSV（方案1，优先；支持网页上传或 Secrets 配置路径）
+- Open-Meteo 近似兜底（已修复每月只取 28 天的 bug）
+距平分析：当前导入数据相对气候态的偏离。
 """
 
 import pandas as pd
 import streamlit as st
 from datetime import datetime
 
-
-def fetch_climate_normal(lat, lon, month):
-    """
-    获取指定月份的气候态统计（均值 + 历史极值）。
-    Open-Meteo 不直接提供气候态，使用多年平均作为替代。
-    返回 (climate_stats, extreme_dict) 或 (None, None)
-    """
-    import requests
-
-    current_year = datetime.now().year
-    years_range = range(current_year - 5, current_year)
-
-    all_data = []
-    for year in years_range:
-        start = f"{year}-{month:02d}-01"
-        end = f"{year}-12-31" if month == 12 else f"{year}-{month:02d}-28"
-
-        url = "https://archive-api.open-meteo.com/v1/archive"
-        params = {
-            "latitude": lat, "longitude": lon,
-            "start_date": start, "end_date": end,
-            "daily": [
-                "temperature_2m_max", "temperature_2m_min",
-                "temperature_2m_mean", "precipitation_sum",
-                "wind_speed_10m_max",
-            ],
-            "timezone": "Asia/Shanghai",
-        }
-
-        try:
-            resp = requests.get(url, params=params, timeout=30)
-            data = resp.json()
-            if "daily" in data:
-                df = pd.DataFrame(data["daily"])
-                df["year"] = year
-                all_data.append(df)
-        except Exception as e:
-            st.warning(f"气候态 {year} 年数据获取异常: {e}")
-            continue
-
-    if not all_data:
-        return None, None
-
-    combined = pd.concat(all_data, ignore_index=True)
-
-    climate_stats = {
-        "月均最高气温": combined["temperature_2m_max"].mean(),
-        "月均最低气温": combined["temperature_2m_min"].mean(),
-        "月均气温": combined["temperature_2m_mean"].mean(),
-        "月总降水量": combined["precipitation_sum"].mean() * 30,
-        "最大风速均值": combined["wind_speed_10m_max"].mean(),
-        "数据年份范围": f"{years_range[0]}-{years_range[-1]}",
-    }
-
-    # 历史极值（NaN 防御）
-    def _extreme(col, func):
-        s = combined[col].dropna()
-        if s.empty:
-            return {"value": None, "year": None}
-        idx = s.idxmax() if func == "max" else s.idxmin()
-        return {"value": float(s.iloc[s.index.get_loc(idx)]), "year": int(combined.loc[idx, "year"])}
-
-    extreme = {
-        "历史最高气温": _extreme("temperature_2m_max", "max"),
-        "历史最低气温": _extreme("temperature_2m_min", "min"),
-        "历史最大日降水": _extreme("precipitation_sum", "max"),
-        "历史最大风速": _extreme("wind_speed_10m_max", "max"),
-    }
-
-    return climate_stats, extreme
+from modules.climate_source import (
+    get_climate_source, LocalFileSource, OpenMeteoSource,
+    ClimateStats, ClimateExtreme, ClimateFileError,
+)
 
 
 def compute_anomalies(df, climate_stats):
     """计算当前数据与气候态的距平"""
     if climate_stats is None:
         return {}
+    if isinstance(climate_stats, ClimateStats):
+        climate_stats = climate_stats.to_dict()
 
     anomalies = {}
 
@@ -141,23 +82,45 @@ def render_climate_ref_tab(df):
     else:
         inferred_month = datetime.now().month
 
-    # 防御：确保 inferred_month 是 1-12 的有效整数
     if not isinstance(inferred_month, int) or not (1 <= inferred_month <= 12):
         inferred_month = datetime.now().month
 
     month = st.selectbox("选择参考月份", range(1, 13), index=inferred_month - 1, key="climate_month")
 
+    # 可选：上传本地气候态 CSV（覆盖 Secrets 配置的文件源）
+    uploaded = st.file_uploader("上传气候态 CSV（可选，覆盖默认文件源）", type=["csv"], key="climate_csv_upload")
+    local_df = None
+    if uploaded is not None:
+        try:
+            local_df = pd.read_csv(uploaded)
+        except Exception as e:
+            st.error(f"上传文件读取失败: {e}")
+
     if st.button("[导入] 获取气候态数据", use_container_width=True, key="fetch_climate"):
-        with st.spinner("正在获取气候态数据（过去5年均值）..."):
-            climate, extreme = fetch_climate_normal(lat, lon, month)
+        with st.spinner("正在获取气候态数据..."):
+            try:
+                if local_df is not None:
+                    src = LocalFileSource(df=local_df)
+                else:
+                    src = get_climate_source()
+                    if src.name == "localfile" and not src.available():
+                        src = OpenMeteoSource()
+                climate, extreme = src.fetch_climate_normal(lat, lon, month)
+            except ClimateFileError as e:
+                st.error(f"本地气候态文件错误: {e}")
+                climate, extreme = None, None
 
         if climate:
-            st.session_state["climate_data"] = climate
-            st.session_state["climate_extreme"] = extreme
+            st.session_state["climate_data"] = climate.to_dict()
+            st.session_state["climate_extreme"] = extreme.to_dict() if extreme else None
             st.rerun()
+        elif local_df is not None:
+            st.error("上传文件中未匹配到该坐标的气候态（请检查经纬度，或放宽 CLIMATE_MAX_RADIUS）")
+        else:
+            st.error("未能获取气候态数据（无本地文件且 Open-Meteo 不可用）")
 
     if "climate_data" not in st.session_state:
-        st.info("点击上方按钮获取气候态参考数据")
+        st.info("点击上方按钮获取气候态参考数据。默认走 Open-Meteo 近似；可上传本地 CSV 或在 Secrets 配置 CLIMATE_LOCAL_CSV。")
         return
 
     climate = st.session_state["climate_data"]
