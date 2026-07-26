@@ -16,6 +16,9 @@ import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
 
+# spawn 子进程的 target（独立模块，避免嵌套函数无法 pickle + 避免子进程 reimport 触发 streamlit）
+from modules._kaleido_worker import kaleido_export
+
 # docx 相关依赖（顶层 import 失败时不影响 streamlit 加载）
 try:
     from docx.shared import RGBColor
@@ -175,29 +178,21 @@ def _number(n):
     return nums[n] if n < len(nums) else str(n)
 
 
-def _to_image_safe(fig, timeout=15, **kwargs):
+def _to_image_safe(fig, timeout=20, **kwargs):
     """通过子进程超时保护调用 fig.to_image()。
     kaleido 0.2.1 在缺 chromium 环境下会挂死整个 Python 进程，
     用 multiprocessing 在子进程中执行 + 超时杀死来防止整个应用崩溃。
+    子进程 target 为模块级函数 kaleido_export（独立 _kaleido_worker.py），
+    避免嵌套函数无法 pickle 导致 PicklingError。
     """
     import multiprocessing
-    import pickle
 
     # plotly Figure 不能直接 pickle，改用 to_dict 后再传
     fig_dict = fig.to_dict()
 
-    def _worker(q, fd, kw):
-        try:
-            import plotly.graph_objects as go
-            f = go.Figure(fd)
-            png = f.to_image(**kw)
-            q.put(("ok", png))
-        except Exception as e:
-            q.put(("err", str(e)))
-
     ctx = multiprocessing.get_context("spawn")
     q = ctx.Queue()
-    p = ctx.Process(target=_worker, args=(q, fig_dict, kwargs))
+    p = ctx.Process(target=kaleido_export, args=(q, fig_dict, kwargs))
     p.start()
     p.join(timeout)
     if p.is_alive():
