@@ -14,7 +14,6 @@ import traceback
 
 import pandas as pd
 import streamlit as st
-import plotly.graph_objects as go
 
 # spawn 子进程的 target（已弃用：改用 matplotlib 引擎，不再需要）
 # from modules._kaleido_worker import kaleido_export
@@ -192,17 +191,6 @@ def _number(n):
     return nums[n] if n < len(nums) else str(n)
 
 
-# 记录最近一次图表导出的状态（报告已改用数据表格，此函数仅用于独立 PNG 下载区）
-_KALEIDO_LAST_ERR = "图表已改为数据表格形式嵌入报告（更清晰可搜索）；独立 PNG 下载暂不可用"
-
-
-def export_chart_as_png(fig, filename="chart.png"):
-    """图表导出：报告内嵌已改用数据表格，本函数仅保留供独立下载入口调用。
-    当前环境无可用的图片引擎（kaleido/Chrome/matplotlib 均不可用），返回 None。
-    """
-    return None
-
-
 def export_data_csv(df):
     """导出数据为 CSV 字节流"""
     if df is None or df.empty:
@@ -222,187 +210,6 @@ def _append_data_support(doc, warn):
             r.font.color.rgb = RGBColor(120, 120, 120)
     except Exception:
         pass
-
-
-# ============================================================
-# 图表生成
-# ============================================================
-def _hex_to_rgba(hex_color, alpha=0.2):
-    """将 #RRGGBB 转为 rgba(r, g, b, a) 字符串"""
-    hex_color = hex_color.lstrip("#")
-    if len(hex_color) != 6:
-        return hex_color
-    r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
-    return f"rgba({r}, {g}, {b}, {alpha})"
-
-
-def _build_one_chart(x, y, name, title, color, kind="line", fill=False):
-    """生成单张图表的辅助函数。kind: line / bar
-    注意：不要设置 font.family，不要用 8 位 hex fillcolor——kaleido 0.2.1 + 新版 plotly 会崩溃挂死。
-    """
-    if kind == "bar":
-        fig = go.Figure(go.Bar(x=x, y=y, marker_color=color, name=name))
-    else:
-        fill_mode = "tozeroy" if fill else None
-        fig = go.Figure(go.Scatter(
-            x=x, y=y, mode="lines", name=name,
-            line=dict(color=color, width=2),
-            fill=fill_mode, fillcolor=_hex_to_rgba(color, 0.2) if fill else None,
-        ))
-    fig.update_layout(
-        title=title, height=320,
-        margin=dict(l=40, r=20, t=40, b=40),
-        plot_bgcolor="white", paper_bgcolor="white",
-        xaxis=dict(gridcolor="#e5e7eb"),
-        yaxis=dict(gridcolor="#e5e7eb"),
-    )
-    return fig
-
-
-def _generate_report_charts(df=None, forecast_df=None):
-    """从观测数据和/或 GFS 预报生成图表。
-    返回 dict,key 格式为 `前缀:图表名`,前缀 `obs` 表观测,`fc` 表预报。
-    """
-    figs = {}
-
-    # ---- 观测数据图表 ----
-    if df is not None and not df.empty:
-        try:
-            x = df["timestamp"] if "timestamp" in df.columns else df.index
-
-            temp_col = _resolve_field(df, "temperature")
-            if temp_col and df[temp_col].dropna().size > 0:
-                figs["obs:temperature"] = _build_one_chart(
-                    x, df[temp_col], "气温", "观测气温时序", "#e74c3c")
-
-            prec_col = _resolve_field(df, "precipitation")
-            if prec_col and df[prec_col].dropna().size > 0:
-                if "timestamp" in df.columns:
-                    daily = df.copy()
-                    daily["date"] = daily["timestamp"].dt.date
-                    daily_p = daily.groupby("date")[prec_col].sum()
-                    x_d = [str(d) for d in daily_p.index]
-                else:
-                    x_d, daily_p = list(range(len(df))), df[prec_col]
-                figs["obs:precipitation"] = _build_one_chart(
-                    x_d, daily_p.values, "降水", "观测逐日降水量", "#2980b9",
-                    kind="bar")
-
-            pres_col = _resolve_field(df, "pressure")
-            if pres_col and df[pres_col].dropna().size > 0:
-                figs["obs:pressure"] = _build_one_chart(
-                    x, df[pres_col], "气压", "观测气压时序", "#27ae60")
-
-            wind_col = _resolve_field(df, "wind_speed")
-            if wind_col and df[wind_col].dropna().size > 0:
-                figs["obs:wind_speed"] = _build_one_chart(
-                    x, df[wind_col], "风速", "观测风速时序", "#8e44ad")
-        except Exception:
-            pass
-
-    # ---- GFS 预报图表 ----
-    if forecast_df is not None and not forecast_df.empty:
-        try:
-            x = (forecast_df["timestamp"]
-                 if "timestamp" in forecast_df.columns
-                 else forecast_df.index)
-
-            # 1. 气温 + 体感温度叠加
-            temp_col = _resolve_field(forecast_df, "temperature")
-            if temp_col and forecast_df[temp_col].dropna().size > 0:
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    x=x, y=forecast_df[temp_col], mode="lines", name="气温",
-                    line=dict(color="#e74c3c", width=2)))
-                app_col = _resolve_field(forecast_df, "apparent_temperature")
-                if app_col and forecast_df[app_col].dropna().size > 0:
-                    fig.add_trace(go.Scatter(
-                        x=x, y=forecast_df[app_col], mode="lines",
-                        name="体感温度",
-                        line=dict(color="#f97316", width=2, dash="dash")))
-                fig.update_layout(
-                    title="GFS 预报气温 / 体感温度", height=320,
-                    margin=dict(l=40, r=20, t=40, b=40),
-                    plot_bgcolor="white", paper_bgcolor="white",
-                    xaxis=dict(gridcolor="#e5e7eb"),
-                    yaxis=dict(gridcolor="#e5e7eb"),
-                )
-                figs["fc:temperature"] = fig
-
-            # 2. 降水(逐时柱)
-            prec_col = _resolve_field(forecast_df, "precipitation")
-            if prec_col and forecast_df[prec_col].dropna().size > 0:
-                fig = go.Figure(go.Bar(
-                    x=x, y=forecast_df[prec_col],
-                    marker_color="#2980b9", name="逐时降水"))
-                fig.update_layout(
-                    title="GFS 预报逐时降水量", height=320,
-                    margin=dict(l=40, r=20, t=40, b=40),
-                    plot_bgcolor="white", paper_bgcolor="white",
-                    xaxis=dict(gridcolor="#e5e7eb"),
-                    yaxis=dict(gridcolor="#e5e7eb"),
-                )
-                figs["fc:precipitation"] = fig
-
-            # 3. 风速时序
-            wind_col = _resolve_field(forecast_df, "wind_speed")
-            if wind_col and forecast_df[wind_col].dropna().size > 0:
-                figs["fc:wind_speed"] = _build_one_chart(
-                    x, forecast_df[wind_col], "风速",
-                    "GFS 预报风速时序", "#8e44ad")
-
-            # 4. 相对湿度时序
-            hum_col = _resolve_field(forecast_df, "humidity")
-            if hum_col and forecast_df[hum_col].dropna().size > 0:
-                figs["fc:humidity"] = _build_one_chart(
-                    x, forecast_df[hum_col], "湿度",
-                    "GFS 预报相对湿度", "#06b6d4", fill=True)
-
-            # 5. 降水概率时序
-            prob_col = _resolve_field(forecast_df, "precipitation_probability")
-            if prob_col and forecast_df[prob_col].dropna().size > 0:
-                figs["fc:precip_prob"] = _build_one_chart(
-                    x, forecast_df[prob_col], "降水概率",
-                    "GFS 预报降水概率(%)", "#0ea5e9", fill=True)
-        except Exception:
-            pass
-
-    return figs
-
-
-# ============================================================
-# 图表标题映射
-# ============================================================
-_CHART_CAPTIONS = {
-    "obs:temperature": "观测气温时序变化",
-    "obs:precipitation": "观测逐日降水量分布",
-    "obs:pressure": "观测气压时序变化",
-    "obs:wind_speed": "观测风速时序变化",
-    "fc:temperature": "GFS 预报气温 / 体感温度",
-    "fc:precipitation": "GFS 预报逐时降水量",
-    "fc:wind_speed": "GFS 预报风速时序",
-    "fc:humidity": "GFS 预报相对湿度时序",
-    "fc:precip_prob": "GFS 预报降水概率",
-}
-
-
-def _insert_chart(doc, key, fig):
-    """插入单张图表：图片 + 居中图题，失败返回错误信息"""
-    caption = _CHART_CAPTIONS.get(key, key)
-    png_data = export_chart_as_png(fig)
-    if png_data:
-        try:
-            doc.add_picture(BytesIO(png_data), width=Inches(5.5))
-            last_paragraph = doc.paragraphs[-1]
-            last_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            cap = doc.add_paragraph(f"图：{caption}")
-            cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            cap.runs[0].font.size = Pt(10)
-            cap.runs[0].font.color.rgb = RGBColor(120, 120, 120)
-            return None
-        except Exception as e:
-            return f"（图表「{caption}」嵌入失败：{e}）"
-    return f"（图表「{caption}」导出失败：{_KALEIDO_LAST_ERR or '图片引擎(kaleido/Chrome)不可用，请检查部署环境'}）"
 
 
 # ============================================================
@@ -507,8 +314,8 @@ def _build_professional_report(doc, df, fc_df, fc_analysis, life_indices,
         "免注册、可商用、空间分辨率约 0.25°，最长预报周期 16 天。"
     )
     doc.add_paragraph(
-        "本报告中的图表均嵌入 Word 文档，无需外部依赖即可查看；"
-        "如需更高分辨率版本，可在「图表独立下载」区单独导出 PNG。"
+        "本报告中的数据以结构化表格形式呈现，清晰可读、便于检索；"
+        "如需可视化图表，请回到应用界面查看交互式 Plotly 图表。"
     )
 
     # ---- 二、观测数据统计摘要 ----
@@ -1365,47 +1172,6 @@ def render_export_tab(df, warnings_list, score, source=""):
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             use_container_width=True,
         )
-
-    # ---- 图表 PNG 下载 ----
-    fc_df = st.session_state.get("fc_df", None)
-    has_obs = df is not None and not df.empty
-    has_fc = fc_df is not None and not fc_df.empty
-    if has_obs or has_fc:
-        st.write("---")
-        st.write("#### [图表] 独立图表 PNG 下载")
-        chart_figs = _generate_report_charts(df=df, forecast_df=fc_df)
-        if chart_figs:
-            names_display = {
-                "obs:temperature": "观测气温",
-                "obs:precipitation": "观测降水",
-                "obs:pressure": "观测气压",
-                "obs:wind_speed": "观测风速",
-                "fc:temperature": "GFS 气温/体感",
-                "fc:precipitation": "GFS 逐时降水",
-                "fc:wind_speed": "GFS 风速",
-                "fc:humidity": "GFS 湿度",
-                "fc:precip_prob": "GFS 降水概率",
-            }
-            cols = st.columns(min(len(chart_figs), 5))
-            for idx, (name, fig) in enumerate(chart_figs.items()):
-                png_bytes = export_chart_as_png(fig)
-                display = names_display.get(name, name)
-                with cols[idx % len(cols)]:
-                    st.caption(display)
-                    if png_bytes:
-                        st.download_button(
-                            label=f"[图片] 下载 PNG",
-                            data=png_bytes,
-                            file_name=(f"{display}_"
-                                       f"{datetime.now().strftime('%Y%m%d')}.png"),
-                            mime="image/png",
-                            use_container_width=True,
-                            key=f"png_{name}",
-                        )
-                        st.plotly_chart(fig, use_container_width=True,
-                                        key=f"rpt_chart_{name}")
-                    else:
-                        st.info(f"图表导出失败：{_KALEIDO_LAST_ERR or '图片引擎(kaleido/Chrome)不可用'}")
 
     # ---- 统计摘要 ----
     if df is not None and not df.empty:
