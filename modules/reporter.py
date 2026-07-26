@@ -52,14 +52,29 @@ _SUBTLE_COLOR = "6B7280"          # 副文本灰
 # 排版辅助函数
 # ============================================================
 def _set_default_styles(doc):
-    """设置文档默认样式：正文字号、字体、段间距"""
+    """设置文档默认样式：正文字号、字体、段间距（紧凑版）"""
     style = doc.styles["Normal"]
     style.font.name = "Microsoft YaHei"
-    style.font.size = Pt(11)
+    style.font.size = Pt(10.5)
     pf = style.paragraph_format
-    pf.space_before = Pt(4)
-    pf.space_after = Pt(6)
-    pf.line_spacing = 1.3
+    pf.space_before = Pt(2)
+    pf.space_after = Pt(4)
+    pf.line_spacing = 1.25
+
+    # 压缩各级标题间距
+    for level in range(0, 3):
+        try:
+            h_style = doc.styles[f"Heading {level}"]
+            hpf = h_style.paragraph_format
+            hpf.space_before = Pt(8 if level == 1 else (6 if level == 2 else 4))
+            hpf.space_after = Pt(4 if level == 1 else (2 if level == 2 else 2))
+            if hasattr(h_style, "font"):
+                if level == 1:
+                    h_style.font.size = Pt(14)
+                elif level == 2:
+                    h_style.font.size = Pt(12)
+        except Exception:
+            pass
 
 
 def _add_page_break(doc):
@@ -143,7 +158,6 @@ def _build_toc(doc, sections):
         p = doc.add_paragraph()
         run = p.add_run(f"  •  {title}")
         run.font.size = Pt(12)
-    doc.add_paragraph("")
 
 
 # ============================================================
@@ -527,11 +541,10 @@ def _build_professional_report(doc, df, fc_df, fc_analysis, life_indices,
     if life_indices:
         toc_sections.append(("五、生活出行指南", ""))
     toc_sections.append(("六、技术说明", ""))
-    _add_page_break(doc)
     _build_toc(doc, toc_sections)
 
     # ---- 一、报告说明 ----
-    _add_page_break(doc)
+    # 紧凑排列：目录后不分页，后续章节也不分页（除非内容特别长）
     section_num = 1
     doc.add_heading(f"{_number(section_num)}、报告说明", level=1)
     doc.add_paragraph(
@@ -551,7 +564,6 @@ def _build_professional_report(doc, df, fc_df, fc_analysis, life_indices,
     # ---- 二、观测数据统计摘要 ----
     section_num += 1
     if has_obs:
-        _add_page_break(doc)
         doc.add_heading(f"{_number(section_num)}、观测数据统计摘要", level=1)
 
         stats_fields = ["temperature", "pressure", "humidity",
@@ -584,7 +596,6 @@ def _build_professional_report(doc, df, fc_df, fc_analysis, life_indices,
         obs_chart_figs = {k: v for k, v in _generate_report_charts(df).items()
                           if k.startswith("obs:")}
         if obs_chart_figs:
-            doc.add_paragraph("")
             doc.add_heading("观测数据图表", level=2)
             for key, fig in obs_chart_figs.items():
                 err = _insert_chart(doc, key, fig)
@@ -594,7 +605,6 @@ def _build_professional_report(doc, df, fc_df, fc_analysis, life_indices,
     # ---- 三、事件检测与预警 ----
     if has_obs and warnings_list:
         section_num += 1
-        _add_page_break(doc)
         doc.add_heading(f"{_number(section_num)}、事件检测与预警", level=1)
         doc.add_paragraph(
             "以下事件根据国家预警分级标准（《气象灾害预警信号发布与传播办法》）"
@@ -604,7 +614,6 @@ def _build_professional_report(doc, df, fc_df, fc_analysis, life_indices,
     # ---- 四、数值预报概况 ----
     if has_fc:
         section_num += 1
-        _add_page_break(doc)
         doc.add_heading(f"{_number(section_num)}、数值预报概况", level=1)
         if fc_analysis:
             _render_forecast_section(doc, fc_analysis)
@@ -613,7 +622,6 @@ def _build_professional_report(doc, df, fc_df, fc_analysis, life_indices,
                          _generate_report_charts(forecast_df=fc_df).items()
                          if k.startswith("fc:")}
         if fc_chart_figs:
-            doc.add_paragraph("")
             doc.add_heading("预报图表", level=2)
             for key, fig in fc_chart_figs.items():
                 err = _insert_chart(doc, key, fig)
@@ -623,7 +631,6 @@ def _build_professional_report(doc, df, fc_df, fc_analysis, life_indices,
     # ---- 五、生活出行指南 ----
     if life_indices:
         section_num += 1
-        _add_page_break(doc)
         doc.add_heading(f"{_number(section_num)}、生活出行指南", level=1)
         doc.add_paragraph(
             "基于预报数据计算的 7 项生活指数，覆盖穿衣、带伞、体感、运动、"
@@ -632,7 +639,6 @@ def _build_professional_report(doc, df, fc_df, fc_analysis, life_indices,
 
     # ---- 六、技术说明 ----
     section_num += 1
-    _add_page_break(doc)
     doc.add_heading(f"{_number(section_num)}、技术说明", level=1)
     doc.add_heading("数据来源", level=2)
     doc.add_paragraph(
@@ -660,7 +666,6 @@ def _build_professional_report(doc, df, fc_df, fc_analysis, life_indices,
     # ---- 七、防御建议 ----
     if has_obs and has_warnings:
         section_num += 1
-        _add_page_break(doc)
         doc.add_heading(f"{_number(section_num)}、防御建议", level=1)
         _render_defense_advice(doc, warnings_list)
 
@@ -935,7 +940,6 @@ def _build_plain_report(doc, df, fc_df, fc_analysis, life_indices,
     _build_cover_table(doc, cover_rows)
 
     # ---- 摘要：回答"这天气怎么样" ----
-    _add_page_break(doc)
     doc.add_heading("一句话回答：这天气怎么样？", level=1)
     one_liner = _build_one_liner(df, fc_df, fc_analysis)
     if one_liner:
@@ -943,17 +947,14 @@ def _build_plain_report(doc, df, fc_df, fc_analysis, life_indices,
         run = p.add_run(one_liner)
         run.bold = True
         run.font.size = Pt(13)
-    doc.add_paragraph("")
 
     # ---- 一、这几天天气会怎么变？ ----
     if has_fc:
-        _add_page_break(doc)
         doc.add_heading("一、这几天天气会怎么变？", level=1)
         _render_plain_forecast(doc, fc_df, fc_analysis)
 
     # ---- 二、要小心什么？ ----
     if has_warnings or (has_fc and fc_analysis and fc_analysis.get("warnings")):
-        _add_page_break(doc)
         doc.add_heading("二、要小心什么？", level=1)
         # 优先用观测期检测到的预警，更贴近用户实际
         all_warnings = []
@@ -966,18 +967,15 @@ def _build_plain_report(doc, df, fc_df, fc_analysis, life_indices,
 
     # ---- 三、出门穿什么？要不要带伞？ ----
     if life_indices:
-        _add_page_break(doc)
         doc.add_heading("三、出门穿什么？要不要带伞？", level=1)
         _render_plain_life_indices(doc, life_indices)
 
     # ---- 四、给种地朋友的建议 ----
     if has_warnings:
-        _add_page_break(doc)
         doc.add_heading("四、给种地朋友的建议", level=1)
         _render_plain_agri_advice(doc, warnings_list)
 
     # ---- 五、如果你想知道更多 ----
-    _add_page_break(doc)
     doc.add_heading("五、如果你想知道更多", level=1)
     doc.add_paragraph(
         "这份报告的「专业版」里有更详细的数据：每小时的温度、湿度、风速、"
@@ -988,7 +986,6 @@ def _build_plain_report(doc, df, fc_df, fc_analysis, life_indices,
         "如果对某个数据有疑问，比如「为什么这次报的气温和上次不一样」「这条建议"
         "是怎么算出来的」，可以参考专业版的「技术说明」一节。"
     )
-    doc.add_paragraph("")
     p = doc.add_paragraph()
     run = p.add_run("💡 提示：")
     run.bold = True
