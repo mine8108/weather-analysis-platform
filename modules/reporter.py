@@ -568,23 +568,24 @@ def _render_fc_data_tables(doc, fc_df):
         if ts_col is None or fc_df.empty:
             return
 
-        # ---- 1. 逐时温度表（每4小时一个节点 + 极值）----
+        # ---- 1. 逐时温度表（仅当天，每 1 小时一行）----
         if temp_col:
-            doc.add_heading("逐时气温详情", level=2)
-            # 确保时间可排序
+            doc.add_heading("逐时气温详情（当日）", level=2)
             sorted_df = fc_df.sort_values(ts_col)
-            # 取关键时段：00/06/12/18 点
-            key_hours = []
-            for _, row in sorted_df.iterrows():
-                try:
-                    t = pd.to_datetime(row[ts_col])
-                    if t.hour in (0, 6, 12, 18):
-                        key_hours.append(row)
-                except Exception:
-                    pass
+            # 取预报第一天（最早日期）的数据，只看当天
+            try:
+                dt_series = pd.to_datetime(sorted_df[ts_col])
+                min_date = dt_series.min().date()
+                today_df = sorted_df[dt_series.dt.date == min_date]
+            except Exception:
+                today_df = sorted_df
             rows = []
-            for r in key_hours[:24]:  # 最多24行（6天×4时段）
-                t_str = str(r[ts_col])[-8:-3] if len(str(r[ts_col])) > 5 else str(r[ts_col])
+            for _, r in today_df.iterrows():
+                try:
+                    t = pd.to_datetime(r[ts_col])
+                    t_str = f"{t.hour:02d}:{t.minute:02d}"
+                except Exception:
+                    t_str = str(r[ts_col])
                 temp_val = r.get(temp_col, "")
                 app_val = r.get(app_col, "") if app_col else ""
                 hum_val = r.get(hum_col, "") if hum_col else ""
@@ -599,6 +600,8 @@ def _render_fc_data_tables(doc, fc_df):
                            headers=["时间", "气温(℃)", "体感(℃)", "湿度"],
                            rows=rows,
                            col_widths=[2.2, 2.2, 2.2, 2.2])
+            else:
+                doc.add_paragraph("当日无逐时气温数据。")
 
         # ---- 2. 降水时段表（仅显示有降水的时段）----
         if prec_col:
