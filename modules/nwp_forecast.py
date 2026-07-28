@@ -886,7 +886,8 @@ def _wind_rose_chart(fdf, dark=None):
     fig.update_layout(
         polar=dict(
             bgcolor="rgba(0,0,0,0)",
-            radialaxis=dict(ticksuffix="%", angle=225, gridcolor=grid,
+            # 径向 % 标签放回右侧 90°，字号 9px（225° 会导致标签旋转+遮挡左侧方位标签）
+            radialaxis=dict(ticksuffix="%", angle=90, gridcolor=grid,
                             tickfont=dict(color=tick_col, size=9),
                             linecolor=grid),
             angularaxis=dict(
@@ -898,12 +899,10 @@ def _wind_rose_chart(fdf, dark=None):
                 linecolor=grid,
             ),
         ),
-        # 图例移到底部水平排列，省宽度
-        legend=dict(title=None, orientation="h",
-                    yanchor="bottom", y=-0.12, x=0.5, xanchor="center",
-                    font=dict(color=tick_col, size=11)),
+        # 图例改用下方自定义 HTML 渲染，避免遮挡底部方向标签
+        showlegend=False,
         paper_bgcolor=bg, plot_bgcolor=bg,
-        height=440, margin=dict(l=20, r=20, t=20, b=60),
+        height=440, margin=dict(l=20, r=20, t=20, b=20),
     )
     return fig, stats
 
@@ -2093,10 +2092,18 @@ def render_forecast_tab():
 
     # ---- 风玫瑰预报（替换原降水预报板块）----
     st.write("### 风玫瑰预报 (全预报期)")
-    # 卡片化容器：细边框 + 圆角，提升观感（B 档视觉优化）
+    # 卡片化容器 + 自定义 HTML 图例样式（避免 Plotly 内置图例遮挡底部方向标签）
+    legend_dark = _is_dark()
+    text_col = "#cbd5e1" if legend_dark else "#475569"
     st.markdown(
-        "<style>.wind-rose-card{border:1px solid var(--border-color, #334155);"
-        "border-radius:10px;padding:10px 6px;margin-bottom:4px;}</style>",
+        f"<style>.wind-rose-card{{border:1px solid #334155;"
+        f"border-radius:10px;padding:10px 6px 4px;margin-bottom:4px;}}"
+        f".wind-rose-legend{{display:flex;flex-wrap:wrap;gap:8px 14px;"
+        f"justify-content:center;font-size:12px;color:{text_col};"
+        f"padding:4px 0 2px;}}"
+        f".wind-rose-legend .wr-leg-item{{display:inline-flex;align-items:center;gap:6px;}}"
+        f".wind-rose-legend i{{width:12px;height:12px;border-radius:2px;"
+        f"display:inline-block;}}</style>",
         unsafe_allow_html=True,
     )
     st.markdown('<div class="wind-rose-card">', unsafe_allow_html=True)
@@ -2105,6 +2112,14 @@ def render_forecast_tab():
         st.warning("缺少风向/风速数据，无法绘制风玫瑰图。")
     else:
         safe_chart(wf, "风玫瑰预报", key="fc_wind_rose")
+        # 自定义 HTML 图例（图例放在图表下方独立行，永不与极坐标重叠）
+        items = "".join(
+            f'<span class="wr-leg-item"><i style="background:{_WS_COLORS[i]}"></i>'
+            f'{_WS_CN[i]} ({_WS_LABELS[i]} m/s)</span>'
+            for i in range(len(_WS_LABELS))
+        )
+        st.markdown(f'<div class="wind-rose-legend">{items}</div>',
+                    unsafe_allow_html=True)
         if wstats:
             dom = wstats["dominant_cn"]
             dom_en = wstats["dominant_en"]
