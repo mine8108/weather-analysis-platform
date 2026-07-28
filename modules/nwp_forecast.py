@@ -784,7 +784,10 @@ _WIND_CN = {
 # 5 级风速分桶 (m/s)，弱 -> 强
 _WS_BINS = [0.5, 2.0, 4.0, 6.0, 8.0]
 _WS_LABELS = ["<2", "2-4", "4-6", "6-8", ">8"]
-_WS_COLORS = ["#3b82f6", "#06b6d4", "#22c55e", "#f59e0b", "#ef4444"]
+# 每档中文描述（沿用 config.BEAUFORT_SCALE 蒲福风级，取中位占比主导级）
+_WS_CN = ["软风", "轻风", "微风", "和风", "清风及以上(5级+)"]
+# 冷蓝 -> 暖红 单色相渐变（弱->强），比彩虹色更耐看
+_WS_COLORS = ["#bcd9f2", "#74b9e8", "#3f8fd0", "#e8763a", "#c0392b"]
 _CALM_THRESHOLD = 0.5  # 静风阈值 (m/s)
 
 
@@ -839,13 +842,12 @@ def _wind_rose_chart(fdf, dark=None):
         stats = _wind_rose_stats(fdf)
         fig = go.Figure()
         fig.update_layout(
-            title="风向风速玫瑰图 (全预报期)",
             polar=dict(radialaxis=dict(visible=False),
                        angularaxis=dict(direction="clockwise", rotation=90,
                                         tickmode="array",
                                         tickvals=[i * 22.5 for i in range(16)],
                                         ticktext=WIND_DIRECTIONS)),
-            height=420, margin=dict(l=20, r=20, t=40, b=20),
+            height=440, margin=dict(l=20, r=20, t=20, b=20),
         )
         return fig, stats
 
@@ -869,36 +871,39 @@ def _wind_rose_chart(fdf, dark=None):
         r = freq[:, lvl].tolist()
         fig.add_trace(go.Barpolar(
             r=r, theta=theta, width=360 / 16,
-            name=_WS_LABELS[lvl] + " m/s",
+            name=f"{_WS_CN[lvl]} ({_WS_LABELS[lvl]} m/s)",
             marker_color=_WS_COLORS[lvl],
-            opacity=0.9,
-            hovertemplate="%{theta}°<br>" + _WS_LABELS[lvl] +
-                          " m/s<br>频率 %{r:.1f}%<extra></extra>",
+            marker_line_color="rgba(255,255,255,0.25)" if dark else "rgba(15,23,42,0.15)",
+            marker_line_width=0.5,
+            opacity=0.92,
+            hovertemplate="%{theta}°<br>" + _WS_CN[lvl] + " (" +
+                          _WS_LABELS[lvl] + " m/s)<br>频率 %{r:.1f}%<extra></extra>",
         ))
 
     bg = "#0f172a" if dark else "#ffffff"
     grid = "#334155" if dark else "#e2e8f0"
-    tick_col = "#94a3b8" if dark else "#475569"
+    tick_col = "#94a3b8" if dark else "#64748b"
     fig.update_layout(
-        title="风向风速玫瑰图 (全预报期)",
         polar=dict(
             bgcolor="rgba(0,0,0,0)",
-            radialaxis=dict(ticksuffix="%", angle=90, gridcolor=grid,
-                            tickfont=dict(color=tick_col),
+            radialaxis=dict(ticksuffix="%", angle=225, gridcolor=grid,
+                            tickfont=dict(color=tick_col, size=9),
                             linecolor=grid),
             angularaxis=dict(
                 direction="clockwise", rotation=90,
                 tickmode="array",
                 tickvals=[i * 22.5 for i in range(16)],
                 ticktext=WIND_DIRECTIONS,
-                gridcolor=grid, tickfont=dict(color=tick_col),
+                gridcolor=grid, tickfont=dict(color=tick_col, size=11),
                 linecolor=grid,
             ),
         ),
-        legend=dict(title="风速等级", y=0.5,
-                    font=dict(color=tick_col)),
+        # 图例移到底部水平排列，省宽度
+        legend=dict(title=None, orientation="h",
+                    yanchor="bottom", y=-0.12, x=0.5, xanchor="center",
+                    font=dict(color=tick_col, size=11)),
         paper_bgcolor=bg, plot_bgcolor=bg,
-        height=420, margin=dict(l=20, r=20, t=40, b=20),
+        height=440, margin=dict(l=20, r=20, t=20, b=60),
     )
     return fig, stats
 
@@ -2088,6 +2093,13 @@ def render_forecast_tab():
 
     # ---- 风玫瑰预报（替换原降水预报板块）----
     st.write("### 风玫瑰预报 (全预报期)")
+    # 卡片化容器：细边框 + 圆角，提升观感（B 档视觉优化）
+    st.markdown(
+        "<style>.wind-rose-card{border:1px solid var(--border-color, #334155);"
+        "border-radius:10px;padding:10px 6px;margin-bottom:4px;}</style>",
+        unsafe_allow_html=True,
+    )
+    st.markdown('<div class="wind-rose-card">', unsafe_allow_html=True)
     wf, wstats = _wind_rose_chart(fdf)
     if wf is None:
         st.warning("缺少风向/风速数据，无法绘制风玫瑰图。")
@@ -2102,6 +2114,7 @@ def render_forecast_tab():
                 f"主导风向（频次最高）：{dom}（{dom_en}），占有效样本 {dom_pct}%；"
                 f"静风（<{_CALM_THRESHOLD} m/s）占比 {calm_pct}%。"
             )
+    st.markdown("</div>", unsafe_allow_html=True)
 
     # ---- 空间图 ----
     st.write("---")
