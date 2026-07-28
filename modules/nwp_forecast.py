@@ -61,10 +61,13 @@ _FC_HOURLY = [
 # ============================================================
 
 
-def _gfs_forecast_cache_key(lat, lon, days, model):
-    """基于请求参数生成短周期缓存 key（避免同一参数反复触发限流）"""
+def _gfs_forecast_cache_key(lat, lon, days, model, window=None):
+    """基于请求参数生成短周期缓存 key（避免同一参数反复触发限流）。
+    window: 形如 'YYYYmmdd_YYYYmmdd' 的过去窗口标识（hindcast 验证用）。
+    """
     model_part = model if model else "blend"
-    return f"gfs_fc_cache_{lat:.4f}_{lon:.4f}_{int(days)}_{model_part}"
+    wpart = window if window else f"d{int(days)}"
+    return f"gfs_fc_cache_{lat:.4f}_{lon:.4f}_{wpart}_{model_part}"
 
 
 # TTL：缓存 1 小时内有效（GFS 约每小时更新一次）
@@ -130,7 +133,8 @@ def _save_gfs_to_cache(cache_key, lat, lon, days, model, df):
 
 
 @retry_with_backoff(max_retries=3, base_delay=3, backoff_factor=2)
-def fetch_gfs_forecast(lat, lon, days=7, model="gfs_seamless"):
+def fetch_gfs_forecast(lat, lon, days=7, model="gfs_seamless",
+                       start_date=None, end_date=None):
     """获取 GFS 单点逐时预报 (Open-Meteo, 免注册)。
 
     三级缓存：① 会话内 session_state → ② Supabase 跨用户/跨重启 → ③ Open-Meteo 实时请求。
@@ -138,8 +142,18 @@ def fetch_gfs_forecast(lat, lon, days=7, model="gfs_seamless"):
     DataFrame 含标准字段：timestamp, temperature, humidity,
     apparent_temperature, precipitation, wind_speed, weather_code, station_id。
     （均衡集：保留核心四要素 + 湿度 + 风速；气压/云量/风向由空间图独立请求）
+
+    hindcast 验证：传入 start_date / end_date（YYYY-MM-DD）时，改用 Open-Meteo
+    的历史窗口（仍走 forecast 端点，返回该窗口模式最优估计），用于「预报验证」模块
+    与实况配对比对。此时忽略 days 参数。
     """
-    cache_key = _gfs_forecast_cache_key(lat, lon, days, model)
+    if start_date and end_date:
+        window = f"{start_date.replace('-', '')}_{end_date.replace('-', '')}"
+        _days_key = (pd.to_datetime(end_date) - pd.to_datetime(start_date)).days + 1
+    else:
+        window = None
+        _days_key = days
+    cache_key = _gfs_forecast_cache_key(lat, lon, _days_key, model, window)
     # 第一层：同一会话内同参数直接命中
     cached = st.session_state.get(cache_key)
     if cached is not None:
@@ -156,12 +170,16 @@ def fetch_gfs_forecast(lat, lon, days=7, model="gfs_seamless"):
         "longitude": lon,
         # 使用逗号分隔字符串，减少 URL 长度与同名参数数量
         "hourly": ",".join(_FC_HOURLY),
-        "forecast_days": int(days),
         "timezone": "Asia/Shanghai",
         "temperature_unit": "celsius",
         "wind_speed_unit": "ms",
         "precipitation_unit": "mm",
     }
+    if start_date and end_date:
+        params["start_date"] = start_date
+        params["end_date"] = end_date
+    else:
+        params["forecast_days"] = int(days)
     if model:
         params["models"] = model
 
@@ -187,7 +205,7 @@ def fetch_gfs_forecast(lat, lon, days=7, model="gfs_seamless"):
 
     st.session_state[cache_key] = df
     # 第三层落地后写入二级缓存（失败静默忽略）
-    _save_gfs_to_cache(cache_key, lat, lon, days, model, df)
+    _save_gfs_to_cache(cache_key, lat, lon, _days_key, model, df)
     return df, None
 
 
@@ -1512,6 +1530,128 @@ def _render_life_indices(indices, inline=False):
 
 
 # ============================================================
+# 五-4、预报验证（内置运行）
+# ============================================================
+def _render_forecast_verification():
+    """预报验证子区块：GFS(hindcast) vs 实况 定量评估。
+
+    内置运行于预报 Tab，复用会话 lat/lon。三组实况来源可选：
+      ① 会话观测数据 (已导入 df)  ② Open-Meteo 历史 API 同坐标  ③ 上传 CSV。
+    指标 MAE/RMSE/Bias/r 由 modules.verify 计算，三图由同一模块构建。
+    """
+    from modules.verify import (align_obs_fc, compute_metrics,
+                                make_scatter_1to1, make_timeseries_overlay,
+                                make_error_hist, VERIFY_VARS, VERIFY_VAR_LABELS)
+    from modules.data_loader import (fetch_open_meteo, load_csv, load_excel,
+                                     normalize_columns, parse_timestamp)
+
+    lat = st.session_state.get("fc_lat", 39.94)
+    lon = st.session_state.get("fc_lon", 116.85)
+    model_label = st.session_state.get("fc_model", "GFS 无缝混合 (gfs_seamless)")
+    model = GFS_MODELS.get(model_label, "gfs_seamless")
+    st.caption(f"验证坐标：{lat:.2f}N, {lon:.2f}E ｜ 模式：{model_label}")
+
+    # ---- 实况来源 ----
+    obs_options = {}
+    if st.session_state.get("df") is not None:
+        obs_options["会话观测数据 (已导入 df)"] = "session"
+    obs_options["Open-Meteo 历史 API (同坐标)"] = "archive"
+    obs_options["上传 CSV"] = "upload"
+    src_label = st.radio("实况数据来源", list(obs_options.keys()),
+                         key="verify_obs_src", horizontal=True)
+    src = obs_options[src_label]
+
+    # ---- 验证窗口 ----
+    c1, c2 = st.columns(2)
+    with c1:
+        start_d = st.date_input("验证起始日", value=datetime.now() - timedelta(days=3),
+                                key="verify_start")
+    with c2:
+        end_d = st.date_input("验证结束日", value=datetime.now() - timedelta(days=1),
+                              key="verify_end")
+    start_str = start_d.strftime("%Y-%m-%d")
+    end_str = end_d.strftime("%Y-%m-%d")
+
+    uploaded = None
+    if src == "upload":
+        uploaded = st.file_uploader("上传观测 CSV/Excel",
+                                    type=["csv", "txt", "xlsx", "xls"],
+                                    key="verify_upload")
+
+    if st.button("运行预报验证", use_container_width=True, key="verify_run"):
+        # 1) GFS hindcast（同窗口）
+        with st.spinner("获取 GFS 同窗口数据..."):
+            fc_df, fc_err = fetch_gfs_forecast(
+                lat, lon, model=model, start_date=start_str, end_date=end_str
+            )
+        if fc_err:
+            st.error(f"GFS 获取失败：{fc_err}")
+            return
+
+        # 2) 实况
+        obs_df, obs_err = None, None
+        if src == "session":
+            obs_df = st.session_state.get("df")
+        elif src == "archive":
+            with st.spinner("获取 Open-Meteo 历史实况..."):
+                obs_df, obs_err = fetch_open_meteo(lat, lon, start_str, end_str)
+        elif src == "upload":
+            if uploaded is None:
+                st.warning("请先上传观测文件")
+                return
+            raw = (load_csv(uploaded) if uploaded.name.lower().endswith((".csv", ".txt"))
+                   else load_excel(uploaded))
+            raw = normalize_columns(raw)
+            raw = parse_timestamp(raw)
+            obs_df = raw
+
+        if obs_df is None or (isinstance(obs_err, str) and obs_err):
+            st.error(f"实况获取失败：{obs_err or '无数据'}")
+            return
+
+        # 3) 对齐 + 指标
+        merged = align_obs_fc(obs_df, fc_df)
+        if merged.empty:
+            st.error("观测与预报时间无重叠，无法配对。请检查窗口与坐标是否一致。")
+            return
+        metrics = compute_metrics(merged)
+        if not metrics:
+            st.error("无可用对比变量（需 temperature/humidity/wind_speed/precipitation 同时存在）。")
+            return
+
+        # 4) 指标表
+        st.success(f"配对样本 {len(merged)} 条（整点对齐）")
+        rows = []
+        for v in VERIFY_VARS:
+            if v in metrics:
+                m = metrics[v]
+                rows.append({
+                    "变量": VERIFY_VAR_LABELS[v],
+                    "MAE": f"{m['mae']:.3f}",
+                    "RMSE": f"{m['rmse']:.3f}",
+                    "Bias(预报-实况)": f"{m['bias']:+.3f}",
+                    "相关系数 r": f"{m['r']:.3f}" if np.isfinite(m["r"]) else "—",
+                    "样本数": m["n"],
+                })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.caption("Bias 正=预报偏高，负=预报偏低；r 越接近 1 越好。hindcast 验证局限见页脚说明。")
+
+        # 5) 变量选择器 + 三图
+        avail = [v for v in VERIFY_VARS if v in metrics and np.isfinite(metrics[v]["mae"])]
+        if avail:
+            sel = st.selectbox("查看变量", avail,
+                               format_func=lambda v: VERIFY_VAR_LABELS[v],
+                               key="verify_var")
+            label = VERIFY_VAR_LABELS[sel]
+            safe_chart(make_scatter_1to1(merged, sel, label), f"{label} 1:1", key="v_scatter")
+            safe_chart(make_timeseries_overlay(merged, sel, label), f"{label} 时序", key="v_ts")
+            safe_chart(make_error_hist(merged, sel, label), f"{label} 误差", key="v_hist")
+
+    st.caption("说明：Open-Meteo 对过去窗口返回的「预报」为模式同窗口最优估计（hindcast），"
+               "非提前多日的业务级预报，用于模型可信度参考；空间上 GFS 格点与站点存在代表性差异。")
+
+
+# ============================================================
 # 六、主渲染入口
 # ============================================================
 def render_forecast_tab():
@@ -1652,3 +1792,9 @@ def render_forecast_tab():
     st.session_state["life_indices"] = life_indices
 
     _render_forecast_advice(analysis, life_indices=life_indices)
+
+    # ---- 预报验证（内置运行）----
+    st.write("---")
+    st.write("### [验证] 预报验证 (GFS vs 实况)")
+    with st.expander("展开预报验证", expanded=False):
+        _render_forecast_verification()

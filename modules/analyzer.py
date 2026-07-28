@@ -902,3 +902,13 @@ def render_analysis_tab(df):
     # ----- 综合建议 -----
     st.write("---")
     _render_smart_advice(df)
+
+    # ----- AI 智能预警解读（C 方案）-----
+    air_quality = check_air_quality(df) if has_pollution else None
+    st.session_state["detection_result"] = {
+        "warnings": all_warnings,
+        "coupling": coupling,
+        "air_quality": air_quality,
+    }
+    from modules.ai_narrative import render_ai_block
+    render_ai_block()
