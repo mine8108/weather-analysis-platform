@@ -13,6 +13,10 @@ AI 预警叙事模块（C 方案）
 
 import streamlit as st
 import requests
+import html
+import io
+import re
+from datetime import datetime
 
 
 # ============================================================
@@ -241,34 +245,181 @@ def call_llm(prompt, api_key, base_url=None, model=None):
 # 三、降级：结构化 Markdown 摘要（无密钥或调用失败时兜底）
 # ============================================================
 def build_fallback_markdown(detection):
-    """无 LLM 时，把结构化结果直接渲染成可读 Markdown，保证信息不丢失。"""
+    """无 LLM 时，把结构化结果直接渲染成可读摘要（【段】结构，复用美化渲染）。"""
     warnings = detection.get("warnings", []) or []
     coupling = detection.get("coupling", []) or []
     aq = detection.get("air_quality")
+    aq_nwp = detection.get("air_quality_nwp")
 
-    parts = ["### AI 解读不可用（已降级为结构化摘要）\n"]
+    parts = ["【总体概览】\nAI 解读模型不可用，已降级为系统自动生成的要点摘要。"]
     if warnings:
-        parts.append("**关键预警**")
-        for w in warnings:
-            parts.append(f"- {w['icon']} {w['type']}{w['level']}：{w['detail']}")
+        lines = [f"- {w['icon']} {w['type']}{w['level']}：{w['detail']}" for w in warnings]
+        parts.append("【关键预警】\n" + "\n".join(lines))
     else:
-        parts.append("**关键预警**：未检测到符合阈值的事件。")
-
+        parts.append("【关键预警】\n未检测到符合阈值的事件。")
     if coupling:
-        parts.append("**耦合风险**")
-        for c in coupling:
-            parts.append(f"- {c['icon']} {c['type']}（{c['severity']}）：{c['detail']}")
-
+        lines = [f"- {c['icon']} {c['type']}（{c['severity']}）：{c['detail']}" for c in coupling]
+        parts.append("【多要素耦合风险】\n" + "\n".join(lines))
+    aq_lines = []
     if aq:
-        parts.append(
-            f"**空气质量**：AQI {aq['aqi']}（{aq['level']}），首要污染物 {aq.get('primary') or '无'}。"
+        aq_lines.append(f"观测：AQI {aq['aqi']}（{aq['level']}），首要污染物 {aq.get('primary') or '无'}。")
+    if aq_nwp:
+        aq_lines.append(
+            f"数值预报：峰值 AQI {aq_nwp['peak_aqi']}（{aq_nwp['peak_time']}），"
+            f"均值 {aq_nwp['mean_aqi']:.0f}，首要污染物 {aq_nwp['primary']}。"
         )
-    return "\n".join(parts)
+    if aq_lines:
+        parts.append("【空气质量】\n" + "\n".join(aq_lines))
+    return "\n\n".join(parts)
+
+
+# ============================================================
+# 三·五、报告排版与导出（学术白底，网页/文件 1:1）
+# ============================================================
+def _parse_sections(text):
+    """按 【标题】 切片为 [(title, body), ...]；无标记则整体作为「解读摘要」。"""
+    parts = re.split(r"【([^】]{1,24})】", text)
+    sections = []
+    preamble = parts[0].strip()
+    if preamble:
+        sections.append(("解读摘要", preamble))
+    for i in range(1, len(parts), 2):
+        title = parts[i].strip()
+        body = parts[i + 1].strip() if i + 1 < len(parts) else ""
+        if title:
+            sections.append((title, body))
+    return sections
+
+
+def _build_meta(detection):
+    """推导数据范围与生成时间。"""
+    has_nwp = detection.get("nwp") is not None
+    has_obs = (
+        detection.get("air_quality") is not None
+        or detection.get("wind_obs") is not None
+        or any(w.get("type") != "数值预报" for w in detection.get("warnings", []))
+    )
+    if has_nwp and has_obs:
+        scope = "观测数据 + 数值预报（GFS）"
+    elif has_nwp:
+        scope = "数值预报（GFS）"
+    else:
+        scope = "观测数据"
+    return {"scope": scope, "generated": datetime.now().strftime("%Y-%m-%d %H:%M")}
+
+
+_CSS = """
+.report-card{background:#ffffff;color:#1f2933;border:1px solid #e2e8f0;
+  border-radius:10px;padding:20px 24px;margin:10px 0;
+  box-shadow:0 1px 3px rgba(15,23,42,.10);
+  font-family:"Microsoft YaHei","PingFang SC","Source Han Sans SC",sans-serif;
+  line-height:1.75;}
+.report-head{border-bottom:2px solid #1f4e79;padding-bottom:8px;margin-bottom:14px;}
+.report-title{font-size:20px;font-weight:700;color:#1f4e79;letter-spacing:1px;}
+.report-sub{font-size:12px;color:#64748b;margin-top:4px;}
+.sec{margin:14px 0;}
+.sec-h{font-size:15px;font-weight:700;color:#1f4e79;
+  border-left:4px solid #1f4e79;padding-left:10px;margin-bottom:6px;}
+.report-card p{margin:4px 0;font-size:14px;color:#27303a;}
+"""
+
+
+def _report_html(sections, meta):
+    """生成学术风报告 HTML（白底深蓝标题，强制浅色，独立于 app 主题）。"""
+    body_html = ""
+    for title, body in sections:
+        paras = [p for p in body.split("\n") if p.strip()]
+        if not paras:
+            continue
+        p_html = "".join(f"<p>{html.escape(p)}</p>" for p in paras)
+        body_html += (
+            f'<div class="sec"><div class="sec-h">{html.escape(title)}</div>{p_html}</div>'
+        )
+    return (
+        f'<div class="report-card">'
+        f'<div class="report-head">'
+        f'<div class="report-title">气象智能解读报告</div>'
+        f'<div class="report-sub">生成时间：{html.escape(meta["generated"])}'
+        f'　｜　数据范围：{html.escape(meta["scope"])}</div>'
+        f"</div>{body_html}</div>"
+        f"<style>{_CSS}</style>"
+    )
+
+
+def _set_cjk(run, font="Microsoft YaHei"):
+    """为 run 设置中日韩字体（解决 docx 中文宋体回退问题）。"""
+    from docx.oxml.ns import qn
+    run.font.name = font
+    rpr = run._element.get_or_add_rPr()
+    rfonts = rpr.find(qn("w:rFonts"))
+    if rfonts is None:
+        rfonts = rpr.makeelement(qn("w:rFonts"), {})
+        rpr.append(rfonts)
+    rfonts.set(qn("w:eastAsia"), font)
+    rfonts.set(qn("w:ascii"), font)
+    rfonts.set(qn("w:hAnsi"), font)
+
+
+def _build_docx(sections, meta):
+    """同内容导出为 .docx（学术白底版式）。"""
+    from docx import Document
+    from docx.shared import Pt, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+    doc = Document()
+    normal = doc.styles["Normal"]
+    normal.font.size = Pt(11)
+    normal.font.name = "Microsoft YaHei"
+    from docx.oxml.ns import qn
+    normal.element.rPr.rFonts.set(qn("w:eastAsia"), "Microsoft YaHei")
+
+    title = doc.add_heading("气象智能解读报告", level=0)
+    for r in title.runs:
+        _set_cjk(r)
+    sub = doc.add_paragraph()
+    srun = sub.add_run(f"生成时间：{meta['generated']}    数据范围：{meta['scope']}")
+    srun.font.size = Pt(9)
+    srun.font.color.rgb = RGBColor(0x64, 0x74, 0x8B)
+    _set_cjk(srun)
+
+    for title_txt, body in sections:
+        h = doc.add_heading(title_txt, level=1)
+        for r in h.runs:
+            _set_cjk(r)
+        for p in body.split("\n"):
+            if p.strip():
+                para = doc.add_paragraph(p.strip())
+                for r in para.runs:
+                    _set_cjk(r)
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf.getvalue()
 
 
 # ============================================================
 # 四、UI 渲染入口
 # ============================================================
+def _display_report(text, detection):
+    """统一渲染：美化 HTML 卡片 + .docx 下载按钮。"""
+    meta = st.session_state.get("ai_narrative_meta") or _build_meta(detection)
+    sections = _parse_sections(text)
+    st.markdown(_report_html(sections, meta), unsafe_allow_html=True)
+
+    try:
+        docx_bytes = _build_docx(sections, meta)
+        st.download_button(
+            label="⬇ 下载报告 (.docx)",
+            data=docx_bytes,
+            file_name="气象智能解读报告.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            key="ai_download_docx",
+        )
+    except Exception as e:  # noqa: BLE001 - 导出失败不影响展示
+        st.warning(f"报告生成成功，但 .docx 导出失败：{e}")
+
+
 def render_ai_block():
     """检测 Tab 末尾的 AI 解读块。依赖 session_state['detection_result']。"""
     detection = st.session_state.get("detection_result")
@@ -292,11 +443,13 @@ def render_ai_block():
                 prompt = build_prompt(detection)
                 text = call_llm(prompt, api_key)
                 st.session_state["ai_narrative_text"] = text
+                st.session_state["ai_narrative_meta"] = _build_meta(detection)
             except Exception as e:  # noqa: BLE001 - 任何失败都降级，不阻断
-                st.error(f"AI 生成失败：{e}")
-                st.markdown(build_fallback_markdown(detection))
-                return
+                st.error(f"AI 生成失败，已降级为结构化摘要：{e}")
+                text = build_fallback_markdown(detection)
+                st.session_state["ai_narrative_text"] = text
+                st.session_state["ai_narrative_meta"] = _build_meta(detection)
 
     cached = st.session_state.get("ai_narrative_text")
     if cached:
-        st.markdown(cached)
+        _display_report(cached, detection)
