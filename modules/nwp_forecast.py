@@ -306,10 +306,12 @@ def _iaqi(c, bp, iaqi_nodes):
     if c <= 0:
         return 0.0
     if c >= bp[-1]:
-        # 超出末档：按最后两段线性外推（端点使用本污染物自身的 IAQI 节点）
+        # 超出末档：按最后两段线性外推，端点用本污染物自身的 IAQI 节点。
+        # 同时钳制在本污染物最大 IAQI 节点，防止极端数据/单位错位导致数字爆炸。
         c_lo, c_hi = bp[-2], bp[-1]
         i_lo, i_hi = iaqi_nodes[-2], iaqi_nodes[-1]
-        return (i_hi - i_lo) / (c_hi - c_lo) * (c - c_lo) + i_lo
+        extrapolated = (i_hi - i_lo) / (c_hi - c_lo) * (c - c_lo) + i_lo
+        return min(extrapolated, iaqi_nodes[-1])
     for i in range(len(bp) - 1):
         if c <= bp[i + 1]:
             c_lo, c_hi = bp[i], bp[i + 1]
@@ -381,10 +383,23 @@ def fetch_air_quality(lat, lon, days=7):
             "so2": h.get("sulphur_dioxide"),
             "o3": h.get("ozone"),
         })
-        # 逐行计算国标 AQI（A 方案：逐时近似）
+        # 逐行计算国标 AQI（A 方案：逐时近似）。
+        # 注意：Open-Meteo 的 CO 返回单位是 μg/m³，而国标 HJ633 CO 限值表用 mg/m³，
+        # 必须 ÷1000 换算，否则 CO 的 IAQI 会放大 1000 倍、AQI 直接破千。
+        def _co_mgm3(v):
+            if v is None:
+                return None
+            try:
+                if np.isnan(v):
+                    return None
+            except (TypeError, ValueError):
+                return None
+            return float(v) / 1000.0
+
         res = df.apply(
             lambda r: _compute_cn_aqi({
-                "pm2_5": r["pm2_5"], "pm10": r["pm10"], "co": r["co"],
+                "pm2_5": r["pm2_5"], "pm10": r["pm10"],
+                "co": _co_mgm3(r["co"]),
                 "no2": r["no2"], "so2": r["so2"], "o3": r["o3"]}),
             axis=1, result_type="expand",
         )
@@ -395,9 +410,11 @@ def fetch_air_quality(lat, lon, days=7):
         current = None
         cur = data.get("current")
         if cur:
+            _co_raw = cur.get("carbon_monoxide")
             current = {
                 "pm2_5": cur.get("pm2_5"), "pm10": cur.get("pm10"),
-                "co": cur.get("carbon_monoxide"), "no2": cur.get("nitrogen_dioxide"),
+                "co": (float(_co_raw) / 1000.0) if _co_raw is not None else None,
+                "no2": cur.get("nitrogen_dioxide"),
                 "so2": cur.get("sulphur_dioxide"), "o3": cur.get("ozone"),
             }
         st.session_state[cache_key] = (datetime.now(timezone.utc), df, current)
