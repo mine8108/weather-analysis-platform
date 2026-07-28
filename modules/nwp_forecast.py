@@ -253,25 +253,31 @@ def _fetch_gfs_current(lat, lon, model="gfs_seamless"):
 # 二-2、空气质量预报 (Open-Meteo Air Quality API / CAMS)
 # ============================================================
 
-# 国标 HJ 633-2012 IAQI 节点
-_IAQI_NODES = [0, 50, 100, 150, 200, 300, 400, 500]
-# 各污染物浓度限值（与 IAQI 节点位置对应）。
-# PM2.5/PM10 用 24h 均值表（A 方案：逐时近似，见下方说明）；气态污染物用 1h 表。
+# 国标 HJ 633-2012：每种污染物自带「浓度限值表 + 对应 IAQI 节点」，
+# 节点必须与限值位置一一对应（PM2.5/PM10/CO 共 8 档对应 IAQI 0–500；
+# SO2/NO2/O3 仅 5 档对应 IAQI 0–200）。先前共用一份 8 节点数组导致
+# SO2/NO2/O3 外推时把 IAQI 端点错位到 150/500，斜率爆炸、AQI 飙到 500+。
 _PM25_BP = [0, 35, 75, 115, 150, 250, 350, 500]      # μg/m³
+_PM25_I  = [0, 50, 100, 150, 200, 300, 400, 500]
 _PM10_BP = [0, 50, 150, 250, 350, 420, 500, 600]     # μg/m³
+_PM10_I  = [0, 50, 100, 150, 200, 300, 400, 500]
 _SO2_BP  = [0, 150, 500, 650, 800]                    # μg/m³, 1h
+_SO2_I   = [0, 50, 100, 150, 200]
 _NO2_BP  = [0, 100, 200, 700, 1200]                   # μg/m³, 1h
+_NO2_I   = [0, 50, 100, 150, 200]
 _CO_BP   = [0, 5, 10, 35, 60, 90, 120, 150]           # mg/m³, 1h
+_CO_I    = [0, 50, 100, 150, 200, 300, 400, 500]
 _O3_BP   = [0, 160, 200, 300, 400]                    # μg/m³, 1h
+_O3_I    = [0, 50, 100, 150, 200]
 
-# (df 列名, 中文标签, 限值表)
+# (df 列名, 中文标签, 限值表, IAQI 节点)
 _AQ_POLLUTANTS = [
-    ("pm2_5", "PM2.5", _PM25_BP),
-    ("pm10", "PM10", _PM10_BP),
-    ("so2", "SO₂", _SO2_BP),
-    ("no2", "NO₂", _NO2_BP),
-    ("co", "CO", _CO_BP),
-    ("o3", "O₃", _O3_BP),
+    ("pm2_5", "PM2.5", _PM25_BP, _PM25_I),
+    ("pm10",  "PM10",  _PM10_BP, _PM10_I),
+    ("so2",   "SO₂",   _SO2_BP,  _SO2_I),
+    ("no2",   "NO₂",   _NO2_BP,  _NO2_I),
+    ("co",    "CO",    _CO_BP,   _CO_I),
+    ("o3",    "O₃",    _O3_BP,   _O3_I),
 ]
 
 # 国标六级 (AQI 区间, 等级, 颜色)
@@ -285,8 +291,10 @@ _AQ_LEVELS = [
 ]
 
 
-def _iaqi(c, bp):
-    """单污染物分指数 IAQI。c 为浓度（与 bp 单位一致），bp 为限值表。"""
+def _iaqi(c, bp, iaqi_nodes):
+    """单污染物分指数 IAQI。
+    c 为浓度（与 bp 单位一致），bp 为限值表，iaqi_nodes 为本污染物对应的 IAQI 节点。
+    """
     if c is None:
         return None
     try:
@@ -298,14 +306,14 @@ def _iaqi(c, bp):
     if c <= 0:
         return 0.0
     if c >= bp[-1]:
-        # 超出末档：按最后两段线性外推（IAQI > 末节点）
+        # 超出末档：按最后两段线性外推（端点使用本污染物自身的 IAQI 节点）
         c_lo, c_hi = bp[-2], bp[-1]
-        i_lo, i_hi = _IAQI_NODES[len(bp) - 2], _IAQI_NODES[-1]
+        i_lo, i_hi = iaqi_nodes[-2], iaqi_nodes[-1]
         return (i_hi - i_lo) / (c_hi - c_lo) * (c - c_lo) + i_lo
     for i in range(len(bp) - 1):
         if c <= bp[i + 1]:
             c_lo, c_hi = bp[i], bp[i + 1]
-            i_lo, i_hi = _IAQI_NODES[i], _IAQI_NODES[i + 1]
+            i_lo, i_hi = iaqi_nodes[i], iaqi_nodes[i + 1]
             return (i_hi - i_lo) / (c_hi - c_lo) * (c - c_lo) + i_lo
     return None
 
@@ -317,8 +325,8 @@ def _compute_cn_aqi(conc):
     牺牲部分严谨度换取与 GFS 逐时曲线对齐；气态污染物用 1h 表，正确。
     """
     iaqis = []
-    for key, label, bp in _AQ_POLLUTANTS:
-        ia = _iaqi(conc.get(key), bp)
+    for key, label, bp, iaqi_nodes in _AQ_POLLUTANTS:
+        ia = _iaqi(conc.get(key), bp, iaqi_nodes)
         if ia is not None:
             iaqis.append((ia, label))
     if not iaqis:
