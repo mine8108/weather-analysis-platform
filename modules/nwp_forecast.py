@@ -62,13 +62,17 @@ _FC_HOURLY = [
 # ============================================================
 
 
+# 数据 schema 版本：列集合变化时递增，使旧缓存（如缺 wind_direction 列）失效强制重拉
+_GFS_FC_SCHEMA_VERSION = "v3"
+
+
 def _gfs_forecast_cache_key(lat, lon, days, model, window=None):
     """基于请求参数生成短周期缓存 key（避免同一参数反复触发限流）。
     window: 形如 'YYYYmmdd_YYYYmmdd' 的过去窗口标识（hindcast 验证用）。
     """
     model_part = model if model else "blend"
     wpart = window if window else f"d{int(days)}"
-    return f"gfs_fc_cache_{lat:.4f}_{lon:.4f}_{wpart}_{model_part}"
+    return f"gfs_fc_cache_{_GFS_FC_SCHEMA_VERSION}_{lat:.4f}_{lon:.4f}_{wpart}_{model_part}"
 
 
 # TTL：缓存 1 小时内有效（GFS 约每小时更新一次）
@@ -141,8 +145,9 @@ def fetch_gfs_forecast(lat, lon, days=7, model="gfs_seamless",
     三级缓存：① 会话内 session_state → ② Supabase 跨用户/跨重启 → ③ Open-Meteo 实时请求。
     返回 (DataFrame, error_msg)。成功时 error_msg 为 None。
     DataFrame 含标准字段：timestamp, temperature, humidity,
-    apparent_temperature, precipitation, wind_speed, weather_code, station_id。
-    （均衡集：保留核心四要素 + 湿度 + 风速；气压/云量/风向由空间图独立请求）
+    apparent_temperature, precipitation, wind_speed, wind_direction,
+    weather_code, station_id。
+    （均衡集：保留核心四要素 + 湿度 + 风速 + 风向；气压/云量由空间图独立请求）
 
     hindcast 验证：传入 start_date / end_date（YYYY-MM-DD）时，改用 Open-Meteo
     的历史窗口（仍走 forecast 端点，返回该窗口模式最优估计），用于「预报验证」模块
@@ -818,6 +823,9 @@ def _wind_rose_chart(fdf, dark=None):
     if dark is None:
         dark = _is_dark()
     if fdf is None or fdf.empty:
+        return None, None
+    # 防御：列缺失（如旧缓存 fdf 不含 wind_direction）直接降级，避免 KeyError 崩块
+    if "wind_direction" not in fdf.columns or "wind_speed" not in fdf.columns:
         return None, None
     valid = fdf.dropna(subset=["wind_direction", "wind_speed"])
     if valid.empty:
