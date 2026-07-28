@@ -53,23 +53,23 @@ def compute_metrics(merged, var_names=None):
     """对每变量计算 MAE / RMSE / Bias / 相关系数 r。
 
     merged: align_obs_fc 的输出（含 <var>_obs / <var>_fc 列）。
-    var_names: 指定变量；默认取所有含 _obs 后缀且存在对应 _fc 的变量。
-    返回 {var: {mae, rmse, bias, r, n}}，样本不足时指标为 NaN。
+    var_names: 指定变量；默认取 VERIFY_VARS 中的标准变量。
+    返回 {var: {mae, rmse, bias, r, n}}，样本不足或无法数值化时指标为 NaN。
     """
     if var_names is None:
-        var_names = [
-            c[:-4] for c in merged.columns
-            if c.endswith("_obs") and f"{c[:-4]}_fc" in merged.columns
-            and c[:-4] != "timestamp"
-        ]
+        var_names = list(VERIFY_VARS)
 
     out = {}
     for v in var_names:
         oc, fc = f"{v}_obs", f"{v}_fc"
         if oc not in merged.columns or fc not in merged.columns:
             continue
-        o = merged[oc].to_numpy(dtype=float)
-        f = merged[fc].to_numpy(dtype=float)
+        try:
+            o = merged[oc].to_numpy(dtype=float)
+            f = merged[fc].to_numpy(dtype=float)
+        except (ValueError, TypeError):
+            # 列含非数值（如 Open-Meteo 的 station_id 字符串 'API(...)'），跳过该变量
+            continue
         mask = np.isfinite(o) & np.isfinite(f)
         n = int(mask.sum())
         if n < 2:
