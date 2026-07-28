@@ -518,6 +518,7 @@ def _render_nwp_analysis_section(nwp_df):
             st.warning(a)
     else:
         st.success("预报期内无明显极端天气风险。")
+    return advices
 
 
 def _render_trend_section(df):
@@ -754,13 +755,37 @@ def render_analysis_tab(df):
     """渲染智能分析 Tab"""
     st.subheader("[检测] 智能分析与建议")
 
-    if df is None or df.empty:
+    nwp_df = st.session_state.get("nwp_forecast_for_analysis")
+    has_df = df is not None and not df.empty
+    has_nwp = nwp_df is not None and not nwp_df.empty
+
+    if not has_df and not has_nwp:
         st.info("请先导入数据")
         if st.button("← 返回导入", key="analyzer_back"):
             stack = st.session_state.get("_nav_stack", [])
             st.session_state["active_tab"] = stack.pop() if stack else 0
             st.session_state["_nav_stack"] = stack
             st.rerun()
+        return
+
+    # 仅数值预报模式（未导入观测数据，但有 GFS 预报）
+    if not has_df and has_nwp:
+        st.info("未导入观测数据，以下分析仅基于数值预报。")
+        st.write("---")
+        st.write("### [预报] 数值预报驱动分析")
+        st.caption("以下分析基于 Open-Meteo 数值预报模型数据")
+        nwp_advices = _render_nwp_analysis_section(nwp_df) or []
+        st.session_state["detection_result"] = {
+            "warnings": [
+                {"type": "数值预报", "level": "", "level_num": "",
+                 "detail": a, "icon": "🌐"}
+                for a in nwp_advices
+            ],
+            "coupling": [],
+            "air_quality": None,
+        }
+        from modules.ai_narrative import render_ai_block
+        render_ai_block()
         return
 
     # ----- 事件检测 -----
@@ -892,12 +917,12 @@ def render_analysis_tab(df):
     _render_trend_section(df)
 
     # ----- 数值预报驱动分析 (P1) -----
-    nwp_df = st.session_state.get("nwp_forecast_for_analysis")
+    nwp_advices = []
     if nwp_df is not None:
         st.write("---")
         st.write("### [预报] 数值预报驱动分析")
         st.caption("以下分析基于 Open-Meteo 数值预报模型数据")
-        _render_nwp_analysis_section(nwp_df)
+        nwp_advices = _render_nwp_analysis_section(nwp_df) or []
 
     # ----- 综合建议 -----
     st.write("---")
@@ -906,7 +931,11 @@ def render_analysis_tab(df):
     # ----- AI 智能预警解读（C 方案）-----
     air_quality = check_air_quality(df) if has_pollution else None
     st.session_state["detection_result"] = {
-        "warnings": all_warnings,
+        "warnings": all_warnings + [
+            {"type": "数值预报", "level": "", "level_num": "",
+             "detail": a, "icon": "🌐"}
+            for a in nwp_advices
+        ],
         "coupling": coupling,
         "air_quality": air_quality,
     }
