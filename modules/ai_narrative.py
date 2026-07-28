@@ -25,7 +25,11 @@ def build_prompt(detection):
     {
         "warnings":   [ {type, level, level_num, detail, icon}, ... ],   # 8 类国标事件
         "coupling":   [ {type, severity, detail, icon}, ... ],          # 耦合风险
-        "air_quality": {aqi, primary, level, color, advice, details} | None,
+        "air_quality": {aqi, primary, level, color, advice, details} | None,   # 观测污染物
+        "air_quality_nwp": {peak_aqi, peak_time, mean_aqi, primary, pollutants, good_hours, bad_hours} | None,
+        "wind_nwp":   {dominant, dominant_pct, calm_pct, max_wind_dir, shift} | None,  # 数值预报风况
+        "wind_obs":   {dominant, dominant_pct, calm_pct, max_wind_dir, shift} | None,  # 观测风况
+        "nwp":        {...} | None,
     }
     返回: 纯文本提示词（含系统指令 + 结构化数据）
     """
@@ -48,8 +52,8 @@ def build_prompt(detection):
         + nwp_hint
     )
     sections.append(
-        "要求：中文，简洁专业，300-400 字；按【总体概览】【关键预警】"
-        "【多要素耦合风险】【空气质量】【综合建议】五段组织；"
+        "要求：中文，简洁专业，400-500 字；按【总体概览】【关键预警】"
+        "【多要素耦合风险】【风况】【空气质量】【综合建议】六段组织；"
         "若无某项风险，明确说明“未检测到”；"
         "必须严格基于下方给出的具体数值、出现时刻与时段进行解读；"
         "不得编造任何数据；不得将短期预报外推为气候趋势或长期预测；"
@@ -73,7 +77,36 @@ def build_prompt(detection):
     else:
         sections.append("【多要素耦合风险】\n未检测到显著的多要素耦合风险。")
 
-    # 空气质量
+    # 风况（合并数值预报与观测风向）
+    wind_nwp = detection.get("wind_nwp")
+    wind_obs = detection.get("wind_obs")
+    wind_lines = []
+    if wind_nwp:
+        wn = [f"数值预报主导风向：{wind_nwp['dominant']}风（占比 {wind_nwp['dominant_pct']}%）"]
+        if wind_nwp.get("max_wind_dir"):
+            wn.append(f"最大风速时段风向：{wind_nwp['max_wind_dir']}风")
+        if wind_nwp.get("calm_pct"):
+            wn.append(f"静风占比 {wind_nwp['calm_pct']}%")
+        if wind_nwp.get("shift"):
+            wn.append("预报期内风向发生明显转变（前后段主导风向不同）")
+        wind_lines.append("【数值预报】" + "；".join(wn) + "。")
+    if wind_obs:
+        wo = [f"观测主导风向：{wind_obs['dominant']}风（占比 {wind_obs['dominant_pct']}%）"]
+        if wind_obs.get("max_wind_dir"):
+            wo.append(f"最大风速时段风向：{wind_obs['max_wind_dir']}风")
+        if wind_obs.get("calm_pct"):
+            wo.append(f"静风占比 {wind_obs['calm_pct']}%")
+        if wind_obs.get("shift"):
+            wo.append("观测期内风向发生明显转变")
+        wind_lines.append("【观测数据】" + "；".join(wo) + "。")
+    if wind_lines:
+        sections.append("【风况】\n" + "\n".join(wind_lines))
+    else:
+        sections.append("【风况】\n当前数据未含风向字段，无法评估风况。")
+
+    # 空气质量（合并观测与数值预报）
+    aq_nwp = detection.get("air_quality_nwp")
+    aq_lines = []
     if aq:
         details = aq.get("details", []) or []
         d_lines = [
@@ -81,11 +114,20 @@ def build_prompt(detection):
             f"{'（超标）' if (d.get('exceed_daily') or d.get('exceed_hourly')) else ''}"
             for d in details
         ]
-        aq_text = (
-            f"综合 AQI {aq['aqi']}，等级 {aq['level']}，首要污染物 {aq.get('primary') or '无'}。\n"
+        aq_lines.append(
+            f"观测数据：综合 AQI {aq['aqi']}，等级 {aq['level']}，首要污染物 {aq.get('primary') or '无'}。\n"
             + "\n".join(d_lines)
         )
-        sections.append("【空气质量】\n" + aq_text)
+    if aq_nwp:
+        nwp_p = "；".join(aq_nwp.get("pollutants", [])) if aq_nwp.get("pollutants") else "无逐污染物明细"
+        aq_lines.append(
+            f"数值预报：峰值 AQI {aq_nwp['peak_aqi']}（{aq_nwp['peak_time']}），"
+            f"均值 {aq_nwp['mean_aqi']:.0f}，首要污染物 {aq_nwp['primary']}；"
+            f"优良时段 {aq_nwp['good_hours']} 小时、污染时段（AQI>100）{aq_nwp['bad_hours']} 小时。"
+            f"逐污染物：{nwp_p}。"
+        )
+    if aq_lines:
+        sections.append("【空气质量】\n" + "\n".join(aq_lines))
     else:
         sections.append("【空气质量】\n当前数据未含大气污染物字段，无法评估空气质量。")
 
@@ -119,6 +161,16 @@ def build_prompt(detection):
                 f"风速：最大 {w['max']}m/s（{w['max_time']}），"
                 f"≥6 级（10.8m/s）{w['gale_hours']} 小时，≥5 级（8m/s）{w['strong_hours']} 小时。"
             )
+        nwp_wind = nwp.get("wind")
+        if nwp_wind:
+            wind_fact = f"风向：主导 {nwp_wind['dominant']}风（占比 {nwp_wind['dominant_pct']}%）"
+            if nwp_wind.get("max_wind_dir"):
+                wind_fact += f"，最大风速时段 {nwp_wind['max_wind_dir']}风"
+            if nwp_wind.get("calm_pct"):
+                wind_fact += f"，静风占比 {nwp_wind['calm_pct']}%"
+            if nwp_wind.get("shift"):
+                wind_fact += "，预报期内风向明显转变"
+            fact_lines.append(wind_fact + "。")
         segs = nwp.get("segments", [])
         if segs:
             seg_text = "；".join(
@@ -130,6 +182,14 @@ def build_prompt(detection):
         nwp_coupling = nwp.get("coupling", [])
         if nwp_coupling:
             fact_lines.append("多要素耦合： " + "；".join(nwp_coupling) + "。")
+        if aq_nwp:
+            nwp_p = "；".join(aq_nwp.get("pollutants", [])) or "无"
+            fact_lines.append(
+                f"空气质量预报：峰值 AQI {aq_nwp['peak_aqi']}（{aq_nwp['peak_time']}），"
+                f"均值 {aq_nwp['mean_aqi']:.0f}，首要污染物 {aq_nwp['primary']}；"
+                f"优良 {aq_nwp['good_hours']}h / 污染(AQI>100) {aq_nwp['bad_hours']}h；"
+                f"逐污染物：{nwp_p}。"
+            )
         alerts = nwp.get("alerts", [])
         if alerts:
             al_text = "；".join(f"{a['type']}{a['level']}（依据：{a['basis']}）" for a in alerts)

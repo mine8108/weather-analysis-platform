@@ -2066,8 +2066,11 @@ def render_forecast_tab():
     aq_df, aq_cur, aq_err = fetch_air_quality(lat, lon, _aq_days)
     if aq_err:
         st.warning(aq_err)
+        st.session_state["nwp_air_quality_for_analysis"] = None
     else:
         safe_chart(air_quality_aqi_chart(aq_df), "空气质量 AQI 预报", key="fc_aqi")
+        # 接入检测 Tab 的 AI 解读（预报模式也能解读空气质量）
+        st.session_state["nwp_air_quality_for_analysis"] = aq_df
     st.caption(
         "数据来源：CAMS 全球大气成分预报（Open-Meteo Air Quality API，最长 7 天）。"
         "国标等级按 HJ 633-2012 计算，PM2.5/PM10 采用逐时近似。"

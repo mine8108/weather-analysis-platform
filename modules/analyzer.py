@@ -463,6 +463,115 @@ def _render_air_quality_section(df):
             st.write(f"- {e['label']}: 均 {e['avg']} μg/m³ / 峰 {e['max']} μg/m³ (超过{e['limit']} 的{limit_type}限值)")
 
 
+# ============================================================
+# 风向 / 空气质量 辅助（供 AI 精确解读）
+# ============================================================
+_WD_16 = ["北", "北东北", "东北", "东东北", "东", "东东南", "东南", "南东南",
+          "南", "南西南", "西南", "西西南", "西", "西西北", "西北", "北西北"]
+
+
+def _fmt_ts(ts):
+    """datetime -> 'MM-DD HH:MM' 紧凑字符串。"""
+    import pandas as pd
+    return pd.Timestamp(ts).strftime("%m-%d %H:%M")
+
+
+def _wd_name(deg):
+    """ degrees -> 16 方位中文名（风向指来向）。"""
+    if deg is None or (isinstance(deg, float) and pd.isna(deg)):
+        return None
+    deg = float(deg) % 360.0
+    idx = int((deg + 11.25) // 22.5) % 16
+    return _WD_16[idx]
+
+
+def _build_wind_summary(df):
+    """从含 wind_direction(+wind_speed) 的 DataFrame 提取风况事实。
+
+    产出：主导风向(中文)/占比、静风占比、最大风速时风向、前后段是否转向。
+    无 wind_direction 列时返回 None。
+    """
+    import numpy as np
+    import pandas as pd
+    if df is None or "wind_direction" not in df.columns:
+        return None
+    sub = df[["wind_direction"]].copy()
+    if "wind_speed" in df.columns:
+        sub["wind_speed"] = df["wind_speed"]
+    sub = sub.dropna(subset=["wind_direction"])
+    if len(sub) == 0:
+        return None
+
+    wd = sub["wind_direction"].values.astype(float)
+    idxs = (((wd + 11.25) // 22.5) % 16).astype(int)
+    counts = np.bincount(idxs, minlength=16)
+    dom_i = int(counts.argmax())
+    dom_pct = round(100.0 * counts[dom_i] / len(wd), 1)
+
+    calm_pct = 0.0
+    max_wind_dir = None
+    if "wind_speed" in sub.columns:
+        ws = sub["wind_speed"].fillna(0.0).values.astype(float)
+        calm = int((ws < 0.5).sum())
+        calm_pct = round(100.0 * calm / len(wd), 1)
+        if len(ws):
+            iw = int(np.argmax(ws))
+            max_wind_dir = _wd_name(wd[iw])
+
+    # 前后半段主导风向是否转变
+    shift = False
+    half = len(wd) // 2
+    if half > 5:
+        c1 = np.bincount(idxs[:half], minlength=16).argmax()
+        c2 = np.bincount(idxs[half:], minlength=16).argmax()
+        shift = (c1 != c2)
+
+    return {
+        "dominant": _WD_16[dom_i],
+        "dominant_pct": float(dom_pct),
+        "calm_pct": float(calm_pct),
+        "max_wind_dir": max_wind_dir,
+        "shift": bool(shift),
+    }
+
+
+def _build_aq_summary(aq_df):
+    """从 GFS 空气质量预报 DataFrame 提取结构化事实（国标 AQI）。
+
+    产出：峰值AQI+时刻、均值AQI、首要污染物、逐污染物均值/峰值、优良/污染小时数。
+    无 aqi 列或空时返回 None。
+    """
+    import pandas as pd
+    if aq_df is None or aq_df.empty or "aqi" not in aq_df.columns:
+        return None
+    a = aq_df.copy()
+    if not pd.api.types.is_datetime64_any_dtype(a["timestamp"]):
+        a["timestamp"] = pd.to_datetime(a["timestamp"])
+    aqi = a["aqi"].dropna()
+    if len(aqi) == 0:
+        return None
+
+    ipeak = aqi.idxmax()
+    pollutants = []
+    for f, label in [("pm2_5", "PM2.5"), ("pm10", "PM10"),
+                     ("no2", "NO₂"), ("so2", "SO₂"), ("o3", "O₃")]:
+        if f in a.columns:
+            col = a[f].dropna()
+            if len(col):
+                pollutants.append(f"{label} 均值 {col.mean():.0f}/峰值 {col.max():.0f} μg/m³")
+
+    primary = a.loc[ipeak, "primary"] if "primary" in a.columns else None
+    return {
+        "peak_aqi": int(aqi.max()),
+        "peak_time": _fmt_ts(a.loc[ipeak, "timestamp"]),
+        "mean_aqi": round(float(aqi.mean()), 0),
+        "primary": primary or "无",
+        "pollutants": pollutants,
+        "good_hours": int((aqi <= 50).sum()),
+        "bad_hours": int((aqi > 100).sum()),
+    }
+
+
 def _build_nwp_summary(nwp_df):
     """从 GFS 预报 DataFrame 提取结构化事实，供 AI 精确解读。
 
@@ -479,13 +588,10 @@ def _build_nwp_summary(nwp_df):
     if not pd.api.types.is_datetime64_any_dtype(df["timestamp"]):
         df["timestamp"] = pd.to_datetime(df["timestamp"])
 
-    def _fmt(ts):
-        return pd.Timestamp(ts).strftime("%m-%d %H:%M")
-
     s = {
         "period": {
-            "start": _fmt(df["timestamp"].min()),
-            "end": _fmt(df["timestamp"].max()),
+            "start": _fmt_ts(df["timestamp"].min()),
+            "end": _fmt_ts(df["timestamp"].max()),
             "hours": int(len(df)),
         }
     }
@@ -497,9 +603,9 @@ def _build_nwp_summary(nwp_df):
             imax, imin = t.idxmax(), t.idxmin()
             s["temperature"] = {
                 "max": round(float(t.max()), 1),
-                "max_time": _fmt(df.loc[imax, "timestamp"]),
+                "max_time": _fmt_ts(df.loc[imax, "timestamp"]),
                 "min": round(float(t.min()), 1),
-                "min_time": _fmt(df.loc[imin, "timestamp"]),
+                "min_time": _fmt_ts(df.loc[imin, "timestamp"]),
                 "mean": round(float(t.mean()), 1),
                 "hot_hours": int((t >= 35).sum()),
                 "severe_hot_hours": int((t >= 37).sum()),
@@ -512,7 +618,7 @@ def _build_nwp_summary(nwp_df):
             iamax = at.idxmax()
             s["apparent_temperature"] = {
                 "max": round(float(at.max()), 1),
-                "max_time": _fmt(df.loc[iamax, "timestamp"]),
+                "max_time": _fmt_ts(df.loc[iamax, "timestamp"]),
             }
 
     # 湿度
@@ -533,7 +639,7 @@ def _build_nwp_summary(nwp_df):
             s["precipitation"] = {
                 "total": round(float(p.sum()), 1),
                 "max_1h": round(float(p.max()), 1),
-                "max_1h_time": _fmt(df.loc[ipmax, "timestamp"]),
+                "max_1h_time": _fmt_ts(df.loc[ipmax, "timestamp"]),
                 "heavy_hours": int((p > 10).sum()),
                 "rain_hours": int((p > 0.1).sum()),
             }
@@ -545,7 +651,7 @@ def _build_nwp_summary(nwp_df):
             iwmax = w.idxmax()
             s["wind_speed"] = {
                 "max": round(float(w.max()), 1),
-                "max_time": _fmt(df.loc[iwmax, "timestamp"]),
+                "max_time": _fmt_ts(df.loc[iwmax, "timestamp"]),
                 "gale_hours": int((w > 10.7).sum()),
                 "strong_hours": int((w > 8).sum()),
             }
@@ -557,7 +663,7 @@ def _build_nwp_summary(nwp_df):
         if chunk.empty:
             continue
         seg = {
-            "window": f"{_fmt(chunk['timestamp'].min())}~{_fmt(chunk['timestamp'].max())}",
+            "window": f"{_fmt_ts(chunk['timestamp'].min())}~{_fmt_ts(chunk['timestamp'].max())}",
         }
         if "temperature" in chunk:
             tt = chunk["temperature"].dropna()
@@ -582,7 +688,7 @@ def _build_nwp_summary(nwp_df):
         if len(hot):
             i = hot["temperature"].idxmax()
             coupling.append(
-                f"高温高湿闷热：{_fmt(df.loc[i, 'timestamp'])} "
+                f"高温高湿闷热：{_fmt_ts(df.loc[i, 'timestamp'])} "
                 f"T={df.loc[i, 'temperature']:.1f}℃ RH={df.loc[i, 'humidity']:.0f}%"
                 f"（体感温度偏高，注意防暑降温）"
             )
@@ -615,6 +721,7 @@ def _build_nwp_summary(nwp_df):
         elif wmax >= 10.8:
             alerts.append({"type": "大风", "level": "黄色", "basis": f"最大风速 {wmax}m/s≥10.8(6级)"})
     s["alerts"] = alerts
+    s["wind"] = _build_wind_summary(df)
 
     return s
 
@@ -931,6 +1038,9 @@ def render_analysis_tab(df):
         st.write("### [预报] 数值预报驱动分析")
         st.caption("以下分析基于 Open-Meteo 数值预报模型数据")
         nwp_advices = _render_nwp_analysis_section(nwp_df) or []
+        _nwp_summary = _build_nwp_summary(nwp_df)
+        _nwp_aq_raw = st.session_state.get("nwp_air_quality_for_analysis")
+        _nwp_aq = _build_aq_summary(_nwp_aq_raw) if _nwp_aq_raw is not None else None
         st.session_state["detection_result"] = {
             "warnings": [
                 {"type": "数值预报", "level": "", "level_num": "",
@@ -939,7 +1049,10 @@ def render_analysis_tab(df):
             ],
             "coupling": [],
             "air_quality": None,
-            "nwp": _build_nwp_summary(nwp_df),
+            "air_quality_nwp": _nwp_aq,
+            "wind_nwp": _nwp_summary.get("wind") if _nwp_summary else None,
+            "wind_obs": None,
+            "nwp": _nwp_summary,
         }
         from modules.ai_narrative import render_ai_block
         render_ai_block()
@@ -1087,6 +1200,9 @@ def render_analysis_tab(df):
 
     # ----- AI 智能预警解读（C 方案）-----
     air_quality = check_air_quality(df) if has_pollution else None
+    _nwp_summary = _build_nwp_summary(nwp_df) if nwp_df is not None else None
+    _nwp_aq_raw = st.session_state.get("nwp_air_quality_for_analysis") if nwp_df is not None else None
+    _nwp_aq = _build_aq_summary(_nwp_aq_raw) if _nwp_aq_raw is not None else None
     st.session_state["detection_result"] = {
         "warnings": all_warnings + [
             {"type": "数值预报", "level": "", "level_num": "",
@@ -1095,7 +1211,10 @@ def render_analysis_tab(df):
         ],
         "coupling": coupling,
         "air_quality": air_quality,
-        "nwp": _build_nwp_summary(nwp_df) if nwp_df is not None else None,
+        "air_quality_nwp": _nwp_aq,
+        "wind_nwp": _nwp_summary.get("wind") if _nwp_summary else None,
+        "wind_obs": _build_wind_summary(df),
+        "nwp": _nwp_summary,
     }
     from modules.ai_narrative import render_ai_block
     render_ai_block()
