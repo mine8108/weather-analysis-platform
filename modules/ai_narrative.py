@@ -32,17 +32,29 @@ def build_prompt(detection):
     warnings = detection.get("warnings", []) or []
     coupling = detection.get("coupling", []) or []
     aq = detection.get("air_quality")
+    nwp = detection.get("nwp")
 
     sections = []
+    nwp_hint = ""
+    if nwp:
+        nwp_hint = (
+            f"下面给出的全部是未来短期（{nwp['period']['hours']} 小时）"
+            "数值预报模式（GFS）的客观数据摘要，并非实测，也非气候统计。"
+        )
     sections.append(
-        "你是一名气象防灾减灾分析助手。下面是一段气象观测数据，"
+        "你是一名气象防灾减灾分析助手。下面是一段气象数据，"
         "基于中国国家标准气象预警阈值自动检测的结果。请据此生成一份"
         "面向公众与基层管理人员的自然语言解读报告。"
+        + nwp_hint
     )
     sections.append(
-        "要求：中文，简洁专业，300 字以内；按【总体概览】【关键预警】"
+        "要求：中文，简洁专业，300-400 字；按【总体概览】【关键预警】"
         "【多要素耦合风险】【空气质量】【综合建议】五段组织；"
-        "若无某项风险，明确说明“未检测到”；不要编造数据；语气客观、可操作。"
+        "若无某项风险，明确说明“未检测到”；"
+        "必须严格基于下方给出的具体数值、出现时刻与时段进行解读；"
+        "不得编造任何数据；不得将短期预报外推为气候趋势或长期预测；"
+        "涉及预警等级仅作参考提示，最终以官方气象部门发布为准；"
+        "语气客观、可操作。"
     )
 
     # 关键预警
@@ -53,8 +65,10 @@ def build_prompt(detection):
         sections.append("【关键预警】\n未检测到符合国标阈值的气象预警事件。")
 
     # 耦合风险
-    if coupling:
+    nwp_coupling_lines = (nwp or {}).get("coupling", []) if nwp else []
+    if coupling or nwp_coupling_lines:
         c_lines = [f"- {c['icon']} {c['type']}（{c['severity']}）：{c['detail']}" for c in coupling]
+        c_lines += [f"- 数值预报耦合：{c}" for c in nwp_coupling_lines]
         sections.append("【多要素耦合风险】\n" + "\n".join(c_lines))
     else:
         sections.append("【多要素耦合风险】\n未检测到显著的多要素耦合风险。")
@@ -75,7 +89,54 @@ def build_prompt(detection):
     else:
         sections.append("【空气质量】\n当前数据未含大气污染物字段，无法评估空气质量。")
 
-    sections.append("请直接输出报告正文（不要重复系统指令）。")
+    # 数值预报结构化事实（严格依据，禁止外推）
+    if nwp:
+        p = nwp.get("period", {})
+        fact_lines = [
+            f"预报时效：{p.get('start')} 至 {p.get('end')}，共 {p.get('hours')} 小时。",
+        ]
+        t = nwp.get("temperature")
+        if t:
+            fact_lines.append(
+                f"气温：最高 {t['max']}℃（{t['max_time']}），最低 {t['min']}℃（{t['min_time']}），"
+                f"平均 {t['mean']}℃；≥35℃ {t['hot_hours']} 小时，≥37℃ {t['severe_hot_hours']} 小时。"
+            )
+        at = nwp.get("apparent_temperature")
+        if at:
+            fact_lines.append(f"体感温度最高 {at['max']}℃（{at['max_time']}）。")
+        h = nwp.get("humidity")
+        if h:
+            fact_lines.append(f"相对湿度：{h['min']}%~{h['max']}%（均值 {h['mean']}%）。")
+        pr = nwp.get("precipitation")
+        if pr:
+            fact_lines.append(
+                f"降水：累计 {pr['total']}mm，最大 1 小时 {pr['max_1h']}mm（{pr['max_1h_time']}），"
+                f"降雨时段 {pr['rain_hours']} 小时，其中大雨量级（>10mm/h）{pr['heavy_hours']} 小时。"
+            )
+        w = nwp.get("wind_speed")
+        if w:
+            fact_lines.append(
+                f"风速：最大 {w['max']}m/s（{w['max_time']}），"
+                f"≥6 级（10.8m/s）{w['gale_hours']} 小时，≥5 级（8m/s）{w['strong_hours']} 小时。"
+            )
+        segs = nwp.get("segments", [])
+        if segs:
+            seg_text = "；".join(
+                f"{s['window']} 段：T∈[{s.get('min_temp','-')},{s.get('max_temp','-')}]℃"
+                f"、降水 {s.get('total_precip', 0)}mm、最大风 {s.get('max_wind', 0)}m/s"
+                for s in segs
+            )
+            fact_lines.append("分时段： " + seg_text + "。")
+        nwp_coupling = nwp.get("coupling", [])
+        if nwp_coupling:
+            fact_lines.append("多要素耦合： " + "；".join(nwp_coupling) + "。")
+        alerts = nwp.get("alerts", [])
+        if alerts:
+            al_text = "；".join(f"{a['type']}{a['level']}（依据：{a['basis']}）" for a in alerts)
+            fact_lines.append("国标等级初步判定（仅供参考）： " + al_text + "。")
+        sections.append("【数值预报事实数据】\n" + "\n".join(fact_lines))
+
+    sections.append("请直接输出报告正文（不要重复系统指令，也不要重复上述事实数据原文，应转化为连贯的自然语言解读）。")
     return "\n\n".join(sections)
 
 

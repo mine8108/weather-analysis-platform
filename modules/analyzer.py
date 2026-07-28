@@ -463,6 +463,162 @@ def _render_air_quality_section(df):
             st.write(f"- {e['label']}: 均 {e['avg']} μg/m³ / 峰 {e['max']} μg/m³ (超过{e['limit']} 的{limit_type}限值)")
 
 
+def _build_nwp_summary(nwp_df):
+    """从 GFS 预报 DataFrame 提取结构化事实，供 AI 精确解读。
+
+    产出 dict 含：时效、各要素极值+出现时刻、分时段统计、
+    多要素耦合（高温高湿闷热）、国标等级初步判定。
+    全部数值严格来自预报数据，不含外推或气候推断。
+    """
+    import numpy as np
+    import pandas as pd
+
+    if nwp_df is None or nwp_df.empty or "timestamp" not in nwp_df.columns:
+        return None
+    df = nwp_df.copy()
+    if not pd.api.types.is_datetime64_any_dtype(df["timestamp"]):
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+
+    def _fmt(ts):
+        return pd.Timestamp(ts).strftime("%m-%d %H:%M")
+
+    s = {
+        "period": {
+            "start": _fmt(df["timestamp"].min()),
+            "end": _fmt(df["timestamp"].max()),
+            "hours": int(len(df)),
+        }
+    }
+
+    # 气温
+    if "temperature" in df:
+        t = df["temperature"].dropna()
+        if len(t):
+            imax, imin = t.idxmax(), t.idxmin()
+            s["temperature"] = {
+                "max": round(float(t.max()), 1),
+                "max_time": _fmt(df.loc[imax, "timestamp"]),
+                "min": round(float(t.min()), 1),
+                "min_time": _fmt(df.loc[imin, "timestamp"]),
+                "mean": round(float(t.mean()), 1),
+                "hot_hours": int((t >= 35).sum()),
+                "severe_hot_hours": int((t >= 37).sum()),
+            }
+
+    # 体感温度
+    if "apparent_temperature" in df:
+        at = df["apparent_temperature"].dropna()
+        if len(at):
+            iamax = at.idxmax()
+            s["apparent_temperature"] = {
+                "max": round(float(at.max()), 1),
+                "max_time": _fmt(df.loc[iamax, "timestamp"]),
+            }
+
+    # 湿度
+    if "humidity" in df:
+        h = df["humidity"].dropna()
+        if len(h):
+            s["humidity"] = {
+                "max": round(float(h.max()), 1),
+                "min": round(float(h.min()), 1),
+                "mean": round(float(h.mean()), 1),
+            }
+
+    # 降水
+    if "precipitation" in df:
+        p = df["precipitation"].dropna()
+        if len(p):
+            ipmax = p.idxmax()
+            s["precipitation"] = {
+                "total": round(float(p.sum()), 1),
+                "max_1h": round(float(p.max()), 1),
+                "max_1h_time": _fmt(df.loc[ipmax, "timestamp"]),
+                "heavy_hours": int((p > 10).sum()),
+                "rain_hours": int((p > 0.1).sum()),
+            }
+
+    # 风速
+    if "wind_speed" in df:
+        w = df["wind_speed"].dropna()
+        if len(w):
+            iwmax = w.idxmax()
+            s["wind_speed"] = {
+                "max": round(float(w.max()), 1),
+                "max_time": _fmt(df.loc[iwmax, "timestamp"]),
+                "gale_hours": int((w > 10.7).sum()),
+                "strong_hours": int((w > 8).sum()),
+            }
+
+    # 分时段（每 24h 一段）
+    segs = []
+    for i in range(0, len(df), 24):
+        chunk = df.iloc[i:i + 24]
+        if chunk.empty:
+            continue
+        seg = {
+            "window": f"{_fmt(chunk['timestamp'].min())}~{_fmt(chunk['timestamp'].max())}",
+        }
+        if "temperature" in chunk:
+            tt = chunk["temperature"].dropna()
+            if len(tt):
+                seg["max_temp"] = round(float(tt.max()), 1)
+                seg["min_temp"] = round(float(tt.min()), 1)
+        if "precipitation" in chunk:
+            pp = chunk["precipitation"].dropna()
+            if len(pp):
+                seg["total_precip"] = round(float(pp.sum()), 1)
+        if "wind_speed" in chunk:
+            ww = chunk["wind_speed"].dropna()
+            if len(ww):
+                seg["max_wind"] = round(float(ww.max()), 1)
+        segs.append(seg)
+    s["segments"] = segs
+
+    # 多要素耦合：高温高湿闷热
+    coupling = []
+    if "temperature" in df and "humidity" in df:
+        hot = df[(df["temperature"] >= 33) & (df["humidity"] >= 70)]
+        if len(hot):
+            i = hot["temperature"].idxmax()
+            coupling.append(
+                f"高温高湿闷热：{_fmt(df.loc[i, 'timestamp'])} "
+                f"T={df.loc[i, 'temperature']:.1f}℃ RH={df.loc[i, 'humidity']:.0f}%"
+                f"（体感温度偏高，注意防暑降温）"
+            )
+    s["coupling"] = coupling
+
+    # 国标等级初步判定（基于预报极值，仅供参考）
+    alerts = []
+    tmax = s.get("temperature", {}).get("max")
+    if tmax is not None:
+        if tmax >= 40:
+            alerts.append({"type": "高温", "level": "红色", "basis": f"预报最高温 {tmax}℃≥40℃"})
+        elif tmax >= 37:
+            alerts.append({"type": "高温", "level": "橙色", "basis": f"预报最高温 {tmax}℃≥37℃"})
+        elif tmax >= 35:
+            alerts.append({"type": "高温", "level": "黄色", "basis": f"预报最高温 {tmax}℃≥35℃"})
+    ptotal = s.get("precipitation", {}).get("total")
+    if ptotal is not None:
+        if ptotal >= 100:
+            alerts.append({"type": "暴雨", "level": "红色", "basis": f"累计降水 {ptotal}mm≥100mm"})
+        elif ptotal >= 50:
+            alerts.append({"type": "暴雨", "level": "橙色", "basis": f"累计降水 {ptotal}mm≥50mm"})
+        elif ptotal >= 25:
+            alerts.append({"type": "暴雨", "level": "黄色", "basis": f"累计降水 {ptotal}mm≥25mm"})
+    wmax = s.get("wind_speed", {}).get("max")
+    if wmax is not None:
+        if wmax >= 24.5:
+            alerts.append({"type": "大风", "level": "红色", "basis": f"最大风速 {wmax}m/s≥24.5(10级)"})
+        elif wmax >= 17.2:
+            alerts.append({"type": "大风", "level": "橙色", "basis": f"最大风速 {wmax}m/s≥17.2(8级)"})
+        elif wmax >= 10.8:
+            alerts.append({"type": "大风", "level": "黄色", "basis": f"最大风速 {wmax}m/s≥10.8(6级)"})
+    s["alerts"] = alerts
+
+    return s
+
+
 def _render_nwp_analysis_section(nwp_df):
     """P1: 基于数值预报数据的智能分析"""
     if nwp_df is None or nwp_df.empty:
@@ -783,6 +939,7 @@ def render_analysis_tab(df):
             ],
             "coupling": [],
             "air_quality": None,
+            "nwp": _build_nwp_summary(nwp_df),
         }
         from modules.ai_narrative import render_ai_block
         render_ai_block()
@@ -938,6 +1095,7 @@ def render_analysis_tab(df):
         ],
         "coupling": coupling,
         "air_quality": air_quality,
+        "nwp": _build_nwp_summary(nwp_df) if nwp_df is not None else None,
     }
     from modules.ai_narrative import render_ai_block
     render_ai_block()
