@@ -1679,6 +1679,9 @@ def render_forecast_tab():
             st.error(err)
         else:
             st.session_state["fc_df"] = fdf
+            # 打通「预报 → 检测」数据流：检测 Tab 读取 nwp_forecast_for_analysis，
+            # 原写入键 fc_df 与之不一致，导致检测 Tab 的「数值预报驱动分析」始终为空
+            st.session_state["nwp_forecast_for_analysis"] = fdf
             st.success(f"[OK] 获取 {len(fdf)} 条逐时预报 (未来 {days} 天)")
 
     fdf = st.session_state.get("fc_df", None)
