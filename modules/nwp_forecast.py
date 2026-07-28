@@ -25,7 +25,7 @@ from plotly.subplots import make_subplots
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import retry_with_backoff
-from config import COLORS, safe_chart, _is_dark, WARN_LEVEL_ORDER, LIFE_INDEX_META as _LIFE_INDEX_META
+from config import COLORS, safe_chart, _is_dark, WARN_LEVEL_ORDER, LIFE_INDEX_META as _LIFE_INDEX_META, WIND_DIRECTIONS
 
 
 # ============================================================
@@ -51,6 +51,7 @@ _FC_HOURLY = [
     "apparent_temperature",
     "precipitation",
     "wind_speed_10m",
+    "wind_direction_10m",
     "weather_code",
     "precipitation_probability",
 ]
@@ -198,6 +199,7 @@ def fetch_gfs_forecast(lat, lon, days=7, model="gfs_seamless",
         "apparent_temperature": h["apparent_temperature"],
         "precipitation": h["precipitation"],
         "wind_speed": h["wind_speed_10m"],
+        "wind_direction": h["wind_direction_10m"],
         "weather_code": h["weather_code"],
         "precipitation_probability": h.get("precipitation_probability", [0] * len(h["time"])),
     })
@@ -762,20 +764,135 @@ def _high_temp_72h_panel(hh):
     return fig
 
 
-def _daily_precip_chart(fdf):
-    """逐日降水量柱状图"""
-    daily = fdf.groupby(fdf["timestamp"].dt.date)["precipitation"].sum()
-    fig = go.Figure(go.Bar(
-        x=[str(d) for d in daily.index], y=daily.values,
-        marker_color=COLORS["rain_color"],
-        hovertemplate="日期 %{x}<br>降水 %{y:.1f} mm<extra></extra>",
-    ))
+# ============================================================
+# 风玫瑰：16 扇区频次权重 + 5 级风速着色 + 静风单列 + 主导风向
+# 数据范围 = 整个预报期（fdf 全部小时）
+# ============================================================
+
+# 16 方位中文名（风向 = 风来自的方位）
+_WIND_CN = {
+    "N": "北风", "NNE": "东北偏北风", "NE": "东北风", "ENE": "东北偏东风",
+    "E": "东风", "ESE": "东南偏东风", "SE": "东南风", "SSE": "东南偏南风",
+    "S": "南风", "SSW": "西南偏南风", "SW": "西南风", "WSW": "西南偏西风",
+    "W": "西风", "WNW": "西北偏西风", "NW": "西北风", "NNW": "西北偏北风",
+}
+# 5 级风速分桶 (m/s)，弱 -> 强
+_WS_BINS = [0.5, 2.0, 4.0, 6.0, 8.0]
+_WS_LABELS = ["<2", "2-4", "4-6", "6-8", ">8"]
+_WS_COLORS = ["#3b82f6", "#06b6d4", "#22c55e", "#f59e0b", "#ef4444"]
+_CALM_THRESHOLD = 0.5  # 静风阈值 (m/s)
+
+
+def _wind_rose_stats(fdf):
+    """频次权重统计：返回主导风向(英文/中文/占比%)与静风占比%。
+    无有效数据返回 None。"""
+    if fdf is None or fdf.empty:
+        return None
+    valid = fdf.dropna(subset=["wind_direction", "wind_speed"])
+    if valid.empty:
+        return None
+    total = len(valid)
+    calm_mask = valid["wind_speed"] < _CALM_THRESHOLD
+    calm_pct = int(round(calm_mask.sum() / total * 100))
+    active = valid[~calm_mask]
+    if active.empty:
+        return {"dominant_en": "—", "dominant_cn": "无有效风", "dominant_pct": 0,
+                "calm_pct": calm_pct}
+    dirs = active["wind_direction"].values
+    sectors = (dirs / 22.5).astype(int) % 16
+    counts = np.bincount(sectors, minlength=16)
+    dom_idx = int(np.argmax(counts))
+    dom_pct = int(round(counts[dom_idx] / len(active) * 100))
+    dom_en = WIND_DIRECTIONS[dom_idx]
+    return {
+        "dominant_en": dom_en,
+        "dominant_cn": _WIND_CN.get(dom_en, dom_en),
+        "dominant_pct": dom_pct,
+        "calm_pct": calm_pct,
+    }
+
+
+def _wind_rose_chart(fdf, dark=None):
+    """风速风向玫瑰图（方案 A：16 扇区频次权重，5 级风速着色）。
+    返回 (fig, stats)；无有效数据返回 (None, None)。"""
+    if dark is None:
+        dark = _is_dark()
+    if fdf is None or fdf.empty:
+        return None, None
+    valid = fdf.dropna(subset=["wind_direction", "wind_speed"])
+    if valid.empty:
+        return None, None
+
+    total = len(valid)
+    calm_mask = valid["wind_speed"] < _CALM_THRESHOLD
+    active = valid[~calm_mask]
+    if active.empty:
+        # 全是静风：仍画一张空玫瑰，stats 里说明
+        stats = _wind_rose_stats(fdf)
+        fig = go.Figure()
+        fig.update_layout(
+            title="风向风速玫瑰图 (全预报期)",
+            polar=dict(radialaxis=dict(visible=False),
+                       angularaxis=dict(direction="clockwise", rotation=90,
+                                        tickmode="array",
+                                        tickvals=[i * 22.5 for i in range(16)],
+                                        ticktext=WIND_DIRECTIONS)),
+            height=420, margin=dict(l=20, r=20, t=40, b=20),
+        )
+        return fig, stats
+
+    dirs = active["wind_direction"].values
+    spds = active["wind_speed"].values
+    sectors = (dirs / 22.5).astype(int) % 16
+    ws_idx = np.digitize(spds, _WS_BINS) - 1
+    ws_idx = np.clip(ws_idx, 0, len(_WS_LABELS) - 1)
+
+    # 计数矩阵 [sector, level] -> 转频率百分比(基于 active 总数)
+    counts = np.zeros((16, len(_WS_LABELS)))
+    for s, w in zip(sectors, ws_idx):
+        counts[s, w] += 1
+    freq = counts / len(active) * 100.0
+
+    stats = _wind_rose_stats(fdf)
+
+    fig = go.Figure()
+    for lvl in range(len(_WS_LABELS)):
+        theta = [i * 22.5 for i in range(16)]
+        r = freq[:, lvl].tolist()
+        fig.add_trace(go.Barpolar(
+            r=r, theta=theta, width=360 / 16,
+            name=_WS_LABELS[lvl] + " m/s",
+            marker_color=_WS_COLORS[lvl],
+            opacity=0.9,
+            hovertemplate="%{theta}°<br>" + _WS_LABELS[lvl] +
+                          " m/s<br>频率 %{r:.1f}%<extra></extra>",
+        ))
+
+    bg = "#0f172a" if dark else "#ffffff"
+    grid = "#334155" if dark else "#e2e8f0"
+    tick_col = "#94a3b8" if dark else "#475569"
     fig.update_layout(
-        title="逐日降水量预报",
-        xaxis_title="日期", yaxis_title="降水 (mm)",
-        height=320, margin=dict(l=40, r=20, t=40, b=40),
+        title="风向风速玫瑰图 (全预报期)",
+        polar=dict(
+            bgcolor="rgba(0,0,0,0)",
+            radialaxis=dict(ticksuffix="%", angle=90, gridcolor=grid,
+                            tickfont=dict(color=tick_col),
+                            linecolor=grid),
+            angularaxis=dict(
+                direction="clockwise", rotation=90,
+                tickmode="array",
+                tickvals=[i * 22.5 for i in range(16)],
+                ticktext=WIND_DIRECTIONS,
+                gridcolor=grid, tickfont=dict(color=tick_col),
+                linecolor=grid,
+            ),
+        ),
+        legend=dict(title="风速等级", y=0.5,
+                    font=dict(color=tick_col)),
+        paper_bgcolor=bg, plot_bgcolor=bg,
+        height=420, margin=dict(l=20, r=20, t=40, b=20),
     )
-    return fig
+    return fig, stats
 
 
 # R3: 自适应色阶 — 变量类型 → 最适合的 colormap
@@ -1961,12 +2078,22 @@ def render_forecast_tab():
     else:
         st.success(f"[OK] 未来 72 小时无高温风险 (气温 < 35℃，峰值 {max_t:.1f}℃)")
 
-    # ---- 降水预报 ----
-    st.write("### 降水预报")
-    total_precip = float(fdf["precipitation"].sum())
-    st.markdown(_uni_card("预报期累计降水", f"{total_precip:.1f}", " mm", color="#22c55e"), unsafe_allow_html=True)
-    daily_fig = _daily_precip_chart(fdf)
-    safe_chart(daily_fig, "逐日降水预报", key="fc_daily_precip")
+    # ---- 风玫瑰预报（替换原降水预报板块）----
+    st.write("### 风玫瑰预报 (全预报期)")
+    wf, wstats = _wind_rose_chart(fdf)
+    if wf is None:
+        st.warning("缺少风向/风速数据，无法绘制风玫瑰图。")
+    else:
+        safe_chart(wf, "风玫瑰预报", key="fc_wind_rose")
+        if wstats:
+            dom = wstats["dominant_cn"]
+            dom_en = wstats["dominant_en"]
+            dom_pct = wstats["dominant_pct"]
+            calm_pct = wstats["calm_pct"]
+            st.caption(
+                f"主导风向（频次最高）：{dom}（{dom_en}），占有效样本 {dom_pct}%；"
+                f"静风（<{_CALM_THRESHOLD} m/s）占比 {calm_pct}%。"
+            )
 
     # ---- 空间图 ----
     st.write("---")
