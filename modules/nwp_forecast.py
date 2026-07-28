@@ -249,6 +249,191 @@ def _fetch_gfs_current(lat, lon, model="gfs_seamless"):
         return None
 
 
+# ============================================================
+# 二-2、空气质量预报 (Open-Meteo Air Quality API / CAMS)
+# ============================================================
+
+# 国标 HJ 633-2012 IAQI 节点
+_IAQI_NODES = [0, 50, 100, 150, 200, 300, 400, 500]
+# 各污染物浓度限值（与 IAQI 节点位置对应）。
+# PM2.5/PM10 用 24h 均值表（A 方案：逐时近似，见下方说明）；气态污染物用 1h 表。
+_PM25_BP = [0, 35, 75, 115, 150, 250, 350, 500]      # μg/m³
+_PM10_BP = [0, 50, 150, 250, 350, 420, 500, 600]     # μg/m³
+_SO2_BP  = [0, 150, 500, 650, 800]                    # μg/m³, 1h
+_NO2_BP  = [0, 100, 200, 700, 1200]                   # μg/m³, 1h
+_CO_BP   = [0, 5, 10, 35, 60, 90, 120, 150]           # mg/m³, 1h
+_O3_BP   = [0, 160, 200, 300, 400]                    # μg/m³, 1h
+
+# (df 列名, 中文标签, 限值表)
+_AQ_POLLUTANTS = [
+    ("pm2_5", "PM2.5", _PM25_BP),
+    ("pm10", "PM10", _PM10_BP),
+    ("so2", "SO₂", _SO2_BP),
+    ("no2", "NO₂", _NO2_BP),
+    ("co", "CO", _CO_BP),
+    ("o3", "O₃", _O3_BP),
+]
+
+# 国标六级 (AQI 区间, 等级, 颜色)
+_AQ_LEVELS = [
+    (0, 50, "优", "#00e400"),
+    (51, 100, "良", "#ffde33"),
+    (101, 150, "轻度污染", "#ff9933"),
+    (151, 200, "中度污染", "#cc0033"),
+    (201, 300, "重度污染", "#660099"),
+    (301, 99999, "严重污染", "#7e0023"),
+]
+
+
+def _iaqi(c, bp):
+    """单污染物分指数 IAQI。c 为浓度（与 bp 单位一致），bp 为限值表。"""
+    if c is None:
+        return None
+    try:
+        c = float(c)
+    except (TypeError, ValueError):
+        return None
+    if np.isnan(c):
+        return None
+    if c <= 0:
+        return 0.0
+    if c >= bp[-1]:
+        # 超出末档：按最后两段线性外推（IAQI > 末节点）
+        c_lo, c_hi = bp[-2], bp[-1]
+        i_lo, i_hi = _IAQI_NODES[len(bp) - 2], _IAQI_NODES[-1]
+        return (i_hi - i_lo) / (c_hi - c_lo) * (c - c_lo) + i_lo
+    for i in range(len(bp) - 1):
+        if c <= bp[i + 1]:
+            c_lo, c_hi = bp[i], bp[i + 1]
+            i_lo, i_hi = _IAQI_NODES[i], _IAQI_NODES[i + 1]
+            return (i_hi - i_lo) / (c_hi - c_lo) * (c - c_lo) + i_lo
+    return None
+
+
+def _compute_cn_aqi(conc):
+    """按 HJ 633-2012 由六项浓度计算国标 AQI。
+    返回 (aqi:int|None, level:str, primary:str, color:str)。
+    说明（A 方案）：PM2.5/PM10 国标用 24h 均值，此处以逐时浓度近似代入 24h 限值表，
+    牺牲部分严谨度换取与 GFS 逐时曲线对齐；气态污染物用 1h 表，正确。
+    """
+    iaqis = []
+    for key, label, bp in _AQ_POLLUTANTS:
+        ia = _iaqi(conc.get(key), bp)
+        if ia is not None:
+            iaqis.append((ia, label))
+    if not iaqis:
+        return None, "无数据", "—", "#94a3b8"
+    aqi = int(round(max(i for i, _ in iaqis)))
+    level, color = "严重污染", "#7e0023"
+    for lo, hi, name, col in _AQ_LEVELS:
+        if lo <= aqi <= hi:
+            level, color = name, col
+            break
+    primary = "无" if aqi <= 50 else max(iaqis, key=lambda x: x[0])[1]
+    return aqi, level, primary, color
+
+
+def fetch_air_quality(lat, lon, days=7):
+    """获取空气质量预报 (Open-Meteo Air Quality API, 数据源 CAMS)。
+    返回 (DataFrame, current_dict, error_msg)，成功时 error_msg 为 None。
+    - DataFrame: timestamp + 6 项浓度 + aqi/level/primary/color（国标 HJ 633-2012）。
+    - current_dict: 实时浓度 dict（用于实况卡片），失败为 None。
+    会话内缓存 1 小时，避免重复请求（CAMS 更新频率约每日数次）。
+    """
+    days = min(int(days), 7)
+    cache_key = f"aq_cache_{lat:.4f}_{lon:.4f}_{days}"
+    cached = st.session_state.get(cache_key)
+    if cached is not None:
+        ts, df, current = cached
+        if (datetime.now(timezone.utc) - ts).total_seconds() < 3600:
+            return df, current, None
+    try:
+        url = "https://air-quality-api.open-meteo.com/v1/air-quality"
+        params = {
+            "latitude": float(lat),
+            "longitude": float(lon),
+            "hourly": "pm2_5,pm10,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone",
+            "current": "pm2_5,pm10,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone",
+            "forecast_days": days,
+            # 与 GFS 保持一致，确保 AQI 时间轴与 GFS 对齐
+            "timezone": "Asia/Shanghai",
+        }
+        resp = requests.get(url, params=params, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        if "hourly" not in data:
+            return None, None, f"空气质量接口返回异常: {data}"
+        h = data["hourly"]
+        df = pd.DataFrame({
+            "timestamp": pd.to_datetime(h["time"]),
+            "pm2_5": h.get("pm2_5"),
+            "pm10": h.get("pm10"),
+            "co": h.get("carbon_monoxide"),
+            "no2": h.get("nitrogen_dioxide"),
+            "so2": h.get("sulphur_dioxide"),
+            "o3": h.get("ozone"),
+        })
+        # 逐行计算国标 AQI（A 方案：逐时近似）
+        res = df.apply(
+            lambda r: _compute_cn_aqi({
+                "pm2_5": r["pm2_5"], "pm10": r["pm10"], "co": r["co"],
+                "no2": r["no2"], "so2": r["so2"], "o3": r["o3"]}),
+            axis=1, result_type="expand",
+        )
+        df["aqi"] = res[0]
+        df["level"] = res[1]
+        df["primary"] = res[2]
+        df["color"] = res[3]
+        current = None
+        cur = data.get("current")
+        if cur:
+            current = {
+                "pm2_5": cur.get("pm2_5"), "pm10": cur.get("pm10"),
+                "co": cur.get("carbon_monoxide"), "no2": cur.get("nitrogen_dioxide"),
+                "so2": cur.get("sulphur_dioxide"), "o3": cur.get("ozone"),
+            }
+        st.session_state[cache_key] = (datetime.now(timezone.utc), df, current)
+        return df, current, None
+    except Exception as e:  # noqa: BLE001
+        return None, None, f"空气质量获取失败: {e}"
+
+
+def air_quality_aqi_chart(aq_df, dark=None):
+    """国标 AQI 折线 + 六级背景色带。X 轴为 timestamp，与 GFS 时间轴对齐。"""
+    if dark is None:
+        dark = _is_dark()
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=aq_df["timestamp"], y=aq_df["aqi"],
+        mode="lines", name="国标 AQI",
+        line=dict(color="#2dd4bf", width=2),
+        hovertemplate="%{x|%m-%d %H:%M}<br>国标 AQI %{y:.0f}<extra></extra>",
+    ))
+    for y0, y1, col in [
+        (0, 50, "#00e400"), (50, 100, "#ffde33"), (100, 150, "#ff9933"),
+        (150, 200, "#cc0033"), (200, 300, "#660099"), (300, 700, "#7e0023"),
+    ]:
+        fig.add_hrect(y0=y0, y1=y1, fillcolor=col, opacity=0.10,
+                      line_width=0, layer="below")
+    fig.add_annotation(
+        x=0.98, y=0.02, xref="paper", yref="paper",
+        text="国标六级：优/良/轻度/中度/重度/严重",
+        showarrow=False, font=dict(size=9),
+        bgcolor="rgba(15,23,42,0.9)" if dark else "rgba(255,255,255,0.85)",
+        bordercolor="#475569" if dark else "#ddd", borderwidth=1, borderpad=4,
+        align="right",
+    )
+    fig.update_layout(
+        xaxis_title="时间", yaxis_title="国标 AQI",
+        hovermode="x unified", height=320,
+        margin=dict(l=40, r=20, t=20, b=60),
+        showlegend=False,
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+    )
+    fig.update_xaxes(tickformat="%m-%d %H:%M")
+    return fig
+
+
 def _gfs_spatial_cache_key(center_lat, center_lon, step, half, days, model, variable):
     model_part = model if model else "blend"
     return (
@@ -1248,6 +1433,16 @@ def _render_current_conditions(fdf):
         precip_prob = float(now_row.get("precipitation_probability", 0))
         source = "预报"
 
+    # 实时空气质量（国标 HJ 633-2012）
+    aq_aqi, aq_level, aq_primary, aq_color = None, "—", "—", "#94a3b8"
+    if lat is not None and lon is not None:
+        try:
+            _, _aq_cur, _aq_err = fetch_air_quality(lat, lon, 1)
+            if _aq_cur:
+                aq_aqi, aq_level, aq_primary, aq_color = _compute_cn_aqi(_aq_cur)
+        except Exception:  # noqa: BLE001
+            pass
+
     bf_level, bf_name = get_beaufort_level(wind)
     dark = _is_dark()
 
@@ -1299,7 +1494,7 @@ def _render_current_conditions(fdf):
         """
 
     st.write(f"### 当前实况  · {source}")
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
         st.markdown(_card("[T]", "气温", f"{temp:.1f}", "C",
                          f"体感 {app_temp:.1f}C", "#ef4444"), unsafe_allow_html=True)
@@ -1312,6 +1507,13 @@ def _render_current_conditions(fdf):
     with c4:
         st.markdown(_card("[P]", "降水概率", f"{precip_prob:.0f}", "%",
                          prob_desc, prob_color), unsafe_allow_html=True)
+    with c5:
+        if aq_aqi is not None:
+            st.markdown(_card("[AQ]", "空气质量", f"{aq_aqi:.0f}", "",
+                             f"{aq_level} · {aq_primary}", aq_color), unsafe_allow_html=True)
+        else:
+            st.markdown(_card("[AQ]", "空气质量", "—", "",
+                             "暂无数据", "#94a3b8"), unsafe_allow_html=True)
 
 
 # ============================================================
@@ -1698,6 +1900,25 @@ def render_forecast_tab():
     safe_chart(ts_fig, "温度/体感/降水 预报", key="fc_ts")
     # D: 说明 rangeslider 的 Plotly 天然限制
     st.caption("提示：底部缩放滑块仅关联左侧「气温」坐标轴（右轴降水不随滑块缩放），这是 Plotly 原生行为。")
+
+    # ---- 空气质量预报 ----
+    st.write("### 空气质量预报 (国标 AQI)")
+    _aq_days = min(days, 7)
+    if days > 7:
+        st.info(
+            f"空气质量预报（CAMS）最长提供 7 天，与 GFS 时效（{days} 天）的重叠窗口为前 7 天；"
+            f"第 8 天起暂无空气质量数据，曲线留空。"
+        )
+    aq_df, aq_cur, aq_err = fetch_air_quality(lat, lon, _aq_days)
+    if aq_err:
+        st.warning(aq_err)
+    else:
+        safe_chart(air_quality_aqi_chart(aq_df), "空气质量 AQI 预报", key="fc_aqi")
+    st.caption(
+        "数据来源：CAMS 全球大气成分预报（Open-Meteo Air Quality API，最长 7 天）。"
+        "国标等级按 HJ 633-2012 计算，PM2.5/PM10 采用逐时近似。"
+    )
+
     st.write("### 72 小时高温预报面板")
     hh = fdf.head(72)
     panel_fig = _high_temp_72h_panel(hh)
