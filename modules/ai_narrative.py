@@ -371,7 +371,14 @@ def _build_docx(sections, meta):
     normal.font.size = Pt(11)
     normal.font.name = "Microsoft YaHei"
     from docx.oxml.ns import qn
-    normal.element.rPr.rFonts.set(qn("w:eastAsia"), "Microsoft YaHei")
+    _rpr = normal.element.get_or_add_rPr()
+    _rfonts = _rpr.find(qn("w:rFonts"))
+    if _rfonts is None:
+        _rfonts = _rpr.makeelement(qn("w:rFonts"), {})
+        _rpr.append(_rfonts)
+    _rfonts.set(qn("w:eastAsia"), "Microsoft YaHei")
+    _rfonts.set(qn("w:ascii"), "Microsoft YaHei")
+    _rfonts.set(qn("w:hAnsi"), "Microsoft YaHei")
 
     title = doc.add_heading("气象智能解读报告", level=0)
     for r in title.runs:
