@@ -856,7 +856,7 @@ def _render_era5_guide():
 2. 在本页选择数据产品和参数后，点击「去 CDS 官网下载」
 3. 在 CDS 官网的 Download 页面配置参数并提交请求
 4. CDS 后台处理完成后邮件通知，前往下载 NetCDF 文件
-5. 下载后为 NetCDF 格式；可转为 CSV/Excel 经「数据导入」Tab 分析，或作为气候态基准在「气候态」Tab 经本地文件导入
+5. 下载后为 NetCDF 格式；可转为 CSV/Excel 经「数据导入」Tab 分析，或作为气候态基准在「再分析数据处理」Tab 经本地文件导入
 
 > **提示**：CDS 为欧盟服务器，国内直连加载较慢（约 2-5 秒）。如果长时间无响应，建议使用下方「高级选项」生成 Python 代码在本地运行，API 方式通常更稳定。
 
@@ -926,7 +926,7 @@ def _render_era5_guide():
     cds_url = _ERA5_PRODUCTS[product]["url"] + "?tab=download"
     st.link_button("去 CDS 官网下载", cds_url, use_container_width=True,
                    help=f"在新标签页打开 {product} 的下载页面")
-    st.caption("CDS 需要登录（欧盟服务器，首次加载约 2-5 秒）。下载后为 NetCDF 格式，可转为 CSV/Excel 经「数据导入」Tab 分析，或作为气候态基准在「气候态」Tab 经本地文件导入。")
+    st.caption("CDS 需要登录（欧盟服务器，首次加载约 2-5 秒）。下载后为 NetCDF 格式，可转为 CSV/Excel 经「数据导入」Tab 分析，或作为气候态基准在「再分析数据处理」Tab 经本地文件导入。")
 
     # 高级选项：生成 Python 代码
     with st.expander("高级：生成 Python 下载代码", expanded=False):

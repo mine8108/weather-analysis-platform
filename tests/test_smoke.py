@@ -38,6 +38,11 @@ def test_modules_import():
         "modules.codec",
         "modules.reporter",
         "modules.nwp_forecast",
+        "modules.nc_probe_common",
+        "modules.era5_wizard",
+        "modules.climate_source",
+        "modules.llm_validator",
+        "modules.llm_client",
     ]
     for name in modules:
         importlib.import_module(name)

@@ -1,10 +1,11 @@
 """
-气候态背景参照模块（地基层 M1）
+再分析数据处理模块（地基层 M1）
 
-通过抽象层 modules.climate_source 获取气候态：
+通过抽象层 modules.climate_source 获取再分析气候态：
 - 本地 CSV（方案1，优先；支持网页上传或 Secrets 配置路径）
 - Open-Meteo 近似兜底（已修复每月只取 28 天的 bug）
 距平分析：当前导入数据相对气候态的偏离。
+内嵌 ERA5 数据获取向导（modules.era5_wizard），生成可本地运行的下载/处理脚本。
 """
 
 import pandas as pd
@@ -15,6 +16,7 @@ from modules.climate_source import (
     get_climate_source, LocalFileSource, OpenMeteoSource,
     ClimateStats, ClimateExtreme, ClimateFileError,
 )
+from modules.era5_wizard import render_era5_wizard
 
 
 def compute_anomalies(df, climate_stats):
@@ -64,8 +66,8 @@ def compute_anomalies(df, climate_stats):
 
 
 def render_climate_ref_tab(df):
-    """渲染气候态参考 Tab"""
-    st.subheader("[日期] 气候态背景参照")
+    """渲染再分析数据处理 Tab"""
+    st.subheader("[日期] 再分析数据处理")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -189,3 +191,6 @@ def render_climate_ref_tab(df):
                 st.caption(f"{key}: {data['value']:.1f} {labels.get(key, '')} ({data['year']}年)")
             else:
                 st.caption(f"{key}: 数据暂缺")
+
+    # ---- ERA5 数据获取向导（M0-M2 一期）----
+    render_era5_wizard()

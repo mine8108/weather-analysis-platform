@@ -84,7 +84,7 @@ def _safe_reset():
 
 
 # Tab 名称映射(用于重置按钮显示当前 Tab 名)
-_TAB_NAMES = ["导入", "数值预报", "可视化", "智能分析", "报告导出", "气候态", "报文解码"]
+_TAB_NAMES = ["导入", "数值预报", "可视化", "智能分析", "报告导出", "再分析", "报文解码"]
 
 # 每个 Tab 重置时清理的 session_state key(精确匹配 + "_" 前缀动态匹配)
 _RESET_KEYS_BY_TAB = {
@@ -95,7 +95,7 @@ _RESET_KEYS_BY_TAB = {
     "可视化": ["multi_station_selected"],
     "智能分析": ["warnings_list", "quality_score", "_warn_fp"],
     "报告导出": ["report_data"],
-    "气候态": ["climate_data", "climate_extreme"],
+    "再分析": ["climate_data", "climate_extreme"],
     "报文解码": ["manual_data"],
 }
 
@@ -929,7 +929,7 @@ tab_labels = [
     "[图表] 可视化分析",
     "[检测] 智能分析与建议",
     "[导出] 报告导出",
-    "[日期] 气候态参照",
+    "[日期] 再分析数据处理",
     "[雷达] 报文解码",
 ]
 
@@ -1164,9 +1164,9 @@ if st.session_state["active_tab"] == 4:
         st.session_state.get("source", ""),
     )
 
-# ---- Tab 5: 气候态参照 ----
+# ---- Tab 5: 再分析数据处理 ----
 if st.session_state["active_tab"] == 5:
-    _safe_render("气候态", render_climate_ref_tab, st.session_state["df"])
+    _safe_render("再分析数据处理", render_climate_ref_tab, st.session_state["df"])
 
 # ---- Tab 6: 报文解码 ----
 if st.session_state["active_tab"] == 6:

@@ -16,6 +16,15 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Optional
 
+try:  # 既可作为模块（app 内 from modules...）也可作为脚本直接运行
+    from .nc_probe_common import (
+        DIM_LAT, DIM_LON, DIM_TIME, assign_vars, open_nc_safe,
+    )
+except ImportError:  # 直接 `python modules/climate_source.py` 运行
+    from nc_probe_common import (
+        DIM_LAT, DIM_LON, DIM_TIME, assign_vars, open_nc_safe,
+    )
+
 
 # ---------------------------------------------------------------------------
 # 标准输出 schema：所有后端在返回前归一化到这里，应用层只认这套字段
@@ -172,12 +181,16 @@ class LocalFileSource(ClimateSource):
         path = self._resolve_csv_path()
         if not path or not os.path.exists(path):
             return None
-        cache = st.session_state.get("_climate_csv_cache") if _has_streamlit() else None
+        cache = None
+        if _has_streamlit():
+            import streamlit as st
+            cache = st.session_state.get("_climate_csv_cache")
         if cache and cache[0] == path and cache[1] == os.path.getmtime(path):
             return cache[2]
         df = _read_csv_robust(path)
         wide = self._to_wide(df)
         if _has_streamlit():
+            import streamlit as st
             st.session_state["_climate_csv_cache"] = (path, os.path.getmtime(path), wide)
         return wide
 
@@ -341,110 +354,29 @@ def pd_isna(v) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# NetCDF 自适应读取（M2）—— 无固定 schema，靠候选名+维度探测
+# NetCDF 自适应读取（M2）—— 变量候选/维度候选已统一到 nc_probe_common
 # ---------------------------------------------------------------------------
 class _NcDependencyMissing(Exception):
     """xarray/引擎未安装。触发温和降级而非崩溃。"""
 
 
-# 变量候选（小写；精确优先，其后按“变量名含候选且候选长度>=3”宽松匹配）
-# 顺序敏感：t_max/t_min 先于 t_mean 认领，避免裸词误抢
-_NC_VARS = [
-    ("t_max", ["tmax", "t2m_max", "tasmax", "tmp_max", "temperature_max",
-               "tx", "mx2t", "air_temperature_max"]),
-    ("t_min", ["tmin", "t2m_min", "tasmin", "tmp_min", "temperature_min",
-               "tn", "mn2t", "air_temperature_min"]),
-    ("t_mean", ["t2m", "t2", "tas", "tmean", "t_mean", "tmp", "temp",
-                "temperature", "air_temperature", "air", "tavg"]),
-    ("precip", ["tp", "pr", "precip", "precipitation", "prcp", "rain",
-                "total_precipitation", "pre", "rr", "ppt"]),
-    ("wind_max_mean", ["wind_speed_max", "fg10", "wind_gust", "gust", "si10",
-                       "wind_speed", "sfcwind", "wind", "w10", "fx", "ws"]),
-]
-_NC_LAT = ["lat", "latitude", "y", "nav_lat", "xlat", "g0_lat_1"]
-_NC_LON = ["lon", "longitude", "x", "nav_lon", "xlong", "g0_lon_2"]
-_NC_TIME = ["time", "month", "valid_time", "t", "date"]
-
-
 def _open_nc_dataset(nc_bytes=None, nc_path=None):
-    """打开 NetCDF。统一策略：先物化为 ASCII 临时文件再读。
+    """打开 NetCDF（委托 nc_probe_common.open_nc_safe，单一真相源）。
 
-    原因（Windows 实测）：
-    - netCDF4 C 库不支持内存流（BytesIO），且对含非 ASCII 字符的路径
-      （如中文/OneDrive 目录）会报 PermissionError/Errno 13；
-    - 落盘到系统临时目录（ASCII 路径）后两个问题同时消除。
+    保留异常契约：缺依赖 → _NcDependencyMissing；其它打开失败 → ClimateFileError。
     """
+    if nc_bytes is None and not (nc_path and os.path.exists(nc_path)):
+        raise ClimateFileError("未找到 NetCDF 源（nc_bytes/nc_path 均为空）")
+    src = nc_bytes if nc_bytes is not None else nc_path
     try:
-        import xarray as xr
-    except Exception:
+        ds, _, _ = open_nc_safe(src)
+        return ds
+    except (ImportError, ModuleNotFoundError):
         raise _NcDependencyMissing(
             "NetCDF 支持需要 xarray+netCDF4/h5netcdf，未安装。"
             "请 pip install xarray netCDF4，或改用 CSV 气候态文件。")
-
-    import shutil
-    import tempfile
-
-    if nc_bytes is None and not (nc_path and os.path.exists(nc_path)):
-        raise ClimateFileError("未找到 NetCDF 源（nc_bytes/nc_path 均为空）")
-
-    def _is_ascii(s: str) -> bool:
-        try:
-            s.encode("ascii")
-            return True
-        except UnicodeEncodeError:
-            return False
-
-    tmp_file = None
-    open_path = nc_path
-    try:
-        if nc_bytes is not None:
-            fd, tmp_file = tempfile.mkstemp(suffix=".nc", prefix="wb_climate_")
-            with os.fdopen(fd, "wb") as f:
-                f.write(nc_bytes)
-            open_path = tmp_file
-        elif not _is_ascii(nc_path):
-            fd, tmp_file = tempfile.mkstemp(suffix=".nc", prefix="wb_climate_")
-            os.close(fd)
-            shutil.copyfile(nc_path, tmp_file)
-            open_path = tmp_file
-
-        last_err = None
-        for eng in ("netcdf4", "h5netcdf", "scipy", None):
-            try:
-                ds = (xr.open_dataset(open_path, engine=eng) if eng
-                      else xr.open_dataset(open_path))
-                # 立即载入内存并关闭文件句柄，便于清理临时文件
-                ds = ds.load()
-                ds.close()
-                return ds
-            except (ImportError, ModuleNotFoundError) as e:
-                last_err = e
-                continue
-            except Exception as e:
-                last_err = e
-                continue
-        raise ClimateFileError(f"NetCDF 无法解析（netcdf4/h5netcdf/scipy 引擎均失败）: {last_err}")
-    finally:
-        if tmp_file:
-            try:
-                os.remove(tmp_file)
-            except OSError:
-                pass
-
-
-def _pick_name(candidates, available, used):
-    """在 available 名字里为一组候选选一个：精确匹配优先，其次宽松包含。"""
-    avail_lower = {str(a).lower(): a for a in available}
-    for cand in candidates:
-        if cand in avail_lower and avail_lower[cand] not in used:
-            return avail_lower[cand]
-    for cand in candidates:
-        if len(cand) < 3:
-            continue
-        for al, orig in avail_lower.items():
-            if cand in al and orig not in used:
-                return orig
-    return None
+    except Exception as e:
+        raise ClimateFileError(f"NetCDF 无法打开: {e}")
 
 
 def _find_coord(da, candidates):
@@ -489,13 +421,7 @@ def _read_nc_climate(ds, lat, lon, month):
     import numpy as np
     import pandas as pd
 
-    var_map = {}
-    used = []
-    for target, cands in _NC_VARS:
-        name = _pick_name(cands, list(ds.data_vars), used)
-        if name is not None:
-            var_map[target] = name
-            used.append(name)
+    var_map = assign_vars(list(ds.data_vars))
 
     if "t_mean" not in var_map and "t_max" not in var_map and "precip" not in var_map:
         raise ClimateFileError(
@@ -505,7 +431,7 @@ def _read_nc_climate(ds, lat, lon, month):
     # 经度约定对齐（0-360 vs -180-180）
     q_lon = lon
     any_var = ds[next(iter(var_map.values()))]
-    lonname = _find_coord(any_var, _NC_LON)
+    lonname = _find_coord(any_var, DIM_LON)
     if lonname is not None:
         try:
             lon_vals = ds[lonname].values
@@ -516,8 +442,8 @@ def _read_nc_climate(ds, lat, lon, month):
 
     def _point_series(varname):
         da = ds[varname]
-        la = _find_coord(da, _NC_LAT)
-        lo = _find_coord(da, _NC_LON)
+        la = _find_coord(da, DIM_LAT)
+        lo = _find_coord(da, DIM_LON)
         sel = {}
         if la:
             sel[la] = lat
@@ -529,7 +455,7 @@ def _read_nc_climate(ds, lat, lon, month):
             except Exception:
                 da = da.sel(**sel)
         # 压掉残余非时间维
-        tname = _find_coord(da, _NC_TIME)
+        tname = _find_coord(da, DIM_TIME)
         for d in list(da.dims):
             if d != tname:
                 try:
