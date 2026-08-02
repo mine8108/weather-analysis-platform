@@ -720,6 +720,14 @@ hr {
     .block-container { padding: 1.2rem 1rem !important; }
     .main-header { font-size: 1.5rem !important; }
 }
+
+/* ===== MultiSelect 标签: 淡蓝色（亮暗模式自动适配变量） ===== */
+[data-testid="stMultiSelect"] [data-baseweb="tag"] {
+    background-color: var(--accent-soft) !important;
+}
+[data-testid="stMultiSelect"] [data-baseweb="tag"] span {
+    color: var(--accent) !important;
+}
 </style>
 """, unsafe_allow_html=True)
 

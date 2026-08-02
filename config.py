@@ -496,10 +496,10 @@ COLORS = {
     "purple": "#9467bd",
     "pink": "#e377c2",
     # 预警颜色
-    "warn_blue": "#0066cc",
-    "warn_yellow": "#f5a623",
-    "warn_orange": "#f26522",
-    "warn_red": "#d0021b",
+    "warn_blue": "#2f6fb8",
+    "warn_yellow": "#d69e2e",
+    "warn_orange": "#d96c3d",
+    "warn_red": "#c0392b",
     # 图表色系
     "temp_color": "#e74c3c",
     "pres_color": "#27ae60",
@@ -537,12 +537,12 @@ AQI_BREAKPOINTS = {
 }
 
 AQI_LEVELS = {
-    1:  {"range": (0, 50),     "label": "优",     "en": "Excellent",           "color": "#00e400"},
-    2:  {"range": (51, 100),   "label": "良",     "en": "Good",                "color": "#ffff00"},
-    3:  {"range": (101, 150),  "label": "轻度污染", "en": "Lightly Polluted",    "color": "#ff7e00"},
-    4:  {"range": (151, 200),  "label": "中度污染", "en": "Moderately Polluted",  "color": "#ff0000"},
-    5:  {"range": (201, 300),  "label": "重度污染", "en": "Heavily Polluted",     "color": "#99004c"},
-    6:  {"range": (301, 500),  "label": "严重污染", "en": "Severely Polluted",    "color": "#7e0023"},
+    1:  {"range": (0, 50),     "label": "优",     "en": "Excellent",           "color": "#3fa660"},
+    2:  {"range": (51, 100),   "label": "良",     "en": "Good",                "color": "#c9a227"},
+    3:  {"range": (101, 150),  "label": "轻度污染", "en": "Lightly Polluted",    "color": "#e08a3c"},
+    4:  {"range": (151, 200),  "label": "中度污染", "en": "Moderately Polluted",  "color": "#d45d4f"},
+    5:  {"range": (201, 300),  "label": "重度污染", "en": "Heavily Polluted",     "color": "#9c4d79"},
+    6:  {"range": (301, 500),  "label": "严重污染", "en": "Severely Polluted",    "color": "#8e3b4d"},
 }
 
 # 健康建议（按AQI等级，HJ 633-2026 新增敏感人群分类）
@@ -566,12 +566,12 @@ AIR_POLLUTANT_LIMITS = {
     "tsp":  {"annual": 200,"daily": 300},
 }
 
-# 预警级别样式
+# 预警级别样式（低饱和柔和色系）
 WARN_STYLES = {
-    "蓝色": {"color": "#0066cc", "bg": "#e6f0ff", "text_color": "white"},
-    "黄色": {"color": "#f5a623", "bg": "#fff8e6", "text_color": "#333"},
-    "橙色": {"color": "#f26522", "bg": "#fff0e6", "text_color": "white"},
-    "红色": {"color": "#d0021b", "bg": "#ffe6e6", "text_color": "white"},
+    "蓝色": {"color": "#2f6fb8", "bg": "#e6f0ff", "text_color": "white"},
+    "黄色": {"color": "#d69e2e", "bg": "#fff8e6", "text_color": "#333"},
+    "橙色": {"color": "#d96c3d", "bg": "#fff0e6", "text_color": "white"},
+    "红色": {"color": "#c0392b", "bg": "#ffe6e6", "text_color": "white"},
 }
 
 # ============================================================

@@ -330,7 +330,7 @@ def _aqi_level_name(aqi):
         lo, hi = info["range"]
         if lo <= aqi <= hi:
             return info["label"], info["color"]
-    return "严重污染", "#7e0023"
+    return "严重污染", "#8e3b4d"
 
 
 def check_air_quality(df):
@@ -1198,7 +1198,7 @@ def render_analysis_tab(df):
     st.write("---")
     _render_smart_advice(df)
 
-    # ----- AI 智能预警解读（C 方案）-----
+    # ----- AI 智能解读（C 方案）-----
     air_quality = check_air_quality(df) if has_pollution else None
     _nwp_summary = _build_nwp_summary(nwp_df) if nwp_df is not None else None
     _nwp_aq_raw = st.session_state.get("nwp_air_quality_for_analysis") if nwp_df is not None else None

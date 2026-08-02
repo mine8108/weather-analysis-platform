@@ -434,7 +434,7 @@ def render_ai_block():
         return
 
     st.write("---")
-    st.write("### [AI] 智能预警解读")
+    st.write("### [AI] 智能解读")
 
     api_key = st.secrets.get("LLM_API_KEY", "")
     if not api_key:

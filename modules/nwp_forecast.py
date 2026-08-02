@@ -287,14 +287,14 @@ _AQ_POLLUTANTS = [
     ("o3",    "O₃",    _O3_BP,   _O3_I),
 ]
 
-# 国标六级 (AQI 区间, 等级, 颜色)
+# 国标六级 (AQI 区间, 等级, 颜色) — 低饱和柔和色系
 _AQ_LEVELS = [
-    (0, 50, "优", "#00e400"),
-    (51, 100, "良", "#ffde33"),
-    (101, 150, "轻度污染", "#ff9933"),
-    (151, 200, "中度污染", "#cc0033"),
-    (201, 300, "重度污染", "#660099"),
-    (301, 99999, "严重污染", "#7e0023"),
+    (0, 50, "优", "#3fa660"),
+    (51, 100, "良", "#c9a227"),
+    (101, 150, "轻度污染", "#e08a3c"),
+    (151, 200, "中度污染", "#d45d4f"),
+    (201, 300, "重度污染", "#9c4d79"),
+    (301, 99999, "严重污染", "#8e3b4d"),
 ]
 
 
@@ -341,7 +341,7 @@ def _compute_cn_aqi(conc):
     if not iaqis:
         return None, "无数据", "—", "#94a3b8"
     aqi = int(round(max(i for i, _ in iaqis)))
-    level, color = "严重污染", "#7e0023"
+    level, color = "严重污染", "#8e3b4d"
     for lo, hi, name, col in _AQ_LEVELS:
         if lo <= aqi <= hi:
             level, color = name, col
@@ -442,8 +442,8 @@ def air_quality_aqi_chart(aq_df, dark=None):
         hovertemplate="%{x|%m-%d %H:%M}<br>国标 AQI %{y:.0f}<extra></extra>",
     ))
     for y0, y1, col in [
-        (0, 50, "#00e400"), (50, 100, "#ffde33"), (100, 150, "#ff9933"),
-        (150, 200, "#cc0033"), (200, 300, "#660099"), (300, 700, "#7e0023"),
+        (0, 50, "#3fa660"), (50, 100, "#c9a227"), (100, 150, "#e08a3c"),
+        (150, 200, "#d45d4f"), (200, 300, "#9c4d79"), (300, 700, "#8e3b4d"),
     ]:
         fig.add_hrect(y0=y0, y1=y1, fillcolor=col, opacity=0.10,
                       line_width=0, layer="below")
@@ -681,18 +681,18 @@ def _forecast_time_series(fdf):
     t_max = fdf["timestamp"].max()
     if t_min <= now <= t_max:
         fig.add_vline(x=now, line_width=2, line_dash="dash",
-                      line_color="#d0021b",
+                      line_color="#c0392b",
                       annotation_text="现在",
                       annotation_position="top left",
-                      annotation_font=dict(size=11, color="#d0021b"))
+                      annotation_font=dict(size=11, color="#c0392b"))
 
     # ---- Q3: 预报可信度标注 ----
     n_days = int((t_max - t_min).total_seconds() / 86400)
     fig.add_annotation(
         x=0.98, y=0.98, xref="paper", yref="paper",
         text=("可信度: <span style='color:#2ca02c'>0-3天高</span> | "
-              "<span style='color:#f5a623'>4-7天中</span> | "
-              "<span style='color:#d0021b'>8+天低</span>"),
+              "<span style='color:#d69e2e'>4-7天中</span> | "
+              "<span style='color:#c0392b'>8+天低</span>"),
         showarrow=False, font=dict(size=10),
         bgcolor="rgba(15,23,42,0.9)" if _is_dark() else "rgba(255,255,255,0.82)",
         bordercolor="#475569" if _is_dark() else "#ccc",
@@ -745,9 +745,9 @@ def _high_temp_72h_panel(hh):
         x=hh["timestamp"], y=hh["apparent_temperature"], mode="lines",
         name="体感温度", line=dict(color="#e67e22", width=2),
     ))
-    for thr, name, color in [(35, "高温黄 35℃", "#f5a623"),
-                             (37, "高温橙 37℃", "#f26522"),
-                             (40, "高温红 40℃", "#d0021b")]:
+    for thr, name, color in [(35, "高温黄 35℃", "#d69e2e"),
+                             (37, "高温橙 37℃", "#d96c3d"),
+                             (40, "高温红 40℃", "#c0392b")]:
         fig.add_hline(y=thr, line_dash="dash", line_color=color,
                       annotation_text=name, annotation_position="right")
     fig.update_layout(
@@ -781,14 +781,16 @@ _WIND_CN = {
     "S": "南风", "SSW": "西南偏南风", "SW": "西南风", "WSW": "西南偏西风",
     "W": "西风", "WNW": "西北偏西风", "NW": "西北风", "NNW": "西北偏北风",
 }
-# 5 级风速分桶 (m/s)，弱 -> 强
-_WS_BINS = [0.5, 2.0, 4.0, 6.0, 8.0]
-_WS_LABELS = ["<2", "2-4", "4-6", "6-8", ">8"]
-# 每档中文描述（沿用 config.BEAUFORT_SCALE 蒲福风级，取中位占比主导级）
-_WS_CN = ["软风", "轻风", "微风", "和风", "清风及以上(5级+)"]
-# 冷蓝 -> 暖红 单色相渐变（弱->强），比彩虹色更耐看
-_WS_COLORS = ["#bcd9f2", "#74b9e8", "#3f8fd0", "#e8763a", "#c0392b"]
+# 蒲福风级 8 档分桶 (m/s)，静风（<0.5）单独列入图例不绘入玫瑰
+_WS_BINS = [0.5, 1.6, 3.4, 5.5, 8.0, 10.8, 13.9, 17.2]
+_WS_LABELS = ["0.5-1.5", "1.6-3.3", "3.4-5.4", "5.5-7.9",
+              "8.0-10.7", "10.8-13.8", "13.9-17.1", "≥17.2"]
+_WS_CN = ["软风", "轻风", "微风", "和风", "清风", "强风", "劲风", "大风及以上"]
+# 蓝相渐变（1-5 级弱->强），6 级起转暖色警示（对照目标模板配色）
+_WS_COLORS = ["#dceef5", "#a8d2e8", "#74b4d9", "#4592c8",
+              "#2b6cb0", "#f2b53c", "#ef6a4f", "#c0392b"]
 _CALM_THRESHOLD = 0.5  # 静风阈值 (m/s)
+_CALM_COLOR = "#d4d4d8"  # 静风图例色（浅灰）
 
 
 def _wind_rose_stats(fdf):
@@ -821,7 +823,7 @@ def _wind_rose_stats(fdf):
 
 
 def _wind_rose_chart(fdf, dark=None):
-    """风速风向玫瑰图（方案 A：16 扇区频次权重，5 级风速着色）。
+    """风速风向玫瑰图（16 扇区频次权重，蒲福 8 级风速着色 + 静风图例项）。
     返回 (fig, stats)；无有效数据返回 (None, None)。"""
     if dark is None:
         dark = _is_dark()
@@ -834,21 +836,61 @@ def _wind_rose_chart(fdf, dark=None):
     if valid.empty:
         return None, None
 
-    total = len(valid)
+    bg = "#0f172a" if dark else "#ffffff"
+    grid = "#475569" if dark else "#cbd5e1"
+    tick_col = "#94a3b8" if dark else "#6b7280"
+    title_col = "#e2e8f0" if dark else "#1f2937"
+    seg_line = "rgba(15,23,42,0.35)" if dark else "rgba(255,255,255,0.9)"
+
+    def _base_layout(fig):
+        fig.update_layout(
+            title=dict(text="风向风速玫瑰图", x=0.0, xanchor="left",
+                       y=0.98, yanchor="top",
+                       font=dict(size=15, color=title_col)),
+            polar=dict(
+                bgcolor="rgba(0,0,0,0)",
+                # 径向频率刻度沿正东方向（模板样式），纯数字不带 % 后缀
+                radialaxis=dict(angle=0, gridcolor=grid,
+                                tickfont=dict(color=tick_col, size=10),
+                                linecolor=grid),
+                angularaxis=dict(
+                    direction="clockwise", rotation=90,
+                    tickmode="array",
+                    tickvals=[i * 22.5 for i in range(16)],
+                    ticktext=WIND_DIRECTIONS,
+                    gridcolor=grid, tickfont=dict(color=tick_col, size=11),
+                    linecolor=grid,
+                ),
+            ),
+            showlegend=True,
+            legend=dict(
+                title=dict(text="风速等级 (m/s)",
+                           font=dict(size=12, color=title_col)),
+                orientation="v", x=1.04, xanchor="left",
+                y=0.5, yanchor="middle",
+                font=dict(size=12, color=tick_col),
+            ),
+            paper_bgcolor=bg, plot_bgcolor=bg,
+            height=540, margin=dict(l=40, r=140, t=50, b=20),
+        )
+        return fig
+
     calm_mask = valid["wind_speed"] < _CALM_THRESHOLD
     active = valid[~calm_mask]
+    theta16 = [i * 22.5 for i in range(16)]
+    # 静风图例项（零值柱，仅用于图例展示）
+    calm_trace = go.Barpolar(
+        r=[0] * 16, theta=theta16, width=21,
+        name=f"静风 (<{_CALM_THRESHOLD})",
+        marker_color=_CALM_COLOR, marker_line_width=0,
+        hoverinfo="skip",
+    )
     if active.empty:
         # 全是静风：仍画一张空玫瑰，stats 里说明
         stats = _wind_rose_stats(fdf)
-        fig = go.Figure()
-        fig.update_layout(
-            polar=dict(radialaxis=dict(visible=False),
-                       angularaxis=dict(direction="clockwise", rotation=90,
-                                        tickmode="array",
-                                        tickvals=[i * 22.5 for i in range(16)],
-                                        ticktext=WIND_DIRECTIONS)),
-            height=440, margin=dict(l=20, r=20, t=20, b=20),
-        )
+        fig = go.Figure([calm_trace])
+        _base_layout(fig)
+        fig.update_layout(polar=dict(radialaxis=dict(visible=False)))
         return fig, stats
 
     dirs = active["wind_direction"].values
@@ -865,45 +907,20 @@ def _wind_rose_chart(fdf, dark=None):
 
     stats = _wind_rose_stats(fdf)
 
-    fig = go.Figure()
+    fig = go.Figure([calm_trace])
     for lvl in range(len(_WS_LABELS)):
-        theta = [i * 22.5 for i in range(16)]
         r = freq[:, lvl].tolist()
         fig.add_trace(go.Barpolar(
-            r=r, theta=theta, width=360 / 16,
-            name=f"{_WS_CN[lvl]} ({_WS_LABELS[lvl]} m/s)",
+            r=r, theta=theta16, width=21,
+            name=f"{_WS_CN[lvl]} ({_WS_LABELS[lvl]})",
             marker_color=_WS_COLORS[lvl],
-            marker_line_color="rgba(255,255,255,0.25)" if dark else "rgba(15,23,42,0.15)",
-            marker_line_width=0.5,
-            opacity=0.92,
+            marker_line_color=seg_line,
+            marker_line_width=1,
             hovertemplate="%{theta}°<br>" + _WS_CN[lvl] + " (" +
                           _WS_LABELS[lvl] + " m/s)<br>频率 %{r:.1f}%<extra></extra>",
         ))
 
-    bg = "#0f172a" if dark else "#ffffff"
-    grid = "#334155" if dark else "#e2e8f0"
-    tick_col = "#94a3b8" if dark else "#64748b"
-    fig.update_layout(
-        polar=dict(
-            bgcolor="rgba(0,0,0,0)",
-            # 径向 % 标签放回右侧 90°，字号 9px（225° 会导致标签旋转+遮挡左侧方位标签）
-            radialaxis=dict(ticksuffix="%", angle=90, gridcolor=grid,
-                            tickfont=dict(color=tick_col, size=9),
-                            linecolor=grid),
-            angularaxis=dict(
-                direction="clockwise", rotation=90,
-                tickmode="array",
-                tickvals=[i * 22.5 for i in range(16)],
-                ticktext=WIND_DIRECTIONS,
-                gridcolor=grid, tickfont=dict(color=tick_col, size=11),
-                linecolor=grid,
-            ),
-        ),
-        # 图例改用下方自定义 HTML 渲染，避免遮挡底部方向标签
-        showlegend=False,
-        paper_bgcolor=bg, plot_bgcolor=bg,
-        height=440, margin=dict(l=20, r=20, t=20, b=20),
-    )
+    _base_layout(fig)
     return fig, stats
 
 
@@ -2095,34 +2112,16 @@ def render_forecast_tab():
 
     # ---- 风玫瑰预报（替换原降水预报板块）----
     st.write("### 风玫瑰预报 (全预报期)")
-    # 卡片化容器 + 自定义 HTML 图例样式（避免 Plotly 内置图例遮挡底部方向标签）
-    legend_dark = _is_dark()
-    text_col = "#cbd5e1" if legend_dark else "#475569"
-    st.markdown(
-        f"<style>.wind-rose-card{{border:1px solid #334155;"
-        f"border-radius:10px;padding:10px 6px 4px;margin-bottom:4px;}}"
-        f".wind-rose-legend{{display:flex;flex-wrap:wrap;gap:8px 14px;"
-        f"justify-content:center;font-size:12px;color:{text_col};"
-        f"padding:4px 0 2px;}}"
-        f".wind-rose-legend .wr-leg-item{{display:inline-flex;align-items:center;gap:6px;}}"
-        f".wind-rose-legend i{{width:12px;height:12px;border-radius:2px;"
-        f"display:inline-block;}}</style>",
-        unsafe_allow_html=True,
-    )
-    st.markdown('<div class="wind-rose-card">', unsafe_allow_html=True)
     wf, wstats = _wind_rose_chart(fdf)
     if wf is None:
         st.warning("缺少风向/风速数据，无法绘制风玫瑰图。")
     else:
         safe_chart(wf, "风玫瑰预报", key="fc_wind_rose")
-        # 自定义 HTML 图例（图例放在图表下方独立行，永不与极坐标重叠）
-        items = "".join(
-            f'<span class="wr-leg-item"><i style="background:{_WS_COLORS[i]}"></i>'
-            f'{_WS_CN[i]} ({_WS_LABELS[i]} m/s)</span>'
-            for i in range(len(_WS_LABELS))
+        st.caption(
+            "读图指南：方位为风的来向（N = 风从北方吹来）；半径为该风向的出现频率（%）；"
+            "右侧图例按蒲福风级分档，1-5 级蓝色由浅至深，6 级（强风）起转暖色警示；"
+            "静风不计入玫瑰，仅列于图例与下方统计。"
         )
-        st.markdown(f'<div class="wind-rose-legend">{items}</div>',
-                    unsafe_allow_html=True)
         if wstats:
             dom = wstats["dominant_cn"]
             dom_en = wstats["dominant_en"]
@@ -2132,7 +2131,6 @@ def render_forecast_tab():
                 f"主导风向（频次最高）：{dom}（{dom_en}），占有效样本 {dom_pct}%；"
                 f"静风（<{_CALM_THRESHOLD} m/s）占比 {calm_pct}%。"
             )
-    st.markdown("</div>", unsafe_allow_html=True)
 
     # ---- 空间图 ----
     st.write("---")
