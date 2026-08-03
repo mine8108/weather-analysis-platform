@@ -13,7 +13,7 @@ import pandas as pd
 # 确保模块路径可导入
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from config import PAGE_CONFIG, FIELD_LABELS
+from config import PAGE_CONFIG, FIELD_LABELS, APP_VERSION
 from modules.data_loader import (
     render_file_upload_section,
     render_manual_input_section,
@@ -923,6 +923,8 @@ with st.sidebar:
                      help="清空当前 Tab 的业务数据（导入数据/预报/分析结果等），保留登录态和阈值设置"):
             _reset_current_tab()
     st.caption("※ 本平台分析结果仅供学习参考，不替代国家气象部门权威预报。")
+    # 版本号展示：线上版本肉眼可辨（排查部署问题的重要依据）
+    st.caption(f"© 气象数据交互分析平台 {APP_VERSION}")
 
 # ============================================================
 # 主内容区：无数据时显示引导页，有数据时显示提示+摘要
