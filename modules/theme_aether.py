@@ -170,6 +170,33 @@ button[kind="primary"]:hover {
 [data-testid="stProgress"] [role="progressbar"] > div > div {
     background: var(--accent) !important;
 }
+/* 数据表格（st.dataframe，前端主题白底，暗色必覆盖） */
+[data-testid="stDataFrame"] { background: #1a2138 !important; }
+[data-testid="stDataFrame"] thead th {
+    background: #232a3d !important;
+    color: #cbd5e8 !important;
+    border-bottom-color: #39425e !important;
+}
+[data-testid="stDataFrame"] tbody tr,
+[data-testid="stDataFrame"] tbody td {
+    background: #1a2138 !important;
+    color: #dbe2f0 !important;
+    border-top-color: #2a3350 !important;
+}
+[data-testid="stDataFrame"] tbody tr:hover { background: #2a3350 !important; }
+/* spinner 覆盖层 */
+[data-testid="stSpinner"] { background: #232a3d !important; }
+[data-testid="stSpinner"] div { color: #e6e9f2 !important; }
+/* 文件上传 dropzone 与下载按钮 */
+[data-testid="stFileUploaderDropzone"] {
+    background: #1a2138 !important;
+    border-color: #39425e !important;
+}
+[data-testid="stFileUploaderDropzone"] * { color: #dbe2f0 !important; }
+[data-testid="stFileUploaderDropzone"]:hover { background: #232a3d !important; }
+/* plotly 图表悬停提示（tooltip）默认白底，暗色下覆盖 */
+[data-testid="stPlotlyChart"] .hoverlayer .hovertext rect { fill: #232a3d !important; }
+[data-testid="stPlotlyChart"] .hoverlayer .hovertext text { fill: #e6e9f2 !important; }
 """
 
 

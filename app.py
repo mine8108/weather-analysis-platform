@@ -898,7 +898,7 @@ with st.sidebar:
                      help="回到首页天气墙（数据保留，返回后自动恢复摘要卡）"):
             st.session_state["_wall_cover"] = True
             st.rerun()
-    dark = st.checkbox("[显示] 暗色模式（梦幻夜空）", value=st.session_state.get("dark_mode", False), key="dark_toggle",
+    dark = st.checkbox("[显示] 暗色模式", value=st.session_state.get("dark_mode", False), key="dark_toggle",
                        help="切换「梦幻夜空 / 清透天空」主题，选择自动保存，重启后保持")
     if dark != st.session_state.get("dark_mode", False):
         # 需求 3：切换写入持久化（本地文件 + 登录时 Supabase user_metadata）

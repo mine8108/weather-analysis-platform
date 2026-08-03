@@ -477,20 +477,23 @@ def wall_css() -> str:
 @keyframes ww-twinkle { 0%,100% { opacity:.25; transform:scale(.8);}
                         50% { opacity:1; transform:scale(1.15);} }
 
-/* ===== 卡片容器（Streamlit border 容器）：hover 上浮 + 删除按钮定位 ===== */
-[data-testid="stVerticalBlockBorderWrapper"]:has(.ww-card) {
+/* ===== 卡片容器（Streamlit 1.59：border 容器为 stVerticalBlock）：hover 上浮 + 按钮定位 =====
+   真实 DOM 结构（CDP 实测）：卡内 stVerticalBlock 下，卡片 markdown 与 ✕ 按钮是
+   兄弟 stElementContainer。用兄弟组合器精确配对，避免外层嵌套 block 误匹配。 */
+[data-testid="stVerticalBlock"]:has(.ww-card) {
     position:relative; padding:0 !important; overflow:hidden; border:none !important;
     background:transparent !important; box-shadow:var(--shadow-md) !important;
     transition:transform var(--transition), box-shadow var(--transition);
 }
-[data-testid="stVerticalBlockBorderWrapper"]:has(.ww-card):hover {
+[data-testid="stVerticalBlock"]:has(.ww-card):hover {
     transform:translateY(-4px); box-shadow:var(--shadow-lg) !important;
 }
-/* 删除按钮：贴卡片右上角，默认隐藏，hover 卡片时平滑显现（无布局跳动：绝对定位 + opacity/transform） */
-[data-testid="stVerticalBlockBorderWrapper"]:has(.ww-card) .stButton {
-    position:absolute; top:8px; right:8px; z-index:6; width:auto;
+/* 删除按钮：默认隐藏，hover 卡片（或按钮自身/键盘 focus）时平滑显现。
+   opacity+scale 双过渡，绝对定位不占文档流，无布局跳动。 */
+[data-testid="stVerticalBlock"]:has(.ww-card) > .stElementContainer:has(.stButton) {
+    position:absolute; top:6px; right:6px; z-index:6; width:auto;
 }
-[data-testid="stVerticalBlockBorderWrapper"]:has(.ww-card) .stButton > button {
+[data-testid="stVerticalBlock"]:has(.ww-card) > .stElementContainer:has(.stButton) .stButton button {
     width:26px !important; height:26px; min-height:26px; padding:0 !important;
     border-radius:50% !important; border:none !important; line-height:1;
     background:rgba(16,24,48,.45) !important; color:#fff !important; font-size:.8rem;
@@ -499,21 +502,23 @@ def wall_css() -> str:
                transform .22s cubic-bezier(.22,.8,.36,1),
                background .22s ease;
 }
-[data-testid="stVerticalBlockBorderWrapper"]:has(.ww-card):hover .stButton > button,
-[data-testid="stVerticalBlockBorderWrapper"]:has(.ww-card) .stButton > button:focus-visible {
+/* 三种显示状态：卡片 hover（兄弟触发）/ 按钮自身 hover / 键盘 focus */
+[data-testid="stVerticalBlock"]:has(.ww-card):hover > .stElementContainer:has(.stButton) .stButton button,
+[data-testid="stVerticalBlock"]:has(.ww-card) > .stElementContainer:has(.stButton) .stButton button:focus-visible,
+[data-testid="stVerticalBlock"]:has(.ww-card) > .stElementContainer:has(.stButton) .stButton:hover > button {
     opacity:1; transform:scale(1);
 }
-[data-testid="stVerticalBlockBorderWrapper"]:has(.ww-card) .stButton > button:hover {
+[data-testid="stVerticalBlock"]:has(.ww-card) > .stElementContainer:has(.stButton) .stButton button:hover {
     background:rgba(200,60,60,.85) !important;
 }
 /* 移动端 / 无 hover 设备：按钮常显，保证可点（触摸设备没有 hover 态） */
 @media (hover: none) {
-    [data-testid="stVerticalBlockBorderWrapper"]:has(.ww-card) .stButton > button {
+    [data-testid="stVerticalBlock"]:has(.ww-card) > .stElementContainer:has(.stButton) .stButton button {
         opacity:.85; transform:none;
     }
 }
 /* 卡片容器内 markdown 去掉默认间距 */
-[data-testid="stVerticalBlockBorderWrapper"]:has(.ww-card) [data-testid="stMarkdownContainer"] { margin:0; }
+[data-testid="stVerticalBlock"]:has(.ww-card) [data-testid="stMarkdownContainer"] { margin:0; }
 
 /* ===== 减弱动态偏好：全部动画静止（无障碍） ===== */
 @media (prefers-reduced-motion: reduce) {
