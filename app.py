@@ -41,6 +41,12 @@ from modules.reporter import render_export_tab
 from modules.nwp_forecast import render_forecast_tab
 from utils import df_fingerprint as _df_fingerprint, go_back as _go_back
 from auth import render_auth_page, is_authenticated, sign_out_user
+from modules import theme_aether
+from modules.weather_wall import render_wall
+
+# 主题初始化：必须在任何读取 dark_mode 的代码（CSS 注入、_is_dark）之前执行。
+# 优先级：session_state > 云端(登录时写入) > 本地文件 > 默认浅色。
+theme_aether.init_theme()
 
 # ============================================================
 # 通用 UI 辅助函数
@@ -319,42 +325,60 @@ def _render_next_step_hint():
 
 
 def _render_onboarding_page():
-    """P4: 空数据时显示图形化三步引导页"""
-    from config import ONBOARDING_STEPS
+    """封面页：Aether 天气墙（未导入数据时展示，替换原三步引导页）。
 
-    col_center = st.columns([1, 6, 1])
-    with col_center[1]:
-        st.markdown("""
-        <div style="text-align:center; padding: 30px 0 10px 0;">
-            <div style="font-size: 3rem;">🌤️</div>
-            <h2 style="margin: 8px 0;">气象数据交互分析平台</h2>
-            <p style="color:#888; font-size:0.95rem;">
-                三步上手，轻松完成气象数据导入、可视化分析与报告导出
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
+    需求要点：默认预置 34 个省会级城市实时天气；导入数据后本封面随
+    df is None 判定自动切换回数据摘要卡（见主渲染区分支）。
+    """
+    # ---- 标题区：Fraunces 斜体主标题 + 双语副标题 ----
+    st.markdown("""
+    <div style="text-align:center; padding: 26px 0 4px 0;">
+        <div class="aether-title">Aether</div>
+        <div class="aether-sub">Skies &amp; Weather · 天空与天气</div>
+    </div>
+    <style>
+    .aether-title {
+        font-family: var(--font-display); font-style: italic; font-weight: 600;
+        font-size: clamp(2.6rem, 6vw, 4rem); color: var(--text-primary);
+        letter-spacing: 0.02em; line-height: 1.1;
+    }
+    .aether-sub {
+        font-family: var(--font-display); color: var(--text-muted);
+        font-size: clamp(0.9rem, 2vw, 1.1rem); letter-spacing: 0.28em;
+        margin-top: 2px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
-        step_cols = st.columns(3)
-        for i, step in enumerate(ONBOARDING_STEPS):
-            with step_cols[i]:
-                with st.container(border=True, key=f"onboard_card_{i}"):
-                    st.markdown(f"""
-                    <div style="text-align:center; padding: 12px 0;">
-                        <div style="font-size: 2.5rem;">{step['icon']}</div>
-                        <h4 style="margin: 8px 0;">{step['title']}</h4>
-                        <p style="color:#888; font-size:0.8rem;">{step['desc']}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    if st.button(step["action"], use_container_width=True, key=f"onboard_{i}"):
-                        _navigate_to(step["tab_idx"])
+    # 老用户回封面后的返回入口：数据未丢，随时切回摘要卡视图
+    if st.session_state.get("df") is not None:
+        _rc1, _rc2, _rc3 = st.columns([1, 2, 1])
+        with _rc2:
+            if st.button("📊 返回数据视图", key="wall_back_to_data",
+                         use_container_width=True):
+                st.session_state["_wall_cover"] = False
+                st.rerun()
 
-        st.write("")
-        c1, c2, c3 = st.columns([1, 2, 1])
-        with c2:
-            if st.button("⚡ 快速开始 — 导入数据", use_container_width=True, type="primary",
-                         key="onboard_quick"):
-                _navigate_to(0)
-        st.divider()
+    # ---- 天气墙主体（搜索 / 分组卡片 / 增删 / toast） ----
+    # 错误边界：天气服务或渲染异常时降级为文字提示，不影响下方快速开始入口
+    try:
+        render_wall()
+    except Exception as _wall_exc:
+        st.warning("⚠️ 天气墙加载异常，已降级显示。点击下方按钮可正常使用平台功能。")
+        with st.expander("查看错误详情"):
+            st.exception(_wall_exc)
+
+    # ---- 快速开始入口（保留原跳转逻辑） ----
+    st.write("")
+    c1, c2, c3 = st.columns([1, 2, 1])
+    with c2:
+        if st.button("⚡ 快速开始 — 导入数据", use_container_width=True, type="primary",
+                     key="onboard_quick"):
+            # 进入导入流程后关闭封面标志：导入完成即回到数据摘要卡视图
+            st.session_state["_wall_cover"] = False
+            _navigate_to(0)
+    st.caption("天气数据来自 Open-Meteo · 每 10 分钟自动更新 · 仅供学习参考")
+    st.divider()
 
 
 def _apply_filter(df):
@@ -729,32 +753,9 @@ hr {
 </style>
 """, unsafe_allow_html=True)
 
-# ---- 暗色模式 CSS (仅覆盖变量) ----
-if st.session_state.get("dark_mode", False):
-    st.markdown("""
-    <style>
-    :root {
-        --bg-primary: #0f172a;
-        --bg-secondary: #1e293b;
-        --bg-tertiary: #334155;
-        --bg-hover: #475569;
-        --text-primary: #f1f5f9;
-        --text-secondary: #94a3b8;
-        --text-muted: #64748b;
-        --border-color: #334155;
-        --border-hover: #60a5fa;
-        --accent: #3b82f6;
-        --accent-hover: #60a5fa;
-        --accent-soft: #1e3a5f;
-        --success-bg: #064e3b;
-        --warning-bg: #78350f;
-        --error-bg: #7f1d1d;
-        --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
-        --shadow-md: 0 4px 12px -2px rgba(0,0,0,0.4);
-        --shadow-lg: 0 12px 24px -4px rgba(0,0,0,0.5);
-    }
-    </style>
-    """, unsafe_allow_html=True)
+# ---- Aether 主题覆盖层（亮/暗统一由 theme_aether 按当前主题输出一套变量，
+#      旧版亮/暗变量块由此接管，避免两套皮肤并存） ----
+theme_aether.inject_theme()
 
 # 头部
 st.markdown('<div class="main-header">[天气] 气象数据交互分析平台</div>', unsafe_allow_html=True)
@@ -892,10 +893,18 @@ with st.sidebar:
     st.divider()
     st.checkbox("[调试] 显示详细错误信息", value=False, key="debug_mode",
                 help="开启后，图表渲染失败时会展示完整的 Python 报错堆栈，便于排查问题。")
-    dark = st.checkbox("[显示] 暗色模式", value=st.session_state.get("dark_mode", False), key="dark_toggle",
-                       help="切换深色/浅色主题")
+    # 老用户回封面入口：有数据时仍可随时回到天气墙封面（_wall_cover 控制主区分支）
+    if st.session_state.get("df") is not None:
+        if st.button("☁️ 天气墙封面", key="sb_wall_cover",
+                     use_container_width=True,
+                     help="回到首页天气墙（数据保留，返回后自动恢复摘要卡）"):
+            st.session_state["_wall_cover"] = True
+            st.rerun()
+    dark = st.checkbox("[显示] 暗色模式（梦幻夜空）", value=st.session_state.get("dark_mode", False), key="dark_toggle",
+                       help="切换「梦幻夜空 / 清透天空」主题，选择自动保存，重启后保持")
     if dark != st.session_state.get("dark_mode", False):
-        st.session_state["dark_mode"] = dark
+        # 需求 3：切换写入持久化（本地文件 + 登录时 Supabase user_metadata）
+        theme_aether.set_theme(dark)
         st.rerun()
     st.divider()
     # 导入历史
@@ -919,7 +928,7 @@ with st.sidebar:
 # 主内容区：无数据时显示引导页，有数据时显示提示+摘要
 # ============================================================
 has_any_data = st.session_state.get("df") is not None
-if not has_any_data:
+if not has_any_data or st.session_state.get("_wall_cover", False):
     _render_onboarding_page()
 else:
     _render_next_step_hint()

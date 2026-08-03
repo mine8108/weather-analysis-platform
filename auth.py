@@ -135,6 +135,20 @@ def sign_out_user():
         st.session_state.pop(k, None)
 
 
+def _apply_cloud_theme(user) -> None:
+    """登录成功后，把 Supabase user_metadata 里的主题偏好应用到当前会话。
+
+    theme_aether 在页面加载时可能已按本地文件初始化，云端值优先级更高，
+    这里做登录后的覆盖同步。读取失败静默跳过，不阻断登录。
+    """
+    try:
+        from modules import theme_aether
+        meta = getattr(user, "user_metadata", None) or {}
+        theme_aether.apply_cloud_theme(meta.get("theme"))
+    except Exception:
+        pass
+
+
 # ============================================================
 # 三、登录/注册页面
 # ============================================================
@@ -208,6 +222,7 @@ def _do_auth(mode: str, email: str, password: str, invite_code: str = ""):
                 "email": res.user.email,
             }
             st.session_state.pop("auth_error", None)
+            _apply_cloud_theme(res.user)  # 读回云端主题偏好（重启保持）
             st.rerun()
     except Exception as e:
         # 常见错误：Invalid login credentials / Email not confirmed / weak password
@@ -297,6 +312,7 @@ def _auto_login(sb, email: str, password: str):
             "email": res.user.email,
         }
         st.session_state.pop("auth_error", None)
+        _apply_cloud_theme(res.user)
         st.rerun()
     except Exception as e:
         st.session_state["auth_error"] = (

@@ -37,6 +37,8 @@ def test_modules_import():
         "modules.codec",
         "modules.reporter",
         "modules.nwp_forecast",
+        "modules.theme_aether",
+        "modules.weather_wall",
     ]
     for name in modules:
         importlib.import_module(name)

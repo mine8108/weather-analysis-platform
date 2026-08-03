@@ -1,0 +1,268 @@
+"""Aether 主题系统：天空渐变 + 手绘感的双色板视觉语言。
+
+设计要点：
+- 默认浅色「清透天空」(light)，备选暗色「梦幻夜空」(dark)，侧边栏手动切换。
+- 本模块输出的是「覆盖层 CSS」：注入在 app.py 旧版样式表之后，
+  同名 CSS 变量以后定义者为准，旧组件样式自动跟随新 token，
+  避免重写既有 300+ 行样式，改动风险最小。
+- 主题选择持久化（重启保持）：
+  · 未登录：写本地文件 ~/.aether_theme.json；
+  · 已登录：写 Supabase user_metadata.theme（auth.py 登录时读回）。
+"""
+
+import json
+from pathlib import Path
+
+import streamlit as st
+
+# ---- 本地偏好文件（未登录用户的持久化通道） ----
+_PREF_FILE = Path.home() / ".aether_theme.json"
+
+THEME_NAMES = {"light": "清透天空", "dark": "梦幻夜空"}
+
+
+# ============================================================
+# 一、双色板 token
+# ============================================================
+# 浅色：清透天空，浅蓝 #eaf4ff 过渡奶油 #fdf3ec，正文 #34435e
+LIGHT_TOKENS = {
+    "bg-primary": "#fffdfb",
+    "bg-secondary": "rgba(255,255,255,0.68)",
+    "bg-tertiary": "#f7f2ec",
+    "bg-hover": "#edf3fb",
+    "text-primary": "#34435e",
+    "text-secondary": "#55648a",
+    "text-muted": "#8b97b4",
+    "border-color": "#e7e3ef",
+    "border-hover": "#9db8e0",
+    "accent": "#4a7ec2",
+    "accent-hover": "#3a68ab",
+    "accent-soft": "rgba(142,202,230,0.20)",
+    "success-bg": "#eefaf1",
+    "warning-bg": "#fdf6e3",
+    "error-bg": "#fdeeee",
+    # 页面背景：多层径向光晕叠在天空渐变上，营造梦幻透光感
+    "app-bg": (
+        "radial-gradient(620px 420px at 85% -5%, rgba(255,214,130,0.35), transparent 70%),"
+        "radial-gradient(520px 400px at 8% 110%, rgba(180,200,255,0.30), transparent 70%),"
+        "linear-gradient(168deg, #eaf4ff 0%, #f3edfb 48%, #fdf3ec 100%)"
+    ),
+    "shadow-sm": "0 1px 3px rgba(80,100,150,0.07)",
+    "shadow-md": "0 6px 16px -4px rgba(80,100,150,0.12)",
+    "shadow-lg": "0 16px 32px -8px rgba(80,100,150,0.16)",
+    # 天气墙七场景天空（浅色主题：白天场景为主，晴夜场景保持深蓝）
+    "ww-sunny": "linear-gradient(180deg,#6fb8ee 0%,#b5dcf7 70%,#d9edfb 100%)",
+    "ww-cloudy": "linear-gradient(180deg,#a9bcd4 0%,#ccd9e9 100%)",
+    "ww-rain": "linear-gradient(180deg,#7d94b0 0%,#b3c4d8 100%)",
+    "ww-snow": "linear-gradient(180deg,#a8bdd8 0%,#e6edf7 100%)",
+    "ww-thunder": "linear-gradient(180deg,#4d5c7d 0%,#7c8ba8 100%)",
+    "ww-fog": "linear-gradient(180deg,#b7c1cd 0%,#dde3ea 100%)",
+    "ww-night": "linear-gradient(180deg,#25315b 0%,#4a5a8f 100%)",
+}
+
+# 暗色：梦幻夜空，深蓝紫渐变，月光金点缀，全程避开纯黑与高饱和刺眼色
+DARK_TOKENS = {
+    "bg-primary": "#1a2138",
+    "bg-secondary": "rgba(35,42,61,0.72)",
+    "bg-tertiary": "#2a3350",
+    "bg-hover": "#39425e",
+    "text-primary": "#e6e9f2",
+    "text-secondary": "#b7bfd4",
+    "text-muted": "#8a93ab",
+    "border-color": "#333d5a",
+    "border-hover": "#7f96c9",
+    "accent": "#8ecae6",
+    "accent-hover": "#aedcf2",
+    "accent-soft": "rgba(142,202,230,0.14)",
+    "success-bg": "rgba(46,125,90,0.25)",
+    "warning-bg": "rgba(160,120,40,0.25)",
+    "error-bg": "rgba(160,60,60,0.28)",
+    "app-bg": (
+        "radial-gradient(560px 420px at 82% -5%, rgba(196,210,255,0.14), transparent 70%),"
+        "radial-gradient(700px 500px at 10% 110%, rgba(120,90,180,0.16), transparent 70%),"
+        "linear-gradient(168deg, #131a2e 0%, #1b2340 52%, #2b2a44 100%)"
+    ),
+    "shadow-sm": "0 1px 3px rgba(0,0,0,0.35)",
+    "shadow-md": "0 6px 16px -4px rgba(0,0,0,0.45)",
+    "shadow-lg": "0 16px 32px -8px rgba(0,0,0,0.55)",
+    # 天气墙七场景天空（暗色主题：整体压深一档，避免刺眼）
+    "ww-sunny": "linear-gradient(180deg,#3d6b9e 0%,#6f97c2 100%)",
+    "ww-cloudy": "linear-gradient(180deg,#49566f 0%,#6d7c97 100%)",
+    "ww-rain": "linear-gradient(180deg,#39496a 0%,#57698a 100%)",
+    "ww-snow": "linear-gradient(180deg,#4f5f7d 0%,#8b9bb8 100%)",
+    "ww-thunder": "linear-gradient(180deg,#272f4b 0%,#47537a 100%)",
+    "ww-fog": "linear-gradient(180deg,#4e5966 0%,#75808d 100%)",
+    "ww-night": "linear-gradient(180deg,#0f1430 0%,#2a3560 100%)",
+}
+
+
+# ============================================================
+# 二、字体（Google Fonts，Streamlit Cloud 可直连）
+# ============================================================
+FONTS_URL = (
+    "https://fonts.googleapis.com/css2?"
+    "family=Fraunces:ital,opsz,wght@1,9..144,300..700&"  # 展示标题（斜体衬线）
+    "family=Quicksand:wght@400;500;600;700&"             # 正文
+    "family=Baloo+2:wght@500;700;800&"                   # 温度大数字
+    "family=ZCOOL+KuaiLe&display=swap"                   # 中文手绘点缀
+)
+
+
+# ============================================================
+# 三、持久化：本地文件 + Supabase user_metadata
+# ============================================================
+def _load_pref_local() -> str | None:
+    """读取本地主题偏好，返回 'light' / 'dark' / None。"""
+    try:
+        if _PREF_FILE.exists():
+            theme = json.loads(_PREF_FILE.read_text(encoding="utf-8")).get("theme")
+            if theme in THEME_NAMES:
+                return theme
+    except Exception:
+        pass  # 偏好文件损坏时静默回退默认浅色
+    return None
+
+
+def _save_pref_local(theme: str) -> None:
+    """写本地主题偏好。失败不影响主流程。"""
+    try:
+        _PREF_FILE.write_text(json.dumps({"theme": theme}), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _cloud_available() -> bool:
+    """Supabase 密钥已配置且当前已登录时，才走云端持久化。
+
+    先做 secrets 预检：get_supabase() 在缺密钥时会 st.stop() 中断渲染，
+    这里必须避免误触发。
+    """
+    try:
+        has_secrets = bool(str(st.secrets.get("SUPABASE_URL", "")).strip())
+    except Exception:
+        has_secrets = False
+    return has_secrets and bool(st.session_state.get("auth_user"))
+
+
+def _save_pref_cloud(theme: str) -> None:
+    """把主题写进 Supabase user_metadata（登录用户跨设备持久化）。"""
+    if not _cloud_available():
+        return
+    try:
+        from auth import get_supabase
+        sb = get_supabase()
+        if sb is not None:
+            sb.auth.update_user({"data": {"theme": theme}})
+    except Exception:
+        pass  # 云端写入失败仅丢失跨设备同步，本地文件仍兜底
+
+
+# ============================================================
+# 四、主题状态入口
+# ============================================================
+def init_theme() -> None:
+    """会话初始化时确定主题。必须在任何读取 dark_mode 的代码之前调用。
+
+    优先级：session_state（本次已设定）> 登录时读回的云端值 > 本地文件 > 默认浅色。
+    云端值在 auth.py 登录成功处写入 session_state["_theme_cloud"] 并直接生效，
+    因此这里只需处理「未登录」与「本地文件」两条路径。
+    """
+    if "dark_mode" in st.session_state:
+        return
+    theme = _load_pref_local() or "light"  # 需求：浅色为默认主题
+    st.session_state["dark_mode"] = (theme == "dark")
+
+
+def set_theme(dark: bool) -> None:
+    """侧边栏切换主题：写 session_state + 双通道持久化。"""
+    theme = "dark" if dark else "light"
+    st.session_state["dark_mode"] = dark
+    _save_pref_local(theme)
+    _save_pref_cloud(theme)
+
+
+def apply_cloud_theme(theme: str | None) -> None:
+    """登录成功后由 auth.py 调用：云端偏好覆盖当前会话，并同步到本地文件。"""
+    if theme in THEME_NAMES:
+        st.session_state["dark_mode"] = (theme == "dark")
+        _save_pref_local(theme)
+
+
+def is_dark() -> bool:
+    return bool(st.session_state.get("dark_mode", False))
+
+
+def get_tokens() -> dict:
+    """当前主题的 token 表，供 weather_wall 等模块取色。"""
+    return DARK_TOKENS if is_dark() else LIGHT_TOKENS
+
+
+# ============================================================
+# 五、覆盖层 CSS 注入
+# ============================================================
+def inject_theme() -> None:
+    """输出主题覆盖层。调用位置必须在 app.py 旧版样式表之后。
+
+    旧亮色 :root 变量块与旧暗色变量块由此函数统一接管：
+    按当前主题输出一套变量，旧组件样式自动跟随。
+    """
+    t = get_tokens()
+    vars_css = "\n".join(f"    --{k}: {v};" for k, v in t.items() if k != "app-bg")
+    st.markdown(f"""
+<style>
+@import url('{FONTS_URL}');
+
+/* ===== Aether 主题变量（覆盖旧版同名变量） ===== */
+:root {{
+{vars_css}
+    --font-ui: 'Quicksand', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+    --font-display: 'Fraunces', 'ZCOOL KuaiLe', 'Songti SC', serif;
+    --font-temp: 'Baloo 2', 'Quicksand', sans-serif;
+    --radius-sm: 10px;
+    --radius-md: 16px;
+    --radius-lg: 20px;
+    --transition: 200ms cubic-bezier(0.22, 0.8, 0.36, 1);
+}}
+
+/* ===== 页面背景：天空渐变 + 光晕 ===== */
+.stApp {{
+    background: {t["app-bg"]};
+    background-attachment: fixed;
+    font-family: var(--font-ui);
+}}
+
+/* ===== 标题：Fraunces 斜体衬线 + ZCOOL KuaiLe 中文手绘 ===== */
+.main-header {{
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 600 !important;
+    letter-spacing: 0.01em;
+}}
+h1, h2, h3 {{
+    font-family: var(--font-display) !important;
+}}
+
+/* ===== 按钮：圆角加大 + hover 上浮（指数缓动） ===== */
+.stButton > button {{
+    border-radius: 12px !important;
+}}
+.stButton > button:hover {{
+    transform: translateY(-2px);
+}}
+
+/* ===== 卡片容器：更大圆角 + 柔阴影 ===== */
+[data-testid="stVerticalBlockBorderWrapper"] {{
+    border-radius: var(--radius-md) !important;
+}}
+
+/* ===== Metric 大数字：Baloo 2 ===== */
+[data-testid="stMetricValue"] {{
+    font-family: var(--font-temp);
+}}
+
+/* ===== 主 Tab 导航：胶囊选中态 ===== */
+[data-testid="stRadio"] [role="radiogroup"] label {{
+    border-radius: 999px;
+}}
+</style>
+""", unsafe_allow_html=True)
