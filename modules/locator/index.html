@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<!-- Aether 天气墙 · 浏览器定位组件（纯静态，由 components.declare_component 服务）
+
+Streamlit 组件协议（无 React，手工实现）：
+  1. 向父页面发送 streamlit:componentReady 声明就绪
+  2. 监听 streamlit:render 事件，event.data.args 为 Python 端传入参数
+  3. 通过 streamlit:setComponentValue 把定位结果回传给 Python
+     （回传后 Streamlit 自动 rerun，Python 端拿到 value）
+
+定位策略：
+  - 结果（含"拒绝/不支持"）写入 sessionStorage 缓存，避免每次 rerun 重复弹授权；
+  - Python 端传 args.clear=true（用户点「重新定位」）时清除缓存并重新请求。
+-->
+<html>
+<head><meta charset="utf-8"></head>
+<body style="margin:0;">
+<script>
+(function () {
+  "use strict";
+  var KEY = "aether_geo_loc";
+  var reported = false;
+
+  function send(type, data) {
+    var msg = Object.assign({ isStreamlitMessage: true, type: type }, data);
+    window.parent.postMessage(msg, "*");
+  }
+
+  function setFrameHeight(h) { send("streamlit:setFrameHeight", { height: h }); }
+
+  function report(result) {
+    if (reported) return;
+    reported = true;
+    try { sessionStorage.setItem(KEY, JSON.stringify(result)); } catch (e) { /* 隐私模式等场景忽略 */ }
+    send("streamlit:setComponentValue", { value: result });
+  }
+
+  function requestLocation() {
+    if (!navigator.geolocation) {
+      report({ status: "unsupported", error: "浏览器不支持定位" });
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      function (pos) {
+        report({
+          status: "ok",
+          lat: pos.coords.latitude,
+          lon: pos.coords.longitude
+        });
+      },
+      function (err) {
+        report({ status: "denied", error: (err && err.message) || "定位失败" });
+      },
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 600000 }
+    );
+  }
+
+  function loadCached() {
+    try { return JSON.parse(sessionStorage.getItem(KEY) || "null"); } catch (e) { return null; }
+  }
+
+  // 处理 RENDER 事件：args.clear=true → 清缓存重定位；否则有缓存直接回传，无缓存请求定位
+  window.addEventListener("message", function (event) {
+    if (!event.data || event.data.type !== "streamlit:render") return;
+    var args = event.data.args || {};
+    if (args.clear === true) {
+      reported = false;
+      try { sessionStorage.removeItem(KEY); } catch (e) { /* ignore */ }
+      requestLocation();
+      return;
+    }
+    var cached = loadCached();
+    if (cached) {
+      send("streamlit:setComponentValue", { value: cached });
+    } else {
+      requestLocation();
+    }
+  });
+
+  send("streamlit:componentReady", { apiVersion: 1 });
+  setFrameHeight(1); // 组件不可见，只留最小高度
+})();
+</script>
+</body>
+</html>

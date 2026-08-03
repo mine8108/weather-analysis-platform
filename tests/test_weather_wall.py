@@ -43,7 +43,37 @@ class TestCityLibrary:
 
 
 # ============================================================
-# 二、场景映射全分支
+# 二·五、地理编码
+# ============================================================
+class TestGeocode:
+    def test_clean_city_name(self):
+        from modules.geocode import _clean_city_name
+        assert _clean_city_name("北京市") == "北京"
+        assert _clean_city_name("廊坊市") == "廊坊"
+        assert _clean_city_name("三河市") == "三河"
+        assert _clean_city_name("朝阳区") == "朝阳"
+        assert _clean_city_name("None") == "None"   # 非后缀结尾原样
+        assert _clean_city_name("") == ""
+        assert _clean_city_name(None) == ""
+
+    def test_parse_lat_lon(self):
+        from modules.geocode import parse_lat_lon
+        assert parse_lat_lon("39.9,116.4") == (39.9, 116.4)
+        assert parse_lat_lon("39.9，116.4") == (39.9, 116.4)  # 中文逗号
+        assert parse_lat_lon("39.9 116.4") == (39.9, 116.4)   # 空格分隔
+        assert parse_lat_lon("hello") is None
+        assert parse_lat_lon("91,116") is None    # 纬度越界
+        assert parse_lat_lon("39.9,181") is None  # 经度越界
+        assert parse_lat_lon("39.9,116.4,5") is None
+
+    def test_format_candidate(self):
+        from modules.geocode import format_candidate
+        c = {"name": "北京", "admin1": "北京市", "country": "中国"}
+        assert format_candidate(c) == "北京 · 北京市 · 中国"
+
+
+# ============================================================
+# 三、场景映射全分支
 # ============================================================
 class TestMapScene:
     @pytest.mark.parametrize("code,expected", [
@@ -96,7 +126,28 @@ class TestCardHtml:
         html = weather_wall.card_html(city, None, "night", 1)
         assert "ww-moon" in html and "ww-stars" in html
 
+    def test_aqi_in_sub_line(self):
+        """AQI 追加到 ww-sub 行，格式与湿度/风速一致。"""
+        city = {"zh": "北京", "en": "Beijing", "lat": 39.9, "lon": 116.4,
+                "region": "华北", "capital": True}
+        wx = {"temp": 26.4, "humidity": 45, "wind": 3.21,
+              "code": 0, "is_day": 1, "t_max": 28.1, "t_min": 19.0}
+        html = weather_wall.card_html(city, wx, "sunny", 0,
+                                      aqi={"aqi": 45, "level": "优", "color": "#3fa660"})
+        assert "🌫AQI 45 优" in html
 
+    def test_aqi_none_not_appended(self):
+        """AQI 缺值：不追加，保持原 ww-sub 内容。"""
+        city = {"zh": "北京", "en": "Beijing", "lat": 39.9, "lon": 116.4,
+                "region": "华北", "capital": True}
+        wx = {"temp": 26.4, "humidity": 45, "wind": 3.21,
+              "code": 0, "is_day": 1, "t_max": 28.1, "t_min": 19.0}
+        html = weather_wall.card_html(city, wx, "sunny", 0, aqi=None)
+        assert "AQI" not in html
+
+
+# ============================================================
+# 四、数据层（离线 mock requests，真实调用解析逻辑）
 # ============================================================
 # 四、数据层（离线 mock requests，真实调用解析逻辑）
 # ============================================================
@@ -201,6 +252,100 @@ class TestTheme:
 
 
 # ============================================================
+# 五、定位结果消费（纯函数）
+# ============================================================
+class TestBuildCityFromGeo:
+    def test_ok(self):
+        city = weather_wall.build_city_from_geo(
+            {"status": "ok", "lat": 39.9, "lon": 116.4},
+            reverse_fn=lambda lat, lon: "北京",
+        )
+        assert city == {"zh": "北京", "en": "39.90, 116.40",
+                        "lat": 39.9, "lon": 116.4, "region": "定位", "capital": False}
+
+    def test_reverse_fail_fallback_coords(self):
+        city = weather_wall.build_city_from_geo(
+            {"status": "ok", "lat": 39.9, "lon": 116.4},
+            reverse_fn=lambda lat, lon: "",
+        )
+        assert city["zh"] == "(39.90, 116.40)"
+
+    def test_denied_unsupported_missing(self):
+        assert weather_wall.build_city_from_geo({"status": "denied"}) is None
+        assert weather_wall.build_city_from_geo({"status": "unsupported"}) is None
+        assert weather_wall.build_city_from_geo(None) is None
+        assert weather_wall.build_city_from_geo({"status": "ok", "lat": "x", "lon": 1}) is None
+
+
+# ============================================================
+# 五·五、6 卡上限 + 持久化
+# ============================================================
+def _mk_city(zh: str, i: int = 0) -> dict:
+    return {"zh": zh, "en": f"City{i}", "lat": 30.0 + i, "lon": 110.0 + i,
+            "region": "测试", "capital": False}
+
+
+class TestCanAdd:
+    def test_ok(self):
+        import streamlit as st
+        st.session_state["wall_cities"] = [_mk_city("甲", 1)]
+        ok, msg = weather_wall._can_add(_mk_city("乙", 2))
+        assert ok and not msg
+
+    def test_duplicate_rejected(self):
+        import streamlit as st
+        st.session_state["wall_cities"] = [_mk_city("甲", 1)]
+        ok, msg = weather_wall._can_add(_mk_city("甲", 1))
+        assert not ok and "已在列表中" in msg
+
+    def test_max_six_rejected(self):
+        """需求 4：最多 6 张，第 7 张被拒。"""
+        import streamlit as st
+        st.session_state["wall_cities"] = [_mk_city(f"城{i}", i) for i in range(6)]
+        ok, msg = weather_wall._can_add(_mk_city("第七城", 99))
+        assert not ok and "最多展示 6" in msg
+
+
+class TestCityPrefs:
+    def test_sanitize_filters(self):
+        from modules.city_prefs import sanitize_cities
+        cities = [
+            {"zh": "北京", "en": "B", "lat": 39.9, "lon": 116.4, "region": "华北", "capital": True},
+            {"zh": "", "en": "bad", "lat": 1, "lon": 1},          # 空名丢弃
+            {"zh": "坏城", "en": "x", "lat": "abc", "lon": 1},    # 非法坐标丢弃
+        ]
+        out = sanitize_cities(cities)
+        assert len(out) == 1 and out[0]["zh"] == "北京"
+
+    def test_local_roundtrip(self, monkeypatch):
+        """刷新后保留：写入本地文件 → 重新读取能恢复。"""
+        import tempfile
+        from pathlib import Path
+        from modules import city_prefs
+        pref = Path(tempfile.mkdtemp()) / "cities.json"
+        monkeypatch.setattr(city_prefs, "_PREF_FILE", pref)
+        cities = [_mk_city("北京", 1), _mk_city("上海", 2)]
+        city_prefs._save_local(cities)
+        loaded = city_prefs._load_local()
+        assert [c["zh"] for c in loaded] == ["北京", "上海"]
+
+    def test_apply_cloud_cities(self, monkeypatch):
+        """云端城市 JSON 串 → 清洗并写入本地。"""
+        import tempfile
+        from pathlib import Path
+        import json
+        from modules import city_prefs
+        pref = Path(tempfile.mkdtemp()) / "cities.json"
+        monkeypatch.setattr(city_prefs, "_PREF_FILE", pref)
+        raw = json.dumps([{"zh": "成都", "en": "Chengdu", "lat": 30.57,
+                           "lon": 104.07, "region": "西南", "capital": True}])
+        city_prefs.apply_cloud_cities(raw)
+        assert city_prefs._load_local()[0]["zh"] == "成都"
+        city_prefs.apply_cloud_cities("not-json")  # 损坏值静默忽略
+        assert city_prefs._load_local()[0]["zh"] == "成都"
+
+
+# ============================================================
 # 六、AppTest 集成：封面渲染 + 需求 2 切换
 # ============================================================
 APP_FILE = str(Path(__file__).resolve().parent.parent / "app.py")
@@ -220,6 +365,11 @@ def _make_app_test(monkeypatch, with_df: bool):
     monkeypatch.setattr(db_mod, "get_storage_usage_bytes", lambda *a, **k: 0)
     monkeypatch.setattr(db_mod, "get_storage_quota_bytes", lambda *a, **k: 10485760)
     monkeypatch.setattr(db_mod, "list_datasets", lambda: [])
+    # 城市列表持久化隔离到临时文件，避免测试写入真实用户 ~/.weather_wall_cities.json
+    import tempfile
+    from modules import city_prefs as cp_mod
+    monkeypatch.setattr(cp_mod, "_PREF_FILE",
+                        Path(tempfile.mkdtemp()) / "test_cities.json")
 
     at = AppTest.from_file(APP_FILE, default_timeout=60)
     at.secrets["ADMIN_PASSWORD"] = "test-admin"
@@ -237,16 +387,45 @@ def _make_app_test(monkeypatch, with_df: bool):
 
 
 class TestAppIntegration:
-    def test_cover_wall_boots(self, monkeypatch):
-        """未导入数据：封面显示 Aether 天气墙，34 城分组渲染无异常。"""
+    def test_cover_wall_placeholder(self, monkeypatch):
+        """未定位未添加：封面显示引导占位卡，无预置城市。"""
         at = _make_app_test(monkeypatch, with_df=False)
         at.run()
         assert not at.exception, f"封面渲染抛异常: {at.exception}"
         md = "\n".join(m.value for m in at.markdown)
         # 用封面专属 class 断言（"Aether" 字样会出现在主题 CSS 注释里，不可靠）
         assert "aether-title" in md
-        assert "ww-region" in md          # 区域分组标题
-        assert "北京" in md and "中国香港" in md  # 默认省会含港澳台
+        assert "天气墙还空着" in md        # 引导占位卡
+        assert 'class="ww-card' not in md  # 无任何城市卡片（CSS 选择器 .ww-card 不算）
+
+    def test_geo_location_adds_city(self, monkeypatch):
+        """手工搜索路径：输入库内城市名 → 解析添加 → 首页出现该城市卡片。"""
+        import modules.weather_wall as ww_mod
+        monkeypatch.setattr(ww_mod, "forward_geocode", lambda name: [])
+        at = _make_app_test(monkeypatch, with_df=False)
+        at.run()
+        # text_input 输入城市名并点击「解析并添加」（北京命中 CITY_LIBRARY 直接加）
+        at.text_input[0].set_value("北京")
+        at.run()
+        at.button(key="wall_resolve").click().run()
+        assert not at.exception, f"解析添加抛异常: {at.exception}"
+        md = "\n".join(m.value for m in at.markdown)
+        assert "北京" in md and 'class="ww-card' in md
+
+    def test_search_unknown_city_prompt(self, monkeypatch):
+        """未匹配城市：提示未找到，不添加卡片。"""
+        import modules.weather_wall as ww_mod
+        monkeypatch.setattr(ww_mod, "forward_geocode", lambda name: [])
+        at = _make_app_test(monkeypatch, with_df=False)
+        at.run()
+        at.text_input[0].set_value("zzzz不存在的城市")
+        at.run()
+        at.button(key="wall_resolve").click().run()
+        assert not at.exception
+        md = "\n".join(m.value for m in at.markdown)
+        warn = " ".join(w.value for w in at.warning)
+        assert 'class="ww-card' not in md
+        assert "未找到城市" in warn
 
     def test_wall_disappears_after_import(self, monkeypatch):
         """需求 2：导入数据后天气墙消失，自动回到数据摘要卡视图。"""
@@ -265,6 +444,5 @@ class TestAppIntegration:
         assert not at.exception, f"封面渲染抛异常: {at.exception}"
         md = "\n".join(m.value for m in at.markdown)
         assert "aether-title" in md        # 封面出现
-        assert "ww-region" in md
         # 数据仍在会话中（返回按钮依赖 df 判定）
         assert at.session_state["df"] is not None

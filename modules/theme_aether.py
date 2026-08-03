@@ -145,14 +145,22 @@ def _cloud_available() -> bool:
 
 
 def _save_pref_cloud(theme: str) -> None:
-    """把主题写进 Supabase user_metadata（登录用户跨设备持久化）。"""
+    """把主题写进 Supabase user_metadata（登录用户跨设备持久化）。
+
+    注意：不调用 auth.get_supabase——它在 DNS 失败/缺密钥时会 st.stop()
+    （StopException 继承 BaseException），主题持久化是尽力而为的写入，
+    不允许中断页面渲染。改为轻量 create_client + 全量捕获。
+    """
     if not _cloud_available():
         return
     try:
-        from auth import get_supabase
-        sb = get_supabase()
-        if sb is not None:
-            sb.auth.update_user({"data": {"theme": theme}})
+        from supabase import create_client
+        url = str(st.secrets.get("SUPABASE_URL", "")).strip().rstrip("/")
+        key = str(st.secrets.get("SUPABASE_ANON_KEY", "")).strip()
+        if not url or not key:
+            return
+        sb = create_client(url, key)
+        sb.auth.update_user({"data": {"theme": theme}})
     except Exception:
         pass  # 云端写入失败仅丢失跨设备同步，本地文件仍兜底
 
@@ -215,7 +223,10 @@ def inject_theme() -> None:
 /* ===== Aether 主题变量（覆盖旧版同名变量） ===== */
 :root {{
 {vars_css}
-    --font-ui: 'Quicksand', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+    /* 功能模块字体还原：恢复 Aether 改造前的系统 UI 字体栈（用户要求）
+       封面/天气墙专属字体走 --font-aether-ui / --font-display / --font-temp */
+    --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    --font-aether-ui: 'Quicksand', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
     --font-display: 'Fraunces', 'ZCOOL KuaiLe', 'Songti SC', serif;
     --font-temp: 'Baloo 2', 'Quicksand', sans-serif;
     --radius-sm: 10px;
@@ -224,25 +235,13 @@ def inject_theme() -> None:
     --transition: 200ms cubic-bezier(0.22, 0.8, 0.36, 1);
 }}
 
-/* ===== 页面背景：天空渐变 + 光晕 ===== */
+/* ===== 页面背景：天空渐变 + 光晕（非字体规则，保持不动） ===== */
 .stApp {{
     background: {t["app-bg"]};
     background-attachment: fixed;
-    font-family: var(--font-ui);
 }}
 
-/* ===== 标题：Fraunces 斜体衬线 + ZCOOL KuaiLe 中文手绘 ===== */
-.main-header {{
-    font-family: var(--font-display);
-    font-style: italic;
-    font-weight: 600 !important;
-    letter-spacing: 0.01em;
-}}
-h1, h2, h3 {{
-    font-family: var(--font-display) !important;
-}}
-
-/* ===== 按钮：圆角加大 + hover 上浮（指数缓动） ===== */
+/* ===== 按钮：圆角加大 + hover 上浮（指数缓动，非字体规则） ===== */
 .stButton > button {{
     border-radius: 12px !important;
 }}
@@ -250,17 +249,12 @@ h1, h2, h3 {{
     transform: translateY(-2px);
 }}
 
-/* ===== 卡片容器：更大圆角 + 柔阴影 ===== */
+/* ===== 卡片容器：更大圆角 + 柔阴影（非字体规则） ===== */
 [data-testid="stVerticalBlockBorderWrapper"] {{
     border-radius: var(--radius-md) !important;
 }}
 
-/* ===== Metric 大数字：Baloo 2 ===== */
-[data-testid="stMetricValue"] {{
-    font-family: var(--font-temp);
-}}
-
-/* ===== 主 Tab 导航：胶囊选中态 ===== */
+/* ===== 主 Tab 导航：胶囊选中态（非字体规则） ===== */
 [data-testid="stRadio"] [role="radiogroup"] label {{
     border-radius: 999px;
 }}

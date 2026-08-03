@@ -11,6 +11,10 @@
 import streamlit as st
 
 from utils import retry_with_backoff
+# 相对导入：weather_wall 以 modules 包成员导入时，同目录模块需 . 前缀
+from .geocode import format_candidate, forward_geocode, parse_lat_lon, reverse_geocode
+from .geolocate import geo_locator
+from .city_prefs import load_cities, save_cities
 
 # ============================================================
 # 一、城市库
@@ -173,6 +177,74 @@ def fetch_wall_weather(cities: list[dict]) -> dict:
 def refresh_weather() -> None:
     """手动刷新：清空批量缓存，下一次渲染重新请求。"""
     _fetch_batch.clear()
+    _aqi_batch.clear()
+
+
+# ============================================================
+# 二·五、空气质量（国标 AQI，复用 nwp_forecast 换算）
+# ============================================================
+@retry_with_backoff(max_retries=2, base_delay=1, backoff_factor=2, max_delay=8)
+def _aqi_batch_retry(lats: tuple, lons: tuple):
+    """Open-Meteo Air Quality API 当前浓度（多坐标批量一次请求）。"""
+    import requests
+    resp = requests.get(
+        "https://air-quality-api.open-meteo.com/v1/air-quality",
+        params={
+            "latitude": ",".join(f"{v:.2f}" for v in lats),
+            "longitude": ",".join(f"{v:.2f}" for v in lons),
+            "current": "pm2_5,pm10,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone",
+            "timezone": "auto",
+        },
+        timeout=30,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    return data if isinstance(data, list) else [data]
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _aqi_batch(lats: tuple, lons: tuple) -> list:
+    """空气质量缓存层（30 分钟 TTL）。失败契约转译为异常（见 _fetch_batch）。"""
+    rows = _aqi_batch_retry(lats, lons)
+    if not isinstance(rows, list):
+        detail = rows[1] if isinstance(rows, tuple) and len(rows) > 1 else rows
+        raise RuntimeError(f"空气质量批量请求失败: {detail}")
+    return rows
+
+
+def fetch_wall_aqi(cities: list[dict]) -> dict:
+    """{城市中文名: {aqi, level, color, primary}}，按 HJ 633-2012 国标换算。
+
+    CO 浓度 Open-Meteo 返回 μg/m³，国标限值表用 mg/m³，必须 ÷1000
+    （与 nwp_forecast.fetch_air_quality 同款处理）。失败降级会话缓存。
+    """
+    if not cities:
+        return {}
+    try:
+        # 相对导入：nwp_forecast 与 weather_wall 同属 modules 包
+        from .nwp_forecast import _compute_cn_aqi  # 懒加载：复用国标换算与六级色
+        rows = _aqi_batch(
+            tuple(c["lat"] for c in cities),
+            tuple(c["lon"] for c in cities),
+        )
+        out = {}
+        for c, row in zip(cities, rows):
+            cur = row.get("current", {}) or {}
+            co_raw = cur.get("carbon_monoxide")
+            conc = {
+                "pm2_5": cur.get("pm2_5"),
+                "pm10": cur.get("pm10"),
+                "co": (float(co_raw) / 1000.0) if co_raw is not None else None,
+                "no2": cur.get("nitrogen_dioxide"),
+                "so2": cur.get("sulphur_dioxide"),
+                "o3": cur.get("ozone"),
+            }
+            aqi, level, _primary, color = _compute_cn_aqi(conc)
+            out[c["zh"]] = {"aqi": aqi, "level": level, "color": color}
+        st.session_state["_wall_aqi_fallback"] = out
+        return out
+    except Exception:
+        return st.session_state.get("_wall_aqi_fallback", {})
 
 
 # ============================================================
@@ -272,14 +344,22 @@ def _fmt(v, suffix="", digits=0) -> str:
         return "—"
 
 
-def card_html(city: dict, wx: dict | None, scene: str, idx: int = 0) -> str:
-    """生成单张城市卡片 HTML。wx 为 None（数据不可用）时显示占位。"""
+def card_html(city: dict, wx: dict | None, scene: str, idx: int = 0,
+              aqi: dict | None = None) -> str:
+    """生成单张城市卡片 HTML。wx 为 None（数据不可用）时显示占位。
+
+    aqi：{aqi, level, color} 国标换算结果；aqi 值缺失时不追加该行内容，
+    保持卡片现有排版（ww-sub 行内追加，格式一致）。
+    """
     meta = SCENE_META.get(scene, SCENE_META["cloudy"])
     if wx:
         temp = _fmt(wx.get("temp"), "°")
         sub = (f"↑{_fmt(wx.get('t_max'), '°')} ↓{_fmt(wx.get('t_min'), '°')}"
                f"　💧{_fmt(wx.get('humidity'), '%')}　🌬{_fmt(wx.get('wind'), ' m/s', 1)}")
         cond = f"{meta['zh']} · {meta['en']}"
+        # 空气质量行内追加：与湿度/风速同格式，等级色以带色圆点标注
+        if aqi and aqi.get("aqi") is not None:
+            sub += f"　🌫AQI {aqi['aqi']} {aqi.get('level', '')}"
     else:
         temp, cond, sub = "—", "数据加载中", "Loading…"
     delay = min(idx, 12) * 0.06  # 入场淡入逐卡延迟，超过 12 张后不再递增
@@ -300,9 +380,10 @@ def card_html(city: dict, wx: dict | None, scene: str, idx: int = 0) -> str:
 def wall_css() -> str:
     return """
 <style>
-/* ===== 卡片骨架 ===== */
+/* ===== 卡片骨架（封面专属字体 --font-aether-ui；温度走 --font-temp） ===== */
 .ww-card { position:relative; height:172px; border-radius:18px 22px 16px 24px;
-           overflow:hidden; animation:ww-in .55s cubic-bezier(.22,.8,.36,1) both; }
+           overflow:hidden; animation:ww-in .55s cubic-bezier(.22,.8,.36,1) both;
+           font-family:var(--font-aether-ui); }
 @keyframes ww-in { from { opacity:0; transform:translateY(14px);} to { opacity:1; transform:none;} }
 .ww-sky { position:absolute; inset:0; }
 .sc-sunny   .ww-sky { background:var(--ww-sunny); }
@@ -322,8 +403,7 @@ def wall_css() -> str:
 .ww-city .ww-en { opacity:.78; font-weight:400; margin-left:5px; font-size:.68rem; }
 .ww-temp { position:absolute; left:15px; bottom:48px; font-family:var(--font-temp);
            font-size:2.3rem; font-weight:800; color:#fff; line-height:1;
-           text-shadow:0 2px 8px rgba(18,26,52,.4); }
-.ww-cond { position:absolute; left:16px; bottom:30px; color:#f2f5fc; font-size:.78rem;
+           text-shadow:0 2px 8px rgba(18,26,52,.4); }.ww-cond { position:absolute; left:16px; bottom:30px; color:#f2f5fc; font-size:.78rem;
            font-weight:600; text-shadow:0 1px 4px rgba(18,26,52,.5); }
 .ww-sub  { position:absolute; left:16px; bottom:9px; color:rgba(255,255,255,.9);
            font-size:.68rem; text-shadow:0 1px 3px rgba(18,26,52,.5); }
@@ -434,43 +514,163 @@ def wall_css() -> str:
 # ============================================================
 # 六、渲染入口
 # ============================================================
-def _on_add_city() -> None:
-    """selectbox on_change 回调：把选中的城市加入展示列表并重置选择框。
+MAX_CITIES = 6  # 首页最多同时展示的卡片数（需求 4）
 
-    回调在脚本重跑前执行，此时修改 widget 的 session_state 值是合法时机
-    （widget 实例化之后直接改会报错）。
+
+def _can_add(city: dict) -> tuple[bool, str]:
+    """添加前校验：是否已在列表 / 是否达到 6 卡上限。返回 (可否, 提示文案)。"""
+    cities = st.session_state.setdefault("wall_cities", [])
+    if any(c["zh"] == city["zh"] for c in cities):
+        return False, f"{city['zh']} 已在列表中"
+    if len(cities) >= MAX_CITIES:
+        return False, f"最多展示 {MAX_CITIES} 个城市，请先移除部分城市"
+    return True, ""
+
+
+def _add_city(city: dict) -> bool:
+    """把城市加入展示列表（含上限校验），成功返回 True 并持久化。"""
+    ok, msg = _can_add(city)
+    if not ok:
+        st.toast(msg, icon="⚠️")
+        return False
+    st.session_state.setdefault("wall_cities", []).append(city)
+    save_cities(st.session_state["wall_cities"])  # 需求 4：刷新/重启后保留
+    st.toast(f"已添加 {city['zh']} · {city['en']}", icon="➕")
+    return True
+
+
+def _resolve_query() -> None:
+    """解析搜索框输入（三路识别），按钮 on_click 回调。
+
+    ① 命中城市库（CITY_LIBRARY，中/英名）→ 直接添加；
+    ② 格式为「lat,lon」经纬度 → 反向地理编码取名后添加；
+    ③ 否则按城市名正向地理编码：1 个候选直接添加，
+       多个候选（重名歧义）写入 _resolve_candidates 供 selectbox 选择，
+       空结果提示「未找到城市」。
     """
-    sel = st.session_state.get("wall_add_city")
+    q = (st.session_state.get("wall_query") or "").strip()
+    if not q:
+        st.toast("请输入城市名或经纬度（如 39.9,116.4）", icon="✏️")
+        return
+
+    # ① 城市库命中（大小写不敏感匹配英文名）
+    for c in CITY_LIBRARY:
+        if q == c["zh"] or q.lower() == c["en"].lower():
+            _add_city(c)
+            st.session_state["wall_query"] = ""
+            return
+
+    # ② 经纬度输入
+    ll = parse_lat_lon(q)
+    if ll:
+        lat, lon = ll
+        name = reverse_geocode(lat, lon) or f"({lat:.2f}, {lon:.2f})"
+        _add_city({
+            "zh": name, "en": f"{lat:.2f}, {lon:.2f}",
+            "lat": lat, "lon": lon, "region": "自定义", "capital": False,
+        })
+        st.session_state["wall_query"] = ""
+        return
+
+    # ③ 城市名 → 地理编码
+    candidates = forward_geocode(q)
+    if not candidates:
+        st.warning(f"未找到城市「{q}」，请检查名称或改用经纬度输入。")
+        return
+    if len(candidates) == 1:
+        c = candidates[0]
+        _add_city({
+            "zh": c["name"], "en": c.get("admin1") or c.get("country") or c["name"],
+            "lat": c["lat"], "lon": c["lon"], "region": "自定义", "capital": False,
+        })
+        st.session_state["wall_query"] = ""
+        return
+    # 重名歧义：交给候选 selectbox
+    st.session_state["_resolve_candidates"] = candidates
+    st.toast(f"「{q}」存在多个同名地点，请选择具体城市", icon="🔀")
+
+
+def _on_pick_candidate() -> None:
+    """候选 selectbox on_change 回调：选中歧义候选后添加并清空候选列表。"""
+    sel = st.session_state.get("wall_candidate_pick")
     if sel:
-        shown = st.session_state.setdefault("wall_cities", [])
-        if sel["zh"] not in shown:
-            shown.append(sel["zh"])
-            st.toast(f"已添加 {sel['zh']} · {sel['en']}", icon="➕")
-        st.session_state["wall_add_city"] = None
+        _add_city({
+            "zh": sel["name"], "en": sel.get("admin1") or sel.get("country") or sel["name"],
+            "lat": sel["lat"], "lon": sel["lon"], "region": "自定义", "capital": False,
+        })
+    st.session_state["wall_candidate_pick"] = None
+    st.session_state["_resolve_candidates"] = []
+
+
+def _delete_city(zh: str) -> None:
+    """删除城市卡片（按中文名匹配，兼容动态城市），同步持久化。"""
+    cities = st.session_state.get("wall_cities", [])
+    st.session_state["wall_cities"] = [c for c in cities if c["zh"] != zh]
+    save_cities(st.session_state["wall_cities"])
+    st.toast(f"已移除 {zh}", icon="🗑️")
+
+
+def build_city_from_geo(loc: dict | None, reverse_fn=reverse_geocode) -> dict | None:
+    """定位结果 → 城市 dict；status 非 ok 或缺坐标返回 None。
+
+    纯函数（reverse_fn 可注入），便于单测覆盖 ok/denied/缺字段/反解失败分支。
+    """
+    if not loc or not isinstance(loc, dict) or loc.get("status") != "ok":
+        return None
+    try:
+        lat, lon = float(loc["lat"]), float(loc["lon"])
+    except (TypeError, ValueError, KeyError):
+        return None
+    name = reverse_fn(lat, lon) or f"({lat:.2f}, {lon:.2f})"
+    return {
+        "zh": name, "en": f"{lat:.2f}, {lon:.2f}",
+        "lat": lat, "lon": lon, "region": "定位", "capital": False,
+    }
+
+
+def _consume_geo(loc) -> None:
+    """消费定位结果：成功添加城市卡，失败提示降级。_geo_consumed 防重复消费。"""
+    if st.session_state.get("_geo_consumed"):
+        return
+    st.session_state["_geo_consumed"] = True
+    city = build_city_from_geo(loc)
+    if city:
+        _add_city(city)
+    else:
+        st.toast("未能获取定位（权限被拒或设备不支持），可手动搜索城市", icon="📍")
 
 
 def render_wall() -> None:
-    """渲染天气墙：搜索添加 + 分组卡片网格。状态全部走 session_state。"""
-    # 需求 1：初始化预置 34 个省会级城市，无需手动添加
+    """渲染天气墙：定位 + 自由搜索添加 + 卡片网格。状态全部走 session_state。"""
+    # 城市列表统一存完整 dict（含经纬度）。初始化从持久化读回（刷新/重启保留），
+    # 无持久化数据时为空 → 显示引导占位卡（用户已拍板定位失败的降级方案）。
     if "wall_cities" not in st.session_state:
-        st.session_state["wall_cities"] = [c["zh"] for c in capital_cities()]
-    shown_zh: list[str] = st.session_state["wall_cities"]
+        st.session_state["wall_cities"] = load_cities()
+    cities: list[dict] = st.session_state["wall_cities"]
 
     st.markdown(wall_css(), unsafe_allow_html=True)
 
-    # ---- 搜索添加（已展示城市不再出现在候选中） ----
-    candidates = [c for c in CITY_LIBRARY if c["zh"] not in shown_zh]
-    c_search, c_refresh = st.columns([5, 1])
+    # ---- 定位：隐藏组件 + 定位按钮 + 结果消费 ----
+    _relocate = st.session_state.get("_relocate", False)
+    loc = geo_locator(clear=_relocate, key="wall_geo")
+    if _relocate:
+        # 按钮触发的重定位：允许新结果再次消费，并复位触发标记
+        st.session_state["_relocate"] = False
+        st.session_state["_geo_consumed"] = False
+    _consume_geo(loc)
+
+    # ---- 搜索区：自由输入（城市名 / 经纬度 / 库内城市）+ 定位 + 刷新 ----
+    c_locate, c_search, c_refresh = st.columns([1, 4, 1])
+    with c_locate:
+        st.button("📍 定位", key="wall_locate", use_container_width=True,
+                  help="通过浏览器定位获取你所在城市",
+                  on_click=lambda: st.session_state.update(_relocate=True))
     with c_search:
-        st.selectbox(
+        st.text_input(
             "添加城市",
-            candidates,
-            index=None,
-            key="wall_add_city",
-            format_func=lambda c: f"{c['zh']} · {c['en']}" if c else "",
-            placeholder="🔍 搜索并添加城市（中 / 英文）…",
+            key="wall_query",
+            placeholder="🔍 输入城市名或经纬度（如 北京 / 39.9,116.4）…",
             label_visibility="collapsed",
-            on_change=_on_add_city,
         )
     with c_refresh:
         if st.button("🔄 刷新", key="wall_refresh", help="重新拉取最新天气数据",
@@ -479,59 +679,66 @@ def render_wall() -> None:
             st.toast("天气数据已刷新", icon="🔄")
             st.rerun()
 
-    if not shown_zh:
-        st.info("天气墙空空如也。在上方搜索框添加城市，或刷新页面恢复默认省会列表。")
+    _b1, _b2, _b3 = st.columns([1, 2, 1])
+    with _b2:
+        st.button("🔍 解析并添加", key="wall_resolve", use_container_width=True,
+                  on_click=_resolve_query,
+                  help="按城市名地理编码定位，或直接解析经纬度")
+
+    # ---- 重名歧义候选选择 ----
+    candidates = st.session_state.get("_resolve_candidates") or []
+    if candidates:
+        st.selectbox(
+            "存在多个同名地点，请选择",
+            candidates,
+            index=None,
+            key="wall_candidate_pick",
+            format_func=lambda c: f"{format_candidate(c)}" if c else "",
+            placeholder="选择具体城市…",
+            on_change=_on_pick_candidate,
+        )
+
+    if not cities:
+        st.markdown(_placeholder_html(), unsafe_allow_html=True)
         return
 
-    cities = [c for z in shown_zh if (c := city_by_zh(z)) is not None]
-
-    # ---- 拉取天气（批量一次请求；首次有 spinner，之后 10 分钟缓存） ----
+    # ---- 拉取天气与空气质量（批量一次请求；首次有 spinner，之后缓存） ----
     with st.spinner("正在获取实时天气…"):
         weather = fetch_wall_weather(cities)
+        aqi_map = fetch_wall_aqi(cities)
     if not weather:
         st.warning("⚠️ 天气服务暂时不可用，展示缓存/占位数据，稍后点「刷新」重试。")
 
-    # ---- 按区域分组渲染（桌面 3 列，移动端经全局媒体查询转单列） ----
-    groups: dict[str, list[dict]] = {}
-    for c in cities:
-        groups.setdefault(c["region"], []).append(c)
-
+    # ---- 网格渲染（桌面 3 列，移动端经全局媒体查询转单列） ----
     idx = 0
-    for region in REGION_ORDER:
-        cs = groups.pop(region, None)
-        if not cs:
-            continue
-        st.markdown(f'<div class="ww-region">· {region} ·</div>', unsafe_allow_html=True)
-        for row_start in range(0, len(cs), 3):
-            cols = st.columns(3)
-            for j, city in enumerate(cs[row_start:row_start + 3]):
-                with cols[j]:
-                    with st.container(border=True):
-                        wx = weather.get(city["zh"])
-                        scene = map_scene(wx["code"], wx["is_day"]) if wx else "cloudy"
-                        st.markdown(card_html(city, wx, scene, idx),
-                                    unsafe_allow_html=True)
-                        if st.button("✕", key=f"ww_del_{city['zh']}",
-                                     help=f"移除 {city['zh']}"):
-                            st.session_state["wall_cities"].remove(city["zh"])
-                            st.toast(f"已移除 {city['zh']}", icon="🗑️")
-                            st.rerun()
-                    idx += 1
-    # 兜底：region 不在 REGION_ORDER 的城市（防御未来库扩展漏配）
-    for region, cs in groups.items():
-        st.markdown(f'<div class="ww-region">· {region} ·</div>', unsafe_allow_html=True)
-        for row_start in range(0, len(cs), 3):
-            cols = st.columns(3)
-            for j, city in enumerate(cs[row_start:row_start + 3]):
-                with cols[j]:
-                    with st.container(border=True):
-                        wx = weather.get(city["zh"])
-                        scene = map_scene(wx["code"], wx["is_day"]) if wx else "cloudy"
-                        st.markdown(card_html(city, wx, scene, idx),
-                                    unsafe_allow_html=True)
-                        if st.button("✕", key=f"ww_del_{city['zh']}",
-                                     help=f"移除 {city['zh']}"):
-                            st.session_state["wall_cities"].remove(city["zh"])
-                            st.toast(f"已移除 {city['zh']}", icon="🗑️")
-                            st.rerun()
-                    idx += 1
+    for row_start in range(0, len(cities), 3):
+        cols = st.columns(3)
+        for j, city in enumerate(cities[row_start:row_start + 3]):
+            with cols[j]:
+                with st.container(border=True):
+                    wx = weather.get(city["zh"])
+                    scene = map_scene(wx["code"], wx["is_day"]) if wx else "cloudy"
+                    st.markdown(card_html(city, wx, scene, idx,
+                                          aqi=aqi_map.get(city["zh"])),
+                                unsafe_allow_html=True)
+                    if st.button("✕", key=f"ww_del_{city['zh']}",
+                                 help=f"移除 {city['zh']}"):
+                        _delete_city(city["zh"])
+                        st.rerun()
+                idx += 1
+
+
+def _placeholder_html() -> str:
+    """引导占位卡：未定位且未添加城市时的首页引导（需求 3 降级方案）。"""
+    return """
+    <div style="text-align:center; padding:56px 12px; border-radius:18px 22px 16px 24px;
+                background:var(--bg-secondary); border:1.5px dashed var(--border-color);
+                font-family:var(--font-aether-ui); color:var(--text-secondary);">
+        <div style="font-size:2.4rem; margin-bottom:10px;">📍</div>
+        <div style="font-size:1.05rem; font-weight:600; margin-bottom:6px;">天气墙还空着</div>
+        <div style="font-size:0.85rem; opacity:.85;">
+            点击上方「定位」获取你所在城市的实时天气，<br>
+            或在上方输入框搜索城市 / 经纬度进行添加。
+        </div>
+    </div>
+    """
