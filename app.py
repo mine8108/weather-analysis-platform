@@ -89,12 +89,15 @@ def _safe_reset():
 
 
 # Tab 名称映射(用于重置按钮显示当前 Tab 名)
-_TAB_NAMES = ["导入", "数值预报", "可视化", "智能分析", "报告导出", "报文解码"]
+_TAB_NAMES = ["导入", "可视化", "数值预报", "智能分析", "报告导出", "报文解码"]
 
 # 每个 Tab 重置时清理的 session_state key(精确匹配 + "_" 前缀动态匹配)
 _RESET_KEYS_BY_TAB = {
     "导入": ["df", "source", "import_step", "import_method", "manual_data", "raw_df",
-             "import_warnings", "_template_cache", "era5_data", "era5_lat", "era5_lon"],
+             "import_warnings", "_template_cache", "era5_data", "era5_lat", "era5_lon",
+             # 天气墙状态（首页=导入 Tab 顶部）：重置后彻底清理，含一次性提示与定位组件值
+             "wall_cities", "wall_query", "wall_geo", "wall_candidate_pick",
+             "_resolve_candidates", "_wall_notice", "_geo_consumed", "_relocate"],
     "数值预报": ["fc_df", "fc_analysis", "fc_grid", "fc_hour", "life_indices",
                  "nwp_forecast_for_analysis", "nwp_combined"],
     "可视化": ["multi_station_selected"],
@@ -117,6 +120,11 @@ def _reset_current_tab():
         if any(k == p or k.startswith(p + "_") for p in keys):
             del st.session_state[k]
             removed.append(k)
+    # 天气墙状态被清理时，同步清空持久化文件：否则下次渲染 load_cities()
+    # 会把重置前的城市从磁盘读回，"重置彻底清理"不生效
+    if any(r.startswith("wall_") for r in removed):
+        from modules.city_prefs import save_cities
+        save_cities([])
     if removed:
         st.toast(f"[OK] {tab_name}已重置（清理 {len(removed)} 项）", icon="🧹")
     else:
@@ -215,8 +223,9 @@ def _render_data_summary_card():
             cur_tab = st.session_state.get("active_tab", 0)
             b_col1, b_col2, b_col3 = st.columns(3)
             with b_col1:
-                if cur_tab != 2 and st.button("📊 图表", use_container_width=True, key="jump_viz"):
-                    _navigate_to(2)
+                # 图表 Tab 已互换至 index 1（数值预报之后是 index 2）
+                if cur_tab != 1 and st.button("📊 图表", use_container_width=True, key="jump_viz"):
+                    _navigate_to(1)
             with b_col2:
                 if cur_tab != 3 and st.button("🔔 检测", use_container_width=True, key="jump_alert"):
                     _navigate_to(3)
@@ -330,27 +339,7 @@ def _render_onboarding_page():
     需求要点：默认预置 34 个省会级城市实时天气；导入数据后本封面随
     df is None 判定自动切换回数据摘要卡（见主渲染区分支）。
     """
-    # ---- 标题区：Fraunces 斜体主标题 + 双语副标题 ----
-    st.markdown("""
-    <div style="text-align:center; padding: 26px 0 4px 0;">
-        <div class="aether-title">Aether</div>
-        <div class="aether-sub">Skies &amp; Weather · 天空与天气</div>
-    </div>
-    <style>
-    .aether-title {
-        font-family: var(--font-display); font-style: italic; font-weight: 600;
-        font-size: clamp(2.6rem, 6vw, 4rem); color: var(--text-primary);
-        letter-spacing: 0.02em; line-height: 1.1;
-    }
-    .aether-sub {
-        font-family: var(--font-display); color: var(--text-muted);
-        font-size: clamp(0.9rem, 2vw, 1.1rem); letter-spacing: 0.28em;
-        margin-top: 2px;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-    # 老用户回封面后的返回入口：数据未丢，随时切回摘要卡视图
+    # ---- 老用户回封面后的返回入口：数据未丢，随时切回摘要卡视图 ----
     if st.session_state.get("df") is not None:
         _rc1, _rc2, _rc3 = st.columns([1, 2, 1])
         with _rc2:
@@ -759,7 +748,7 @@ theme_aether.inject_theme()
 
 # 头部
 st.markdown('<div class="main-header">[天气] 气象数据交互分析平台</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">数据导入 · 可视化分析 · 事件检测 · 智能建议 · 数值预报 · 报告导出</div>',
+st.markdown('<div class="sub-header">数据导入 · 可视化分析 · 数值预报 · 事件检测 · 智能建议 · 报告导出</div>',
             unsafe_allow_html=True)
 
 # 使用手册（标题行右侧链接）
@@ -915,7 +904,6 @@ with st.sidebar:
             st.caption(f"{h['time']} | {h['source']} | {h['n_rows']}条")
     st.divider()
     st.caption("[资料] 中国气象局第16号令 · 气象灾害预警信号发布与传播办法")
-    st.caption("© 气象数据交互分析平台 v1.0")
     st.divider()
     if is_authenticated():
         if st.button("[刷新] 重置当前模块数据", use_container_width=True,
@@ -942,8 +930,8 @@ if "active_tab" not in st.session_state:
 
 tab_labels = [
     "[导入] 数据导入",
-    "[预报] 数值预报",
     "[图表] 可视化分析",
+    "[预报] 数值预报",
     "[检测] 智能分析与建议",
     "[导出] 报告导出",
     "[雷达] 报文解码",
@@ -1077,7 +1065,7 @@ if st.session_state["active_tab"] == 0:
             with c1:
                 if st.button("✅ 确认数据，前往可视化分析", use_container_width=True, key="wiz_confirm"):
                     st.session_state["import_step"] = 0
-                    _navigate_to(2)
+                    _navigate_to(1)  # 可视化 Tab 已互换至 index 1
             with c2:
                 if st.button("← 返回上一步", use_container_width=True, key="wiz_back_step1"):
                     st.session_state["import_step"] = 1
@@ -1141,8 +1129,8 @@ if st.session_state["active_tab"] == 0:
                 st.session_state["import_step"] = 0
                 st.rerun()
 
-# ---- Tab 2: 可视化 ----
-if st.session_state["active_tab"] == 2:
+# ---- Tab 1: 可视化分析 ----
+if st.session_state["active_tab"] == 1:
     _viz_df = _safe_render("可视化-数据", _get_filtered_df)
     _safe_render("可视化", render_visualization_tab, _viz_df)
 
@@ -1184,6 +1172,6 @@ if st.session_state["active_tab"] == 4:
 if st.session_state["active_tab"] == 5:
     _safe_render("报文解码", render_codec_tab)
 
-# ---- Tab 1: 数值预报 ----
-if st.session_state["active_tab"] == 1:
+# ---- Tab 2: 数值预报 ----
+if st.session_state["active_tab"] == 2:
     _safe_render("数值预报", render_forecast_tab)

@@ -528,10 +528,15 @@ def _can_add(city: dict) -> tuple[bool, str]:
 
 
 def _add_city(city: dict) -> bool:
-    """把城市加入展示列表（含上限校验），成功返回 True 并持久化。"""
+    """把城市加入展示列表（含上限校验），成功返回 True 并持久化。
+
+    失败提示不用 st.toast（浮层生命周期不受输入框/重置控制，用户反馈
+    "删了搜索字段弹窗还在"），改写入一次性 _wall_notice，由 render_wall
+    渲染为页面内警告，并绑定当前输入状态，输入清空即不再显示。
+    """
     ok, msg = _can_add(city)
     if not ok:
-        st.toast(msg, icon="⚠️")
+        st.session_state["_wall_notice"] = msg
         return False
     st.session_state.setdefault("wall_cities", []).append(city)
     save_cities(st.session_state["wall_cities"])  # 需求 4：刷新/重启后保留
@@ -649,6 +654,13 @@ def render_wall() -> None:
     cities: list[dict] = st.session_state["wall_cities"]
 
     st.markdown(wall_css(), unsafe_allow_html=True)
+
+    # ---- 一次性操作提示（重复添加/上限等失败信息）----
+    # 写入后 pop 即消费：只在紧随其后的下一次渲染显示一次，任何后续 rerun
+    # （含用户清空搜索字段后的交互）都不再出现，重置时也随 key 清理一并清除。
+    _notice = st.session_state.pop("_wall_notice", None)
+    if _notice:
+        st.warning(f"⚠️ {_notice}")
 
     # ---- 定位：隐藏组件 + 定位按钮 + 结果消费 ----
     _relocate = st.session_state.get("_relocate", False)

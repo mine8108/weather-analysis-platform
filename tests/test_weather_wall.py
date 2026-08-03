@@ -388,13 +388,12 @@ def _make_app_test(monkeypatch, with_df: bool):
 
 class TestAppIntegration:
     def test_cover_wall_placeholder(self, monkeypatch):
-        """未定位未添加：封面显示引导占位卡，无预置城市。"""
+        """未定位未添加：封面显示引导占位卡，标题区已删除，无预置城市。"""
         at = _make_app_test(monkeypatch, with_df=False)
         at.run()
         assert not at.exception, f"封面渲染抛异常: {at.exception}"
         md = "\n".join(m.value for m in at.markdown)
-        # 用封面专属 class 断言（"Aether" 字样会出现在主题 CSS 注释里，不可靠）
-        assert "aether-title" in md
+        assert "aether-title" not in md   # 首页标题字段已移除（需求：删除标题）
         assert "天气墙还空着" in md        # 引导占位卡
         assert 'class="ww-card' not in md  # 无任何城市卡片（CSS 选择器 .ww-card 不算）
 
@@ -427,6 +426,66 @@ class TestAppIntegration:
         assert 'class="ww-card' not in md
         assert "未找到城市" in warn
 
+    def test_duplicate_city_notice_transient(self, monkeypatch):
+        """重复添加：提示一次性显示，下一次 rerun 自动消失（修复弹窗残留）。"""
+        import modules.weather_wall as ww_mod
+        monkeypatch.setattr(ww_mod, "forward_geocode", lambda name: [])
+        at = _make_app_test(monkeypatch, with_df=False)
+        at.run()
+        # 第一次添加北京（成功）
+        at.text_input[0].set_value("北京")
+        at.run()
+        at.button(key="wall_resolve").click().run()
+        # 第二次输入北京 → 重复 → 一次性警告
+        at.text_input[0].set_value("北京")
+        at.run()
+        at.button(key="wall_resolve").click().run()
+        assert not at.exception
+        warns = " ".join(w.value for w in at.warning)
+        assert "已在列表中" in warns
+        # 无任何交互的纯 rerun：警告已消费消失
+        at.run()
+        warns2 = " ".join(w.value for w in at.warning)
+        assert "已在列表中" not in warns2
+        # 城市列表仍只有北京 1 个
+        assert len(at.session_state["wall_cities"]) == 1
+
+    def test_reset_clears_wall_state(self, monkeypatch):
+        """重置当前页面数据：天气墙城市列表与搜索状态被彻底清理。"""
+        import modules.weather_wall as ww_mod
+        monkeypatch.setattr(ww_mod, "forward_geocode", lambda name: [])
+        at = _make_app_test(monkeypatch, with_df=False)
+        at.run()
+        at.text_input[0].set_value("北京")
+        at.run()
+        at.button(key="wall_resolve").click().run()
+        assert len(at.session_state["wall_cities"]) == 1
+        # 点击侧边栏「重置当前模块数据」
+        at.button(key="sidebar_reset_current_tab").click().run()
+        assert not at.exception
+        # 重置后 wall_cities 被清理，render_wall 重新初始化为空（临时偏好文件无数据）
+        assert at.session_state["wall_cities"] == []
+        try:
+            q = at.session_state["wall_query"]  # SafeSessionState 无 .get 方法
+        except KeyError:
+            q = ""
+        assert q == ""
+        # 重置后封面回到占位卡
+        md = "\n".join(m.value for m in at.markdown)
+        assert "天气墙还空着" in md
+
+    def test_tab_order_viz_before_forecast(self, monkeypatch):
+        """修改 4：导航顺序为 可视化分析 → 数值预报（已互换）。"""
+        at = _make_app_test(monkeypatch, with_df=False)
+        at.run()
+        assert not at.exception
+        for opts in [r.options for r in at.radio]:
+            if opts and opts and "数据导入" in opts[0]:
+                viz = opts.index("[图表] 可视化分析")
+                fc = opts.index("[预报] 数值预报")
+                assert viz < fc, f"可视化({viz}) 应排在 数值预报({fc}) 之前"
+                break
+
     def test_wall_disappears_after_import(self, monkeypatch):
         """需求 2：导入数据后天气墙消失，自动回到数据摘要卡视图。"""
         at = _make_app_test(monkeypatch, with_df=True)
@@ -443,6 +502,6 @@ class TestAppIntegration:
         at.run()
         assert not at.exception, f"封面渲染抛异常: {at.exception}"
         md = "\n".join(m.value for m in at.markdown)
-        assert "aether-title" in md        # 封面出现
+        assert "天气墙还空着" in md        # 封面（标题已删，以占位卡为封面标志）
         # 数据仍在会话中（返回按钮依赖 df 判定）
         assert at.session_state["df"] is not None
