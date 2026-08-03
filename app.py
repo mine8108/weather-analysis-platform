@@ -48,6 +48,11 @@ from modules.weather_wall import render_wall
 # 优先级：session_state > 云端(登录时写入) > 本地文件 > 默认浅色。
 theme_aether.init_theme()
 
+# 天气墙显示开关初始化：从持久化读回（用户上次选择，刷新/重启保持）
+if "_wall_show" not in st.session_state:
+    from modules.city_prefs import load_show_wall
+    st.session_state["_wall_show"] = load_show_wall()
+
 # ============================================================
 # 通用 UI 辅助函数
 # ============================================================
@@ -320,13 +325,13 @@ def _render_next_step_hint():
     for icon, text in hints:
         st.markdown(f"""
         <div style="
-            background: #fef9e7;
+            background: var(--warning-bg);
             border-left: 3px solid #e8943a;
             padding: 8px 14px;
             border-radius: 0 8px 8px 0;
             margin-bottom: 6px;
             font-size: 0.85rem;
-            color: #5c4a1f;
+            color: var(--text-secondary);
         ">
             <span style="margin-right: 6px;">{icon}</span> {text}
         </div>
@@ -351,7 +356,11 @@ def _render_onboarding_page():
     # ---- 天气墙主体（搜索 / 分组卡片 / 增删 / toast） ----
     # 错误边界：天气服务或渲染异常时降级为文字提示，不影响下方快速开始入口
     try:
-        render_wall()
+        if st.session_state.get("_wall_show", True):
+            render_wall()
+        else:
+            # 用户通过侧边栏开关隐藏了天气墙：显示占位说明避免空白
+            st.info("☁️ 天气墙已隐藏。可在侧边栏勾选「[显示] 天气墙」重新开启。")
     except Exception as _wall_exc:
         st.warning("⚠️ 天气墙加载异常，已降级显示。点击下方按钮可正常使用平台功能。")
         with st.expander("查看错误详情"):
@@ -894,6 +903,15 @@ with st.sidebar:
     if dark != st.session_state.get("dark_mode", False):
         # 需求 3：切换写入持久化（本地文件 + 登录时 Supabase user_metadata）
         theme_aether.set_theme(dark)
+        st.rerun()
+    # 天气墙显示开关：用户可自主显示/隐藏首页天气墙，选择持久化（刷新保持）
+    wall_show = st.checkbox("[显示] 天气墙", value=st.session_state.get("_wall_show", True),
+                            key="wall_show_toggle",
+                            help="显示/隐藏首页天气墙，选择自动保存")
+    if wall_show != st.session_state.get("_wall_show", True):
+        st.session_state["_wall_show"] = wall_show
+        from modules.city_prefs import save_show_wall
+        save_show_wall(wall_show)  # 持久化：本地文件 + 登录时 Supabase
         st.rerun()
     st.divider()
     # 导入历史

@@ -486,7 +486,7 @@ def wall_css() -> str:
 [data-testid="stVerticalBlockBorderWrapper"]:has(.ww-card):hover {
     transform:translateY(-4px); box-shadow:var(--shadow-lg) !important;
 }
-/* 删除按钮：贴卡片右上角，hover 卡片时显现 */
+/* 删除按钮：贴卡片右上角，默认隐藏，hover 卡片时平滑显现（无布局跳动：绝对定位 + opacity/transform） */
 [data-testid="stVerticalBlockBorderWrapper"]:has(.ww-card) .stButton {
     position:absolute; top:8px; right:8px; z-index:6; width:auto;
 }
@@ -494,11 +494,23 @@ def wall_css() -> str:
     width:26px !important; height:26px; min-height:26px; padding:0 !important;
     border-radius:50% !important; border:none !important; line-height:1;
     background:rgba(16,24,48,.45) !important; color:#fff !important; font-size:.8rem;
-    opacity:0; transition:opacity var(--transition), background var(--transition);
+    opacity:0; transform:scale(.8);
+    transition:opacity .22s cubic-bezier(.22,.8,.36,1),
+               transform .22s cubic-bezier(.22,.8,.36,1),
+               background .22s ease;
 }
-[data-testid="stVerticalBlockBorderWrapper"]:has(.ww-card):hover .stButton > button { opacity:1; }
+[data-testid="stVerticalBlockBorderWrapper"]:has(.ww-card):hover .stButton > button,
+[data-testid="stVerticalBlockBorderWrapper"]:has(.ww-card) .stButton > button:focus-visible {
+    opacity:1; transform:scale(1);
+}
 [data-testid="stVerticalBlockBorderWrapper"]:has(.ww-card) .stButton > button:hover {
-    background:rgba(200,60,60,.85) !important; transform:none;
+    background:rgba(200,60,60,.85) !important;
+}
+/* 移动端 / 无 hover 设备：按钮常显，保证可点（触摸设备没有 hover 态） */
+@media (hover: none) {
+    [data-testid="stVerticalBlockBorderWrapper"]:has(.ww-card) .stButton > button {
+        opacity:.85; transform:none;
+    }
 }
 /* 卡片容器内 markdown 去掉默认间距 */
 [data-testid="stVerticalBlockBorderWrapper"]:has(.ww-card) [data-testid="stMarkdownContainer"] { margin:0; }

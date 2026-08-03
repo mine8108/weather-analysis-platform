@@ -109,6 +109,71 @@ FONTS_URL = (
 
 
 # ============================================================
+# 二·五、暗色专属覆盖 CSS（Streamlit 原生组件 + 硬编码色）
+# ============================================================
+# 暗色模式是 CSS 变量覆盖，但 Streamlit 原生前端组件（selectbox 下拉、
+# 日期选择日历、toast、弹窗等）底色由前端主题决定，默认仍是亮色，须逐一覆盖。
+DARK_EXTRA_CSS = """
+/* ===== 暗色专属：primary 按钮（旧样式硬编码亮米色 #faf6ef） ===== */
+button[kind="primary"] {
+    background: #2a3350 !important;
+    color: #e6e9f2 !important;
+    border-color: #39425e !important;
+    box-shadow: var(--shadow-sm) !important;
+}
+button[kind="primary"]:hover {
+    background: #39425e !important;
+    border-color: #7f96c9 !important;
+}
+
+/* ===== Streamlit 原生弹层/控件暗色覆盖 ===== */
+/* toast 通知 */
+[data-testid="stToast"] {
+    background: #232a3d !important;
+    border: 1px solid #333d5a !important;
+    color: #e6e9f2 !important;
+}
+[data-testid="stToast"] div { color: #e6e9f2 !important; }
+/* selectbox / multiselect 下拉面板 */
+[data-baseweb="popover"], [data-baseweb="menu"], [data-baseweb="listbox"] {
+    background: #232a3d !important;
+}
+[data-baseweb="popover"] li, [data-baseweb="menu"] li,
+[data-baseweb="listbox"] li, [data-baseweb="popover"] div {
+    color: #e6e9f2 !important;
+}
+[data-baseweb="popover"] li:hover, [data-baseweb="menu"] li:hover,
+[data-baseweb="listbox"] li:hover { background: #39425e !important; }
+/* 日期选择日历 */
+[data-baseweb="calendar"], [data-baseweb="calendar"] * {
+    background: #232a3d !important;
+    color: #e6e9f2 !important;
+}
+[data-baseweb="calendar"] button:hover { background: #39425e !important; }
+/* 弹窗 / dialog / modal */
+[data-testid="stDialog"] [data-baseweb="modal"],
+[data-baseweb="modal"] { background: #232a3d !important; }
+[data-testid="stDialog"] [data-baseweb="modal"] * { color: #e6e9f2 !important; }
+/* popover（st.popover） */
+[data-testid="stPopover"] [data-baseweb="popover"] {
+    background: #232a3d !important;
+}
+/* tooltip */
+[data-testid="stTooltip"] {
+    background: #232a3d !important;
+    color: #e6e9f2 !important;
+    border: 1px solid #333d5a !important;
+}
+/* 数据表格编辑器 / 代码块 / 进度条 */
+[data-testid="stDataEditor"] { background: #1a2138 !important; }
+[data-testid="stCode"] { background: #141b2e !important; }
+[data-testid="stProgress"] [role="progressbar"] > div > div {
+    background: var(--accent) !important;
+}
+"""
+
+
+# ============================================================
 # 三、持久化：本地文件 + Supabase user_metadata
 # ============================================================
 def _load_pref_local() -> str | None:
@@ -260,3 +325,6 @@ def inject_theme() -> None:
 }}
 </style>
 """, unsafe_allow_html=True)
+    # 暗色专属覆盖：Streamlit 原生组件（下拉/日历/toast/弹窗）与硬编码色
+    if is_dark():
+        st.markdown(f"<style>{DARK_EXTRA_CSS}</style>", unsafe_allow_html=True)

@@ -139,14 +139,14 @@ def _apply_cloud_theme(user) -> None:
     """登录成功后，把 Supabase user_metadata 里的偏好应用到当前会话。
 
     theme_aether 在页面加载时可能已按本地文件初始化，云端值优先级更高，
-    这里做登录后的覆盖同步。同时读回天气墙城市列表（cities JSON 串）。
-    读取失败静默跳过，不阻断登录。
+    这里做登录后的覆盖同步。同时读回天气墙偏好（城市列表 cities JSON 串
+    + 显示开关 show_wall）。读取失败静默跳过，不阻断登录。
     """
     try:
         from modules import theme_aether, city_prefs
         meta = getattr(user, "user_metadata", None) or {}
         theme_aether.apply_cloud_theme(meta.get("theme"))
-        city_prefs.apply_cloud_cities(meta.get("cities"))
+        city_prefs.apply_cloud_prefs(meta.get("cities"), meta.get("show_wall"))
     except Exception:
         pass
 

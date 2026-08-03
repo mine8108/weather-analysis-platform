@@ -318,19 +318,39 @@ class TestCityPrefs:
         assert len(out) == 1 and out[0]["zh"] == "北京"
 
     def test_local_roundtrip(self, monkeypatch):
-        """刷新后保留：写入本地文件 → 重新读取能恢复。"""
+        """刷新后保留：写入本地文件（cities+show_wall）→ 重新读取能恢复。"""
         import tempfile
         from pathlib import Path
         from modules import city_prefs
         pref = Path(tempfile.mkdtemp()) / "cities.json"
         monkeypatch.setattr(city_prefs, "_PREF_FILE", pref)
         cities = [_mk_city("北京", 1), _mk_city("上海", 2)]
-        city_prefs._save_local(cities)
+        city_prefs._save_local(cities, True)
         loaded = city_prefs._load_local()
-        assert [c["zh"] for c in loaded] == ["北京", "上海"]
+        assert [c["zh"] for c in loaded["cities"]] == ["北京", "上海"]
+        assert loaded["show_wall"] is True
+        # 兼容旧版 list 结构
+        import json
+        pref.write_text(json.dumps(cities, ensure_ascii=False), encoding="utf-8")
+        old = city_prefs._load_local()
+        assert [c["zh"] for c in old["cities"]] == ["北京", "上海"]
+        assert old["show_wall"] is True
 
-    def test_apply_cloud_cities(self, monkeypatch):
-        """云端城市 JSON 串 → 清洗并写入本地。"""
+    def test_show_wall_persist(self, monkeypatch):
+        """天气墙开关持久化：save_show_wall → load_show_wall 恢复。"""
+        import tempfile
+        from pathlib import Path
+        from modules import city_prefs
+        pref = Path(tempfile.mkdtemp()) / "cities.json"
+        monkeypatch.setattr(city_prefs, "_PREF_FILE", pref)
+        assert city_prefs.load_show_wall() is True          # 默认显示
+        city_prefs.save_show_wall(False)
+        assert city_prefs.load_show_wall() is False
+        city_prefs.save_show_wall(True)
+        assert city_prefs.load_show_wall() is True
+
+    def test_apply_cloud_prefs(self, monkeypatch):
+        """云端（城市 JSON + show_wall）→ 清洗并写入本地。"""
         import tempfile
         from pathlib import Path
         import json
@@ -339,10 +359,12 @@ class TestCityPrefs:
         monkeypatch.setattr(city_prefs, "_PREF_FILE", pref)
         raw = json.dumps([{"zh": "成都", "en": "Chengdu", "lat": 30.57,
                            "lon": 104.07, "region": "西南", "capital": True}])
-        city_prefs.apply_cloud_cities(raw)
-        assert city_prefs._load_local()[0]["zh"] == "成都"
-        city_prefs.apply_cloud_cities("not-json")  # 损坏值静默忽略
-        assert city_prefs._load_local()[0]["zh"] == "成都"
+        city_prefs.apply_cloud_prefs(raw, "0")
+        local = city_prefs._load_local()
+        assert local["cities"][0]["zh"] == "成都"
+        assert local["show_wall"] is False
+        city_prefs.apply_cloud_prefs("not-json", "1")  # 损坏值静默忽略
+        assert city_prefs._load_local()["cities"][0]["zh"] == "成都"
 
 
 # ============================================================
@@ -473,6 +495,17 @@ class TestAppIntegration:
         # 重置后封面回到占位卡
         md = "\n".join(m.value for m in at.markdown)
         assert "天气墙还空着" in md
+
+    def test_wall_hidden_by_toggle(self, monkeypatch):
+        """天气墙开关关闭：封面显示隐藏说明，不渲染任何天气卡片。"""
+        at = _make_app_test(monkeypatch, with_df=False)
+        at.session_state["_wall_show"] = False
+        at.run()
+        assert not at.exception
+        infos = " ".join(i.value for i in at.info)
+        md = "\n".join(m.value for m in at.markdown)
+        assert "天气墙已隐藏" in infos
+        assert 'class="ww-card' not in md
 
     def test_tab_order_viz_before_forecast(self, monkeypatch):
         """修改 4：导航顺序为 可视化分析 → 数值预报（已互换）。"""

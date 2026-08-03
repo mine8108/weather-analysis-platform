@@ -1,11 +1,12 @@
-"""天气墙城市列表持久化：刷新/重启后保留用户添加的城市。
+"""天气墙偏好持久化：城市列表 + 显示开关（刷新/重启后保留）。
 
 双通道（与 theme_aether 主题持久化同构）：
-- 未登录：本地文件 ~/.weather_wall_cities.json
-- 已登录：Supabase user_metadata.cities（JSON 字符串），登录时读回
+- 未登录：本地文件 ~/.weather_wall_cities.json，结构 {"cities": [...], "show_wall": bool}
+  （兼容旧版 list 结构：读到 list 时按 cities=旧列表、show_wall=True 迁移）
+- 已登录：Supabase user_metadata.cities（JSON 字符串）+ show_wall（"0"/"1"），登录时读回
 
-存储内容只保留 JSON 安全的城市最小字段（zh/en/lat/lon/region/capital），
-防止 session_state 里混入不可序列化对象导致写入失败。
+城市条目只保留 JSON 安全最小字段（zh/en/lat/lon/region/capital）。
+所有云端写入用轻量 create_client（auth.get_supabase 会 st.stop() 中断页面，不可用于持久化）。
 """
 
 import json
@@ -42,29 +43,43 @@ def sanitize_cities(cities) -> list[dict]:
     return out
 
 
-# ---- 本地文件通道 ----
-def _load_local() -> list | None:
+# ============================================================
+# 本地文件通道
+# ============================================================
+def _load_local() -> dict:
+    """读取本地偏好，返回 {"cities": [...], "show_wall": bool}。
+    兼容旧版 list 结构（迁移为 show_wall=True）；文件缺失/损坏返回默认值。
+    """
+    default = {"cities": [], "show_wall": True}
     try:
         if _PREF_FILE.exists():
             data = json.loads(_PREF_FILE.read_text(encoding="utf-8"))
-            if isinstance(data, list):
-                return sanitize_cities(data)
+            if isinstance(data, list):  # 旧版结构迁移
+                return {"cities": sanitize_cities(data), "show_wall": True}
+            if isinstance(data, dict):
+                return {
+                    "cities": sanitize_cities(data.get("cities")),
+                    "show_wall": bool(data.get("show_wall", True)),
+                }
     except Exception:
         pass
-    return None
+    return default
 
 
-def _save_local(cities) -> None:
+def _save_local(cities, show_wall: bool) -> None:
     try:
         _PREF_FILE.write_text(
-            json.dumps(sanitize_cities(cities), ensure_ascii=False),
+            json.dumps({"cities": sanitize_cities(cities),
+                        "show_wall": bool(show_wall)}, ensure_ascii=False),
             encoding="utf-8",
         )
     except Exception:
         pass  # 写失败仅丢持久化，不影响本次会话
 
 
-# ---- Supabase 云端通道 ----
+# ============================================================
+# Supabase 云端通道
+# ============================================================
 def _cloud_available() -> bool:
     try:
         has_secrets = bool(str(st.secrets.get("SUPABASE_URL", "")).strip())
@@ -104,8 +119,8 @@ def _supabase_client():
         return None
 
 
-def _save_cloud(cities) -> None:
-    """登录用户：user_metadata.cities 存 JSON 字符串。失败静默。"""
+def _save_cloud(cities, show_wall: bool) -> None:
+    """登录用户：user_metadata.cities + show_wall。失败静默。"""
     if not _cloud_available():
         return
     sb = _supabase_client()
@@ -114,29 +129,50 @@ def _save_cloud(cities) -> None:
     try:
         sb.auth.update_user({"data": {
             "cities": json.dumps(sanitize_cities(cities), ensure_ascii=False),
+            "show_wall": "1" if show_wall else "0",
         }})
     except Exception:
         pass
 
 
+# ============================================================
+# 公开接口
+# ============================================================
 def save_cities(cities) -> None:
-    """增删城市后调用：双通道持久化。"""
-    _save_local(cities)
-    _save_cloud(cities)
+    """增删城市后调用：保留当前 show_wall 值，双通道持久化。"""
+    cur = _load_local()
+    _save_local(cities, cur["show_wall"])
+    _save_cloud(cities, cur["show_wall"])
 
 
 def load_cities() -> list:
-    """初始化读回：本地文件（云端值在登录时经 apply_cloud_prefs 注入会话）。"""
-    return _load_local() or []
+    """初始化读回城市列表（云端值在登录时经 apply_cloud_prefs 注入会话）。"""
+    return _load_local()["cities"]
 
 
-def apply_cloud_cities(raw: str | None) -> None:
-    """登录成功后由 auth.py 调用：云端城市列表覆盖并同步本地文件。"""
-    if not raw:
-        return
+def load_show_wall() -> bool:
+    """初始化读回天气墙显示开关，默认 True（显示）。"""
+    return _load_local()["show_wall"]
+
+
+def save_show_wall(show: bool) -> None:
+    """天气墙开关切换后调用：保留当前城市列表，双通道持久化。"""
+    cur = _load_local()
+    _save_local(cur["cities"], show)
+    _save_cloud(cur["cities"], show)
+
+
+def apply_cloud_prefs(cities_raw: str | None, show_wall_raw: str | None) -> None:
+    """登录成功后由 auth.py 调用：云端城市列表与开关覆盖并同步本地文件。
+
+    云端 cities 为 JSON 字符串（user_metadata.cities），show_wall 为 "0"/"1"。
+    损坏的 JSON 静默忽略（保留本地值）。
+    """
     try:
-        cities = sanitize_cities(json.loads(raw))
+        cities = sanitize_cities(json.loads(cities_raw)) if cities_raw else []
     except (ValueError, TypeError):
         return
-    if cities:
-        _save_local(cities)
+    show_wall = True
+    if show_wall_raw is not None:
+        show_wall = str(show_wall_raw) in ("1", "true", "True")
+    _save_local(cities, show_wall)
