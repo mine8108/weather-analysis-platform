@@ -4,9 +4,10 @@
 
 import re
 from datetime import datetime, timedelta
-from io import StringIO
+from io import StringIO, BytesIO
 import sys
 import os
+import zipfile
 
 import pandas as pd
 import numpy as np
@@ -15,6 +16,34 @@ import streamlit as st
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import FIELD_ALIASES, STANDARD_FIELDS
 from utils import retry_with_backoff
+
+
+# 安全修复（P-07）：上传资源限制
+_MAX_UPLOAD_BYTES = 20 * 1024 * 1024            # 单文件原始大小上限 20MB
+_MAX_XLSX_UNCOMPRESSED = 200 * 1024 * 1024      # xlsx 解压后体积上限 200MB（防 zip 炸弹）
+
+
+def _check_upload_size(file) -> None:
+    """校验上传文件原始大小（Streamlit 默认 200MB，此处收紧到 20MB 并给出友好提示）。"""
+    size = getattr(file, "size", None)
+    if size is not None and int(size) > _MAX_UPLOAD_BYTES:
+        raise ValueError(
+            f"文件过大（{int(size) / 1048576:.1f} MB），上限 {_MAX_UPLOAD_BYTES // 1048576} MB。"
+        )
+
+
+def _check_xlsx_bomb(data: bytes) -> None:
+    """校验 xlsx 解压后体积，防 zip 炸弹（压缩比悬殊的恶意文件耗尽内存）。"""
+    try:
+        z = zipfile.ZipFile(BytesIO(data))
+        total = sum(i.file_size for i in z.infolist())
+    except zipfile.BadZipFile as e:
+        raise ValueError("Excel 文件格式无效（不是有效的 xlsx 文件）。") from e
+    if total > _MAX_XLSX_UNCOMPRESSED:
+        raise ValueError(
+            f"Excel 内容过大（解压后约 {total / 1048576:.0f} MB），"
+            f"上限 {_MAX_XLSX_UNCOMPRESSED // 1048576} MB。"
+        )
 
 
 def normalize_columns(df):
@@ -39,7 +68,8 @@ def detect_field_types(df):
 
 
 def load_csv(file) -> pd.DataFrame:
-    """加载CSV文件，尝试多种编码和分隔符"""
+    """加载CSV文件，尝试多种编码和分隔符（安全修复 P-07：先校验文件大小）"""
+    _check_upload_size(file)
     content = file.read()
     encodings = ["utf-8", "gbk", "gb2312", "gb18030", "latin-1"]
 
@@ -59,8 +89,11 @@ def load_csv(file) -> pd.DataFrame:
 
 
 def load_excel(file) -> pd.DataFrame:
-    """加载Excel文件"""
-    df = pd.read_excel(file, engine="openpyxl")
+    """加载Excel文件（安全修复 P-07：校验原始大小 + 解压后体积防 zip 炸弹）"""
+    _check_upload_size(file)
+    data = file.getvalue()
+    _check_xlsx_bomb(data)
+    df = pd.read_excel(BytesIO(data), engine="openpyxl")
     df = df.dropna(how="all").reset_index(drop=True)
     return df
 
