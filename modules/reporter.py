@@ -191,11 +191,33 @@ def _number(n):
     return nums[n] if n < len(nums) else str(n)
 
 
+def _sanitize_cell_for_csv(val):
+    """安全修复（P-08）：CSV 公式注入清洗。
+
+    以 = + - @ 及制表符/回车开头的单元格，在 Excel/WPS 打开时会被当作公式执行。
+    对这类单元格加前缀单引号，使其按纯文本显示。
+    """
+    if val is None:
+        return val
+    s = str(val)
+    if s[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + s
+    return val
+
+
 def export_data_csv(df):
-    """导出数据为 CSV 字节流"""
+    """导出数据为 CSV 字节流（含公式注入清洗）"""
     if df is None or df.empty:
         return None
-    return df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
+    # 仅清洗字符串类单元格；数值列不受影响，避免破坏数据类型。
+    # 注意（pandas 3.0 坑）：默认字符串 dtype 为 str 而非 object，
+    # 必须同时判断 object 与 string dtype，否则纯字符串列会漏清洗。
+    df_safe = df.copy()
+    for col in df_safe.columns:
+        dt = df_safe[col].dtype
+        if pd.api.types.is_object_dtype(dt) or pd.api.types.is_string_dtype(dt):
+            df_safe[col] = df_safe[col].map(_sanitize_cell_for_csv)
+    return df_safe.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
 
 
 def _append_data_support(doc, warn):

@@ -13,7 +13,7 @@ import pandas as pd
 # 确保模块路径可导入
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from config import PAGE_CONFIG, FIELD_LABELS, APP_VERSION
+from config import PAGE_CONFIG, FIELD_LABELS, APP_VERSION, get_debug_mode
 from modules.data_loader import (
     render_file_upload_section,
     render_manual_input_section,
@@ -63,11 +63,15 @@ if "_nav_stack" not in st.session_state:
 
 
 def _tab_error(name, exc):
-    """顶层错误边界：单 tab 异常隔离，显示友好提示而非整页白屏。"""
+    """顶层错误边界：单 tab 异常隔离，显示友好提示而非整页白屏。
+    安全修复（P-06）：完整堆栈仅「调试模式」开启时展示；
+    默认只显示通俗摘要，避免向普通用户泄露内部路径与异常细节。
+    """
     st.error("⚠️「%s」页面加载出现异常，已隔离处理，不影响其他功能。" % name)
-    with st.expander("查看错误详情（可截图反馈开发者）"):
-        st.exception(exc)
-    st.caption("💡 可点击上方导航切换到其他页面继续操作。")
+    if get_debug_mode():
+        with st.expander("查看错误详情（可截图反馈开发者）"):
+            st.exception(exc)
+        st.caption("💡 可点击上方导航切换到其他页面继续操作。")
     if st.button("🔄 重置会话并回到首页", key="reset_%s" % name):
         _safe_reset()
 
