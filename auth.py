@@ -287,11 +287,14 @@ def _register_with_invite(sb, email: str, password: str, code: str):
         return
 
     # 3) 消费邀请码（绑定新用户）
+    # 安全修复（P-04）：consume_invite_code 已收紧为仅 authenticated/service_role 可调，
+    # 注册流程中用户尚未登录（anon），故必须由 service_role 客户端调用。
+    # 顺带修复原隐藏 bug：except 未捕获 e 却引用 _schema_error_msg(e) 会 NameError。
     try:
-        sb.rpc(
+        sb_admin.rpc(
             "consume_invite_code", {"p_code": code, "p_user_id": new_uid}
         ).execute()
-    except Exception:
+    except Exception as e:
         # 消费失败不阻断登录，但记录提醒
         st.session_state["auth_error"] = (
             "账号已创建，但邀请码核销异常：" + _schema_error_msg(e)

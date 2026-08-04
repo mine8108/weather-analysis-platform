@@ -20,7 +20,8 @@ def _user_id() -> str | None:
 def save_dataset(df: pd.DataFrame, name: str, dataset_id: str | None = None) -> bool:
     """保存/更新一个数据集。df 序列化为 CSV 文本存入 csv_text 字段。
 
-    写入前按用户配额预检：当前用量 + 新数据大小超过配额则拒绝并提示。
+    安全修复（P-12）：写入改经数据库函数 save_dataset（SECURITY DEFINER），
+    配额校验由服务端强制执行，客户端无法绕过配额直插大 CSV。
     """
     uid = _user_id()
     if uid is None or df is None or df.empty:
@@ -30,34 +31,24 @@ def save_dataset(df: pd.DataFrame, name: str, dataset_id: str | None = None) -> 
         return False
 
     csv_text = df.to_csv(index=False)
-    csv_bytes = len(csv_text.encode("utf-8"))
 
-    # 配额预检
+    # 配额校验与写入均由数据库函数 save_dataset 原子完成（服务端强制）
     try:
-        used = sb.rpc("get_storage_usage", {"p_user_id": uid}).execute()
-        quota = sb.rpc("get_storage_quota", {"p_user_id": uid}).execute()
-        used_b = int(used.data or 0)
-        quota_b = int(quota.data or 10485760)
-    except Exception:
-        used_b, quota_b = 0, 10485760
-    if used_b + csv_bytes > quota_b:
-        st.error(
-            f"❌ 存储配额不足：当前已用 {used_b / 1048576:.2f} MB，"
-            f"本次需 {csv_bytes / 1048576:.2f} MB，配额 {quota_b / 1048576:.2f} MB。"
-            "请删除部分数据集或联系管理员提升配额。"
-        )
-        return False
-
-    payload = {"user_id": uid, "name": name, "csv_text": csv_text}
-
-    try:
-        if dataset_id:
-            sb.table("datasets").update(payload).eq(
-                "id", dataset_id
-            ).eq("user_id", uid).execute()
+        res = sb.rpc(
+            "save_dataset",
+            {"p_dataset_id": dataset_id, "p_name": name, "p_csv": csv_text},
+        ).execute()
+        data = res.data if hasattr(res, "data") else res
+        if isinstance(data, dict) and data.get("ok"):
+            return True
+        err = (data or {}).get("error", "写入失败") if isinstance(data, dict) else "写入失败"
+        if err == "配额不足":
+            st.error(
+                "❌ 存储配额不足，本次保存被拒绝。请删除部分数据集或联系管理员提升配额。"
+            )
         else:
-            sb.table("datasets").insert(payload).execute()
-        return True
+            st.error(f"保存失败：{err}")
+        return False
     except Exception as e:
         st.error(f"保存失败：{str(e)[:200]}")
         return False
