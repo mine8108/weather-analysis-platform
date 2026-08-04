@@ -16,6 +16,7 @@ import requests
 import html
 import io
 import re
+import time
 from datetime import datetime
 
 
@@ -444,18 +445,32 @@ def render_ai_block():
         )
         return
 
+    # 安全修复（P-13）：会话级限频——每个浏览器会话 60 秒内最多生成 1 次，
+    # 防止共享 LLM_API_KEY 被反复点击刷取消费（成本滥用）。
+    # 注：会话级限频挡住常规滥用；若需更强约束（按账号/全局限频+用量审计），
+    # 建议后续在服务端记录每次生成（Supabase 审计表），见账本待办。
+    _AI_MIN_INTERVAL = 60
+    _last_gen = float(st.session_state.get("ai_last_gen_time", 0))
+
     if st.button("生成 AI 解读报告", key="ai_generate_report"):
-        with st.spinner("AI 正在生成解读..."):
-            try:
-                prompt = build_prompt(detection)
-                text = call_llm(prompt, api_key)
-                st.session_state["ai_narrative_text"] = text
-                st.session_state["ai_narrative_meta"] = _build_meta(detection)
-            except Exception as e:  # noqa: BLE001 - 任何失败都降级，不阻断
-                st.error(f"AI 生成失败，已降级为结构化摘要：{e}")
-                text = build_fallback_markdown(detection)
-                st.session_state["ai_narrative_text"] = text
-                st.session_state["ai_narrative_meta"] = _build_meta(detection)
+        _now = time.time()
+        if _now - _last_gen < _AI_MIN_INTERVAL:
+            st.warning(
+                f"生成过于频繁，请 {int(_AI_MIN_INTERVAL - (_now - _last_gen))} 秒后再试。"
+            )
+        else:
+            with st.spinner("AI 正在生成解读..."):
+                try:
+                    prompt = build_prompt(detection)
+                    text = call_llm(prompt, api_key)
+                    st.session_state["ai_narrative_text"] = text
+                    st.session_state["ai_narrative_meta"] = _build_meta(detection)
+                    st.session_state["ai_last_gen_time"] = time.time()
+                except Exception as e:  # noqa: BLE001 - 任何失败都降级，不阻断
+                    st.error(f"AI 生成失败，已降级为结构化摘要：{e}")
+                    text = build_fallback_markdown(detection)
+                    st.session_state["ai_narrative_text"] = text
+                    st.session_state["ai_narrative_meta"] = _build_meta(detection)
 
     cached = st.session_state.get("ai_narrative_text")
     if cached:

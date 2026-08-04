@@ -287,11 +287,14 @@ def _register_with_invite(sb, email: str, password: str, code: str):
         return
 
     # 3) 消费邀请码（绑定新用户）
+    # 安全修复（P-04）：consume_invite_code 已收紧为仅 authenticated/service_role 可调，
+    # 注册流程中用户尚未登录（anon），故必须由 service_role 客户端调用。
+    # 顺带修复原隐藏 bug：except 未捕获 e 却引用 _schema_error_msg(e) 会 NameError。
     try:
-        sb.rpc(
+        sb_admin.rpc(
             "consume_invite_code", {"p_code": code, "p_user_id": new_uid}
         ).execute()
-    except Exception:
+    except Exception as e:
         # 消费失败不阻断登录，但记录提醒
         st.session_state["auth_error"] = (
             "账号已创建，但邀请码核销异常：" + _schema_error_msg(e)
@@ -325,7 +328,49 @@ def _auto_login(sb, email: str, password: str):
 
 # ============================================================
 # 五、管理员面板（ADMIN_PASSWORD 保护，服务端操作）
+# 安全修复（P-05）：常量时间比较 + 失败限流锁定 + 解锁会话超时
 # ============================================================
+_ADMIN_MAX_ATTEMPTS = 5          # 连续失败 5 次锁定
+_ADMIN_LOCK_SECONDS = 300        # 锁定 5 分钟
+_ADMIN_SESSION_SECONDS = 600     # 解锁后 10 分钟自动失效
+
+
+def _try_admin_unlock(admin_pw: str, pw: str) -> None:
+    """校验管理员密码：常量时间比较 + 失败计数 + 锁定退避。"""
+    import time as _t
+
+    now = _t.time()
+    locked_until = st.session_state.get("admin_locked_until", 0)
+    if now < locked_until:
+        st.error(f"尝试次数过多，请 {int(locked_until - now)} 秒后再试。")
+        return
+
+    if pw and secrets.compare_digest(pw.encode("utf-8"), admin_pw.encode("utf-8")):
+        st.session_state["admin_unlocked"] = True
+        st.session_state["admin_unlock_time"] = now
+        st.session_state["admin_fail_count"] = 0
+        st.session_state.pop("admin_locked_until", None)
+        st.rerun()
+        return
+
+    fails = int(st.session_state.get("admin_fail_count", 0)) + 1
+    if fails >= _ADMIN_MAX_ATTEMPTS:
+        st.session_state["admin_locked_until"] = now + _ADMIN_LOCK_SECONDS
+        st.session_state["admin_fail_count"] = 0
+        st.error(f"密码错误次数过多，已锁定 {_ADMIN_LOCK_SECONDS // 60} 分钟。")
+    else:
+        st.session_state["admin_fail_count"] = fails
+        st.error(f"密码错误。剩余尝试 {_ADMIN_MAX_ATTEMPTS - fails} 次。")
+
+
+def _admin_unlock_expired() -> bool:
+    """解锁超过 _ADMIN_SESSION_SECONDS 后自动失效。"""
+    import time as _t
+
+    t = st.session_state.get("admin_unlock_time", 0)
+    return bool(t) and (_t.time() - t) > _ADMIN_SESSION_SECONDS
+
+
 def _render_admin_panel():
     """折叠式管理员入口：生成邀请码、列出用户、设置配额、查看用量。"""
     admin_pw = str(st.secrets.get("ADMIN_PASSWORD", "")).strip()
@@ -341,11 +386,13 @@ def _render_admin_panel():
         if not st.session_state.get("admin_unlocked"):
             pw = st.text_input("管理员密码", type="password", key="admin_pw")
             if st.button("解锁", key="admin_unlock_btn"):
-                if pw == admin_pw:
-                    st.session_state["admin_unlocked"] = True
-                    st.rerun()
-                else:
-                    st.error("密码错误。")
+                _try_admin_unlock(admin_pw, pw)
+            return
+
+        # 安全修复（P-05）：解锁超时自动失效
+        if _admin_unlock_expired():
+            st.session_state["admin_unlocked"] = False
+            st.warning("管理员会话已超时，请重新解锁。")
             return
 
         sb_admin = get_supabase_admin()
