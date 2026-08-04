@@ -477,16 +477,18 @@ def wall_css() -> str:
 @keyframes ww-twinkle { 0%,100% { opacity:.25; transform:scale(.8);}
                         50% { opacity:1; transform:scale(1.15);} }
 
-/* ===== 卡片容器（Streamlit 1.59：border 容器为 stVerticalBlock）：hover 上浮 + 按钮定位 =====
-   真实 DOM 结构（CDP 实测）：卡内 stVerticalBlock 下，卡片 markdown 与 ✕ 按钮是
-   兄弟 stElementContainer。用兄弟组合器精确配对，避免外层嵌套 block 误匹配。 */
-[data-testid="stVerticalBlock"]:has(.ww-card) {
+/* ===== 卡片容器（兼容 stVerticalBlock / stVerticalBlockBorderWrapper 两种容器）
+   Streamlit 1.59 实测：st.container(border=False) 生成 stVerticalBlockBorderWrapper。
+   用逗号并列两个选择器，保证两种容器都被命中。 */
+[data-testid="stVerticalBlock"]:has(.ww-card),
+[data-testid="stVerticalBlockBorderWrapper"]:has(.ww-card) {
     position:relative; padding:0 !important; overflow:hidden; border:none !important;
-    background:transparent !important; box-shadow:var(--shadow-md) !important;
-    transition:transform var(--transition), box-shadow var(--transition);
+    background:transparent !important; box-shadow:none !important;
+    transition:transform var(--transition);
 }
-[data-testid="stVerticalBlock"]:has(.ww-card):hover {
-    transform:translateY(-4px); box-shadow:var(--shadow-lg) !important;
+[data-testid="stVerticalBlock"]:has(.ww-card):hover,
+[data-testid="stVerticalBlockBorderWrapper"]:has(.ww-card):hover {
+    transform:translateY(-4px);
 }
 /* 删除按钮：默认隐藏，hover 卡片（或按钮自身/键盘 focus）时平滑显现。
    opacity+scale 双过渡，绝对定位不占文档流，无布局跳动。 */
@@ -744,7 +746,7 @@ def render_wall() -> None:
         cols = st.columns(3)
         for j, city in enumerate(cities[row_start:row_start + 3]):
             with cols[j]:
-                with st.container(border=True):
+                with st.container(border=False):
                     wx = weather.get(city["zh"])
                     scene = map_scene(wx["code"], wx["is_day"]) if wx else "cloudy"
                     st.markdown(card_html(city, wx, scene, idx,
@@ -761,7 +763,7 @@ def _placeholder_html() -> str:
     """引导占位卡：未定位且未添加城市时的首页引导（需求 3 降级方案）。"""
     return """
     <div style="text-align:center; padding:56px 12px; border-radius:18px 22px 16px 24px;
-                background:var(--bg-secondary); border:1.5px dashed var(--border-color);
+                background:var(--bg-secondary);
                 font-family:var(--font-aether-ui); color:var(--text-secondary);">
         <div style="font-size:2.4rem; margin-bottom:10px;">📍</div>
         <div style="font-size:1.05rem; font-weight:600; margin-bottom:6px;">天气墙还空着</div>

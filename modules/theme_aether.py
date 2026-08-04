@@ -298,6 +298,91 @@ def get_tokens() -> dict:
 
 
 # ============================================================
+# 四·五、无边框覆盖层 CSS（纯 CSS，无 f-string 占位符）
+# ============================================================
+# 同时用于 markdown 初始注入与 JS 强插 <head>，确保单一真相源。
+_BORDERLESS_CSS = """
+/* 卡片容器 */
+[data-testid="stVerticalBlockBorderWrapper"] { border: none !important; box-shadow: var(--shadow-sm) !important; }
+/* 指标卡片 */
+[data-testid="stMetric"] { border: none !important; box-shadow: var(--shadow-sm) !important; }
+[data-testid="stMetric"]:hover { box-shadow: var(--shadow-md) !important; border: none !important; }
+/* 按钮 */
+.stButton > button { border: none !important; box-shadow: var(--shadow-sm) !important; }
+.stButton > button:hover { border: none !important; box-shadow: var(--shadow-md) !important; }
+button[kind="primary"] { border: none !important; box-shadow: var(--shadow-sm) !important; }
+button[kind="primary"]:hover { border: none !important; box-shadow: var(--shadow-md) !important; }
+/* 输入框 */
+.stTextInput input, .stNumberInput input, .stSelectbox [data-baseweb="select"] {
+    border: none !important;
+    box-shadow: 0 0 0 1px var(--border-color) inset !important;
+    transition: box-shadow var(--transition) !important;
+}
+.stTextInput input:focus, .stNumberInput input:focus {
+    border: none !important;
+    box-shadow: 0 0 0 2px var(--accent), 0 0 0 4px rgba(74,126,194,0.15) !important;
+}
+.stNumberInput button { border: none !important; background: transparent !important; }
+/* 展开器 */
+[data-testid="stExpander"] { border: none !important; box-shadow: var(--shadow-sm) !important; }
+/* 提示框 */
+div[data-testid="stAlert"] { border: none !important; box-shadow: var(--shadow-sm) !important; }
+/* 数据表格 */
+[data-testid="stDataFrame"] { border: none !important; box-shadow: var(--shadow-sm) !important; }
+[data-testid="stDataFrame"] thead th { border-bottom: none !important; }
+/* Tab 导航栏 */
+.stTabs [data-baseweb="tab-list"] { border-bottom: none !important; }
+/* 侧边栏 */
+[data-testid="stSidebar"] { border-right: none !important; }
+/* 分割线 */
+hr { border-top: none !important; height: 1px; background: var(--border-color); }
+/* 文件上传 */
+[data-testid="stFileUploader"] section { border: none !important; background: var(--bg-secondary) !important; box-shadow: var(--shadow-sm) !important; }
+[data-testid="stFileUploader"] section:hover { border: none !important; box-shadow: var(--shadow-md) !important; }
+"""
+
+
+def _inject_borderless_js() -> None:
+    """把 _BORDERLESS_CSS 强插 document.head 末尾，并对 head 的 childList 设
+    MutationObserver：Streamlit React 组件 hydration 完成后会追加自身带 !important
+    的 <style>（晚于 markdown 注入），用此法在每次 head 变动后重新抢占末位，
+    消除「刷新 1~2s 后边框重现」的现象。"""
+    js = """
+<script>
+(function() {
+  var CSS = `__BORDERLESS__`;
+  function apply() {
+    var s = document.getElementById("aether-borderless");
+    if (s && s.parentNode) s.parentNode.removeChild(s);
+    s = document.createElement("style");
+    s.id = "aether-borderless";
+    s.textContent = CSS;
+    document.head.appendChild(s);
+  }
+  apply();
+  if (window.addEventListener) window.addEventListener("load", apply);
+  if (window.MutationObserver) {
+    var obs = new MutationObserver(function(muts) {
+      for (var i = 0; i < muts.length; i++) {
+        var nodes = muts[i].addedNodes;
+        for (var j = 0; j < nodes.length; j++) {
+          var n = nodes[j];
+          if (n.nodeType === 1 && n.tagName === "STYLE" && n.id !== "aether-borderless") {
+            apply();
+            return;
+          }
+        }
+      }
+    });
+    obs.observe(document.head, {childList: true});
+  }
+})();
+</script>
+"""
+    st.markdown(js.replace("__BORDERLESS__", _BORDERLESS_CSS), unsafe_allow_html=True)
+
+
+# ============================================================
 # 五、覆盖层 CSS 注入
 # ============================================================
 def inject_theme() -> None:
@@ -352,6 +437,15 @@ def inject_theme() -> None:
 }}
 </style>
 """, unsafe_allow_html=True)
+
+    # 第一段：无边框覆盖层（初始渲染即生效）
+    st.markdown(f"<style>{_BORDERLESS_CSS}</style>", unsafe_allow_html=True)
+    # 第二段：JS 强插 <head> 末尾 + MutationObserver，对抗 hydration 后样式重注
+    _inject_borderless_js()
+
     # 暗色专属覆盖：Streamlit 原生组件（下拉/日历/toast/弹窗）与硬编码色
     if is_dark():
         st.markdown(f"<style>{DARK_EXTRA_CSS}</style>", unsafe_allow_html=True)
+        # DARK_EXTRA_CSS 之后再次注入无边框层，消除其硬编码边框；
+        # MutationObserver 会在 head 变动时自动重新抢占末位
+        st.markdown(f"<style>{_BORDERLESS_CSS}</style>", unsafe_allow_html=True)

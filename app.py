@@ -500,21 +500,18 @@ p, span, label, .stMarkdown {
 /* ===== 卡片 (st.container border / stMetric / stAlert / stExpander) ===== */
 [data-testid="stVerticalBlockBorderWrapper"] {
     background: var(--bg-secondary) !important;
-    border: 1px solid var(--border-color) !important;
+    border: none !important;
     border-radius: var(--radius-md) !important;
     box-shadow: var(--shadow-sm) !important;
-    transition: border-color var(--transition);
 }
 [data-testid="stMetric"] {
     background: var(--bg-secondary) !important;
-    border: 1px solid var(--border-color) !important;
+    border: none !important;
     border-radius: var(--radius-md) !important;
     box-shadow: var(--shadow-sm) !important;
     padding: 14px !important;
-    transition: border-color var(--transition), box-shadow var(--transition);
 }
 [data-testid="stMetric"]:hover {
-    border-color: var(--border-hover) !important;
     box-shadow: var(--shadow-md) !important;
 }
 [data-testid="stMetric"] label {
@@ -534,7 +531,7 @@ p, span, label, .stMarkdown {
 .stButton > button {
     background: var(--bg-secondary) !important;
     color: var(--text-primary) !important;
-    border: 1px solid var(--border-color) !important;
+    border: none !important;
     border-radius: var(--radius-sm) !important;
     font-family: var(--font-ui);
     font-size: 0.875rem;
@@ -545,7 +542,6 @@ p, span, label, .stMarkdown {
 }
 .stButton > button:hover {
     background: var(--bg-hover) !important;
-    border-color: var(--accent) !important;
     box-shadow: var(--shadow-md);
     transform: translateY(-1px);
 }
@@ -556,13 +552,12 @@ p, span, label, .stMarkdown {
 button[kind="primary"] {
     background: #faf6ef !important;
     color: #1e293b !important;
-    border-color: #e8e0d0 !important;
+    border: none !important;
     box-shadow: 0 1px 2px rgba(120, 90, 40, 0.08), var(--shadow-sm) !important;
     font-weight: 600 !important;
 }
 button[kind="primary"]:hover {
     background: #f3eddf !important;
-    border-color: #d4c8a8 !important;
     box-shadow: 0 2px 4px rgba(120, 90, 40, 0.12), var(--shadow-md) !important;
 }
 
@@ -570,25 +565,25 @@ button[kind="primary"]:hover {
 .stTextInput input, .stNumberInput input, .stSelectbox [data-baseweb="select"] {
     background: var(--bg-secondary) !important;
     color: var(--text-primary) !important;
-    border: 1px solid var(--border-color) !important;
+    border: none !important;
+    box-shadow: 0 0 0 1px var(--border-color) inset;
     border-radius: var(--radius-sm) !important;
     font-family: var(--font-ui);
-    transition: border-color var(--transition), box-shadow var(--transition);
+    transition: box-shadow var(--transition);
 }
 .stTextInput input:focus, .stNumberInput input:focus {
-    border-color: var(--accent) !important;
-    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1) !important;
+    box-shadow: 0 0 0 2px var(--accent), 0 0 0 4px rgba(37,99,235,0.1) !important;
 }
 .stNumberInput button {
     background: var(--bg-tertiary) !important;
     color: var(--text-secondary) !important;
-    border-color: var(--border-color) !important;
+    border: none !important;
 }
 
 /* ===== 展开器 ===== */
 [data-testid="stExpander"] {
     background: var(--bg-secondary) !important;
-    border: 1px solid var(--border-color) !important;
+    border: none !important;
     border-radius: var(--radius-md) !important;
     box-shadow: var(--shadow-sm);
 }
@@ -604,7 +599,7 @@ button[kind="primary"]:hover {
 /* ===== 提示框 ===== */
 div[data-testid="stAlert"] {
     background: var(--bg-secondary) !important;
-    border: 1px solid var(--border-color) !important;
+    border: none !important;
     border-radius: var(--radius-md) !important;
     box-shadow: var(--shadow-sm);
 }
@@ -614,9 +609,10 @@ div[data-testid="stAlert"] {
 
 /* ===== 数据表格 ===== */
 [data-testid="stDataFrame"] {
-    border: 1px solid var(--border-color) !important;
+    border: none !important;
     border-radius: var(--radius-md) !important;
     overflow: hidden;
+    box-shadow: var(--shadow-sm) !important;
 }
 [data-testid="stDataFrame"] thead th {
     background: var(--bg-tertiary) !important;
@@ -625,7 +621,7 @@ div[data-testid="stAlert"] {
     font-size: 0.8rem;
     text-transform: uppercase;
     letter-spacing: 0.03em;
-    border-bottom: 2px solid var(--border-color) !important;
+    border-bottom: none !important;
 }
 [data-testid="stDataFrame"] tbody tr:nth-child(even) {
     background: var(--bg-secondary);
@@ -647,7 +643,7 @@ div[data-testid="stAlert"] {
     font-weight: 600;
 }
 .stTabs [data-baseweb="tab-list"] {
-    border-bottom: 2px solid var(--border-color) !important;
+    border-bottom: none !important;
     gap: 0;
 }
 
@@ -660,6 +656,7 @@ div[data-testid="stAlert"] {
     font-weight: 500;
     font-size: 0.875rem;
     padding: 8px 18px;
+    border: none !important;
     border-radius: var(--radius-sm);
     transition: all var(--transition);
 }
@@ -676,7 +673,7 @@ div[data-testid="stAlert"] {
 /* ===== 侧边栏 ===== */
 [data-testid="stSidebar"] {
     background: var(--bg-secondary);
-    border-right: 1px solid var(--border-color);
+    border-right: none;
 }
 [data-testid="stSidebar"] .stMarkdown,
 [data-testid="stSidebar"] label,
@@ -687,19 +684,20 @@ div[data-testid="stAlert"] {
 /* ===== 分割线 ===== */
 hr {
     border: none;
-    border-top: 1px solid var(--border-color) !important;
+    height: 1px;
+    background: var(--border-color);
     margin: 1rem 0;
 }
 
 /* ===== 文件上传 ===== */
 [data-testid="stFileUploader"] section {
     background: var(--bg-secondary) !important;
-    border: 1px dashed var(--border-color) !important;
+    border: none !important;
     border-radius: var(--radius-md) !important;
-    transition: border-color var(--transition);
+    box-shadow: var(--shadow-sm) !important;
 }
 [data-testid="stFileUploader"] section:hover {
-    border-color: var(--accent) !important;
+    box-shadow: var(--shadow-md) !important;
 }
 [data-testid="stFileUploader"] section p {
     color: var(--text-muted) !important;
@@ -747,6 +745,21 @@ hr {
 }
 [data-testid="stMultiSelect"] [data-baseweb="tag"] span {
     color: var(--accent) !important;
+}
+
+/* ===== 无边框安全网：兜底清除所有 Streamlit 组件边框 ===== */
+[data-testid="stVerticalBlock"],
+[data-testid="stVerticalBlockBorderWrapper"],
+[data-testid="stColumn"],
+.stSelectbox [data-baseweb="select"],
+.stTextInput > div > div,
+.stNumberInput > div > div,
+[data-testid="stRadio"] [role="radiogroup"] label,
+[data-testid="stCheckbox"] label,
+button[kind="secondary"],
+.stDownloadButton button,
+div[data-baseweb="popover-content"] {
+    border: none !important;
 }
 </style>
 """, unsafe_allow_html=True)
