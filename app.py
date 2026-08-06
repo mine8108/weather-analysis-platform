@@ -137,7 +137,7 @@ def _reset_current_tab():
     if removed:
         st.toast(f"[OK] {tab_name}已重置（清理 {len(removed)} 项）", icon="🧹")
     else:
-        st.toast(f"[OK] {tab_name}无需清理", icon="✓")
+        st.toast(f"[OK] {tab_name}无需清理", icon="✅")
     st.rerun()
 
 
