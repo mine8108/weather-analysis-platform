@@ -10,7 +10,7 @@
 
 import streamlit as st
 
-from utils import retry_with_backoff
+from utils import retry_with_backoff, _safe_toast
 # 相对导入：weather_wall 以 modules 包成员导入时，同目录模块需 . 前缀
 from .geocode import format_candidate, forward_geocode, parse_lat_lon, reverse_geocode
 from .geolocate import geo_locator
@@ -559,7 +559,7 @@ def _add_city(city: dict) -> bool:
         return False
     st.session_state.setdefault("wall_cities", []).append(city)
     save_cities(st.session_state["wall_cities"])  # 需求 4：刷新/重启后保留
-    st.toast(f"已添加 {city['zh']} · {city['en']}", icon="➕")
+    _safe_toast(f"已添加 {city['zh']} · {city['en']}", icon="➕")
     return True
 
 
@@ -574,7 +574,7 @@ def _resolve_query() -> None:
     """
     q = (st.session_state.get("wall_query") or "").strip()
     if not q:
-        st.toast("请输入城市名或经纬度（如 39.9,116.4）", icon="✏️")
+        _safe_toast("请输入城市名或经纬度（如 39.9,116.4）", icon="✏️")
         return
 
     # ① 城市库命中（大小写不敏感匹配英文名）
@@ -611,7 +611,7 @@ def _resolve_query() -> None:
         return
     # 重名歧义：交给候选 selectbox
     st.session_state["_resolve_candidates"] = candidates
-    st.toast(f"「{q}」存在多个同名地点，请选择具体城市", icon="🔀")
+    _safe_toast(f"「{q}」存在多个同名地点，请选择具体城市", icon="🔀")
 
 
 def _on_pick_candidate() -> None:
@@ -631,7 +631,7 @@ def _delete_city(zh: str) -> None:
     cities = st.session_state.get("wall_cities", [])
     st.session_state["wall_cities"] = [c for c in cities if c["zh"] != zh]
     save_cities(st.session_state["wall_cities"])
-    st.toast(f"已移除 {zh}", icon="🗑️")
+    _safe_toast(f"已移除 {zh}", icon="🗑️")
 
 
 def build_city_from_geo(loc: dict | None, reverse_fn=reverse_geocode) -> dict | None:
@@ -661,7 +661,7 @@ def _consume_geo(loc) -> None:
     if city:
         _add_city(city)
     else:
-        st.toast("未能获取定位（权限被拒或设备不支持），可手动搜索城市", icon="📍")
+        _safe_toast("未能获取定位（权限被拒或设备不支持），可手动搜索城市", icon="📍")
 
 
 def render_wall() -> None:
@@ -707,7 +707,7 @@ def render_wall() -> None:
         if st.button("🔄 刷新", key="wall_refresh", help="重新拉取最新天气数据",
                      use_container_width=True):
             refresh_weather()
-            st.toast("天气数据已刷新", icon="🔄")
+            _safe_toast("天气数据已刷新", icon="🔄")
             st.rerun()
 
     _b1, _b2, _b3 = st.columns([1, 2, 1])

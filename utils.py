@@ -10,6 +10,23 @@ import pandas as pd
 
 
 # ============================================================
+# 零、Toast 安全封装
+# ============================================================
+
+def _safe_toast(body, icon=None):
+    """安全包装 st.toast。
+
+    Streamlit 的 st.toast(icon=...) 在 icon 非合法 emoji 时（U+2713 ✓ 这类排版
+    符号、:shortcode: 写法）会抛 StreamlitAPIException 并使整页崩溃。此处捕获该
+    异常并降级为无 icon 重试，让非法 icon 永不冒泡到线上。
+    """
+    try:
+        st.toast(body, icon=icon)
+    except st.errors.StreamlitAPIException:
+        st.toast(body)
+
+
+# ============================================================
 # 一、DataFrame 指纹
 # ============================================================
 

@@ -39,7 +39,7 @@ from modules.analyzer import (
 from modules.codec import render_codec_tab
 from modules.reporter import render_export_tab
 from modules.nwp_forecast import render_forecast_tab
-from utils import df_fingerprint as _df_fingerprint, go_back as _go_back
+from utils import df_fingerprint as _df_fingerprint, go_back as _go_back, _safe_toast
 from auth import render_auth_page, is_authenticated, sign_out_user
 from modules import theme_aether
 from modules.weather_wall import render_wall
@@ -135,9 +135,9 @@ def _reset_current_tab():
         from modules.city_prefs import save_cities
         save_cities([])
     if removed:
-        st.toast(f"[OK] {tab_name}已重置（清理 {len(removed)} 项）", icon="🧹")
+        _safe_toast(f"[OK] {tab_name}已重置（清理 {len(removed)} 项）", icon="🧹")
     else:
-        st.toast(f"[OK] {tab_name}无需清理", icon="✅")
+        _safe_toast(f"[OK] {tab_name}无需清理", icon="✅")
     st.rerun()
 
 
