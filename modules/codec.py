@@ -7,11 +7,20 @@ from datetime import datetime
 
 
 def decode_synop(report):
-    """
-    解码 SYNOP 陆地地面天气报告（简化版）
-    支持解析 FM-12 SYNOP 报文基本段
+    """解码 SYNOP 陆地地面天气报告（简化版）。
+
+    支持 FM-12 SYNOP 基本段：
+    AAXX YYGGiw IIiii iRixhVV Nddff 1sTTT 2sTdTdTd 3PPPP 6RRR1
+
+    修复 R-15：
+    - 报文头顺序改为 YYGGiw → IIiii（原实现把日期组当区站号、把区站号当日期组）
+    - 补上 Nddff 组解析（总云量 / 风向 / 风速），并按 iw 区分 m/s 与节
+    - wind_indicator 初始化到函数顶部，缺日期组时不再抛 UnboundLocalError
+    - 温度 / 露点符号规则改为「0 为正、1 为负」（原实现把 0~4 全当正号）
+    - iRixhVV 的 h 是云底高度码，不再被误当成总云量
     """
     result = {"station_id": "UNKNOWN", "timestamp": None}
+    wind_indicator = None
 
     try:
         tokens = report.strip().split()
@@ -25,56 +34,40 @@ def decode_synop(report):
         if tokens[idx] in ["AAXX", "BBXX"]:
             idx += 1
 
-        # 区站号 (IIiii) - 简化检测
-        if idx < len(tokens) and len(tokens[idx]) == 5:
-            result["station_id"] = tokens[idx]
-            idx += 1
-
-        # 日期时间组 (YYGGiw)
-        if idx < len(tokens) and len(tokens[idx]) >= 4:
+        # YYGGiw - 日期 / 小时 / 风力指示码
+        if idx < len(tokens) and len(tokens[idx]) == 5 and tokens[idx].isdigit():
             group = tokens[idx]
             try:
                 day = int(group[0:2])
                 hour = int(group[2:4])
-                # 风力指示码
-                wind_indicator = int(group[4]) if len(group) > 4 else None
-                now = datetime.now()
-                result["timestamp"] = datetime(now.year, now.month, min(day, 28), hour, 0)
+                wind_indicator = int(group[4])
+                if 1 <= day <= 31 and 0 <= hour <= 23:
+                    now = datetime.now()
+                    result["timestamp"] = datetime(
+                        now.year, now.month, min(day, 28), hour, 0
+                    )
             except (ValueError, IndexError):
                 pass
             idx += 1
 
-        # 根据风力指示码解析风组
-        wind_group = None
-        if wind_indicator is not None:
-            if wind_indicator in [0, 1]:  # m/s
-                pass  # 标准解析
-            elif wind_indicator in [3, 4]:  # 节
-                pass
+        # IIiii - 区站号
+        if idx < len(tokens) and len(tokens[idx]) == 5 and tokens[idx].isdigit():
+            result["station_id"] = tokens[idx]
+            idx += 1
 
-        # iRixhVV - 降水/天气/云/能见度组
+        # iRixhVV - 降水指示 / 天气指示 / 云底高 / 能见度
         if idx < len(tokens) and len(tokens[idx]) == 5:
             group = tokens[idx]
             try:
-                precip_ind = int(group[0]) if group[0] != "/" else None
-                weather_code = int(group[1:3]) if group[1:3] != "//" else None
-                cloud_code = int(group[3]) if group[3] != "/" else None
                 vis_code = int(group[4]) if group[4] != "/" else None
 
-                if weather_code is not None:
-                    result["weather_code"] = weather_code
-
-                if cloud_code is not None:
-                    cloud_map = {0: 0, 1: 1, 2: 3, 3: 5, 4: 7, 5: 8, 6: 9, 7: 10, 8: 10, 9: 10}
-                    result["cloud_cover"] = cloud_map.get(cloud_code, None)
-
                 if vis_code is not None:
-                    # SYNOP 能见度码转换表（简化）
+                    # SYNOP 能见度码转换表（简化；VV=0 表示能见度 <0.1 km）
                     vis_table = {
-                        90: 0.05, 91: 0.05, 92: 0.2, 93: 0.5, 94: 1.0, 95: 2.0,
-                        96: 4.0, 97: 10.0, 98: 20.0, 99: 50.0,
+                        0: 0.05, 90: 0.05, 91: 0.05, 92: 0.2, 93: 0.5, 94: 1.0,
+                        95: 2.0, 96: 4.0, 97: 10.0, 98: 20.0, 99: 50.0,
                     }
-                    if vis_code <= 50:
+                    if 1 <= vis_code <= 50:
                         result["visibility"] = vis_code / 10.0  # 0.1 km 为单位
                     elif vis_code in vis_table:
                         result["visibility"] = vis_table[vis_code]
@@ -82,16 +75,38 @@ def decode_synop(report):
                 pass
             idx += 1
 
-        # Nddff - 总云量(N)/风向(dd)/风速(ff)  
-        # (已跳过如果前面 iRixhVV 已解析)
+        # Nddff - 总云量(N) / 风向(dd) / 风速(ff)
+        if idx < len(tokens) and len(tokens[idx]) == 5 and tokens[idx].isdigit():
+            group = tokens[idx]
+            try:
+                result["cloud_cover"] = min(int(group[0]), 10)
+                dd = int(group[1:3])
+                ff = int(group[3:5])
+                result["wind_direction"] = None if dd == 99 else dd * 10
+                if wind_indicator in (3, 4):  # 单位为节
+                    result["wind_speed"] = round(ff * 0.514444, 1)
+                else:  # iw 0/1 为 m/s
+                    result["wind_speed"] = float(ff)
+            except (ValueError, IndexError):
+                pass
+            idx += 1
 
-        # 在报文中搜索温度组 (1sTTT 或 2sTTT)
+        # 在报文中搜索温度组 (1sTTT)
         for token in tokens[idx:]:
             if len(token) == 5 and token[0] == "1":
                 try:
-                    sign = 1 if token[1] in ["0", "1", "2", "3", "4"] else -1
-                    temp = int(token[2:]) / 10.0 * sign
-                    result["temperature"] = temp
+                    sign = -1 if token[1] == "1" else 1
+                    result["temperature"] = int(token[2:]) / 10.0 * sign
+                    break
+                except (ValueError, IndexError):
+                    continue
+
+        # 露点组 (2sTdTdTd)
+        for token in tokens[idx:]:
+            if len(token) == 5 and token[0] == "2":
+                try:
+                    sign = -1 if token[1] == "1" else 1
+                    result["dewpoint"] = int(token[2:]) / 10.0 * sign
                     break
                 except (ValueError, IndexError):
                     continue
@@ -106,23 +121,22 @@ def decode_synop(report):
                 except (ValueError, IndexError):
                     continue
 
-        # 露点组 (2sTdTdTd)
-        for token in tokens[idx:]:
-            if len(token) == 5 and token[0] == "2":
-                try:
-                    sign = 1 if token[1] in ["0", "1", "2", "3", "4"] else -1
-                    dewpoint = int(token[2:]) / 10.0 * sign
-                    result["dewpoint"] = dewpoint
-                    break
-                except (ValueError, IndexError):
-                    continue
-
         # 降水量组 (6RRR1)
         for token in tokens[idx:]:
             if len(token) >= 4 and token[0] == "6":
                 try:
                     precip = int(token[1:4])
                     result["precipitation"] = precip if precip < 990 else (precip - 990) / 10.0
+                    break
+                except (ValueError, IndexError):
+                    continue
+
+        # 现在天气组 (7wwWW)：天气现象码的真正来源
+        # （原实现误把 iRixhVV 的 R+ix 两位当作天气码）
+        for token in tokens[idx:]:
+            if len(token) == 5 and token[0] == "7":
+                try:
+                    result["weather_code"] = int(token[1:3])
                     break
                 except (ValueError, IndexError):
                     continue

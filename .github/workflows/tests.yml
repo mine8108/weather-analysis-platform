@@ -34,6 +34,9 @@ jobs:
       - name: 预警引擎回归（R-14/R-29~R-40）
         run: python -B tests/test_analyzer.py
 
+      - name: 报文解码回归（R-15）
+        run: python -B tests/test_codec.py
+
       # 其余 pytest 用例（含天气墙）作为补充信号，失败不阻断门禁
       - name: pytest 全量收集
         continue-on-error: true
