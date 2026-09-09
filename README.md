@@ -2,7 +2,7 @@
 
 一个基于 **Python + Streamlit** 的可交互式气象数据分析与预警软件。用户可以导入气温、气压、湿度、风、云、能见度、天气现象等观测数据，平台自动完成**数据可视化**、**国家预警标准匹配**、**多要素耦合分析**，并生成**公众出行 / 农业生产建议**与可导出的分析报告。
 
-> 全部依赖均为开源库，外部数据接口（Open-Meteo 历史气象、ERA5 气候态）**无需任何 API Key**，开箱即用。
+> 全部依赖均为开源库，外部数据接口（Open-Meteo 气象 / 空气质量 / GFS 预报）**无需任何 API Key**。进入主程序需先登录，因此还需配置 Supabase 密钥（见下方「登录与多用户私有数据」）。
 
 ---
 
@@ -10,13 +10,12 @@
 
 | 模块 | 功能 |
 |------|------|
-| **数据导入** | 支持 CSV / Excel 上传、网页手动逐条录入、Open-Meteo API 按经纬度+时间自动拉取；智能列名识别；标准模板下载 |
-| **数据质控** | 物理量范围校验（温度/气压/湿度/风速）、相邻时次突跳检测、缺失率统计、百分制数据质量评分 |
+| **数据导入** | 支持 CSV / Excel 上传、网页手动逐条录入、Open-Meteo API 按经纬度+时间自动拉取；智能列名识别；标准模板下载；API 区含 ERA5（CDS）下载引导 |
+| **数据质控** | 内置于「数据导入」向导第 2 步，导入后默认展示质量报告：物理量范围校验（温度/气压/湿度/风速等）、相邻时次突跳检测、缺失率统计、百分制数据质量评分 |
 | **可视化分析** | 温/压/湿/风多要素综合看板、风向风速玫瑰图、要素关系散点矩阵、统计摘要；**要素分布直方图（默认含降水量，可叠加多要素对比）** |
 | **智能分析与建议** | 覆盖高温、寒潮、大风、大雾、暴雨、霜冻、雷电、霾共 **8 类国家预警标准**；热应激、降水可能性、风寒效应等耦合风险；自动生成公众出行与农业生产建议 |
-| **气候态参照** | 拉取近 5 年同期 ERA5 气候态均值，计算气温/降水/风速距平 |
 | **报文解码** | 粘贴 METAR / SYNOP 标准报文，自动解析为结构化数据 |
-| **报告导出** | 处理后数据导出 CSV、一键生成 Word 分析报告、关键图表导出 |
+| **报告导出** | 处理后数据与 GFS 预报数据导出 CSV；一键生成 Word 分析报告（专业版为表格化排版、通俗版为叙述式），报告内不含图片 |
 | **数值预报 (GFS)** | 接入 Open-Meteo **GFS 数值预报（免注册，最长 16 天）**：气温/体感温度/降水时间序列、未来 72 小时高温预报面板（含 35/37/40℃ 国家阈值线）、逐日降水预报；并可抓取目标点周边网格生成**空间预报场热力图**（时间图 + 空间图双视图） |
 
 ---
@@ -25,9 +24,10 @@
 
 - **Web 框架**：[Streamlit](https://streamlit.io/) 1.59
 - **数据处理**：pandas 3.0 / numpy 2.5
-- **可视化**：Plotly 6.8（交互式）、Matplotlib 3.11（静态导出）
+- **可视化**：Plotly 6.8（交互式，支持导出 HTML）
 - **报告生成**：python-docx 1.2（Word）
-- **外部数据**：Open-Meteo Archive API、ERA5 气候态（均无需密钥）
+- **登录与存储**：Supabase（邮箱密码登录 + RLS 行级安全）
+- **外部数据**：Open-Meteo Archive / Forecast / Air-Quality API（均无需密钥）
 - **部署目标**：Streamlit Community Cloud / 任意 Python 主机
 
 ---
@@ -36,15 +36,30 @@
 
 ```
 weather_app/
-├── app.py                      # Streamlit 主入口（8 个 Tab）
+├── app.py                      # Streamlit 主入口（6 个 Tab）
+├── auth.py                     # Supabase 邮箱密码登录 / 邀请码注册
+├── db.py                       # 用户数据集云端持久化（按 user_id 隔离）
+├── utils.py                    # DataFrame 指纹、API 重试、预加载缓存
 ├── config.py                   # 国家预警阈值、字段映射、风力等级表、防御指南
-├── requirements.txt            # 依赖（已锁定版本）
+├── requirements.txt            # 运行依赖（supabase 未锁版本，其余固定）
+├── requirements-dev.txt        # 开发依赖（pytest，不参与线上部署）
 ├── runtime.txt                 # Streamlit Cloud Python 版本声明
 ├── LICENSE                     # MIT
+├── SECURITY.md                 # 安全说明
+├── supabase/
+│   └── schema.sql              # datasets 表建表脚本 + RLS 策略
 ├── .streamlit/
-│   └── config.toml             # 部署配置（headless / 主题）
+│   ├── config.toml             # 部署配置（headless / 主题）
+│   └── secrets.toml.example    # 密钥模板（复制为 secrets.toml 后填写）
 ├── templates/
 │   └── data_template.csv       # 标准数据模板（下载显示名仍为「气象数据模板.csv」）
+├── tests/                      # 自测脚本（无 pytest 亦可直接运行）
+│   ├── conftest.py
+│   ├── test_analyzer.py        # 预警检测 91 条
+│   ├── test_data_quality.py    # 数据质控 9 条
+│   ├── test_auth_session.py    # 登录会话 7 条
+│   ├── test_weather_wall.py    # 天气墙 41 条（依赖 pytest）
+│   └── test_smoke.py           # 导入冒烟检查
 ├── 示例数据/
 │   ├── 示例气象数据.csv          # 可直接测试的演示数据
 │   └── generate_demo.py        # 演示数据生成脚本
@@ -55,10 +70,16 @@ weather_app/
     ├── data_quality.py         # 数据质量控制与评分
     ├── visualizer.py           # 可视化引擎
     ├── analyzer.py             # 预警检测 + 建议生成
-    ├── climate_ref.py          # ERA5 气候态参照
     ├── codec.py                # SYNOP/METAR 解码
     ├── nwp_forecast.py         # GFS 数值预报接入 + 时间图/空间图渲染
-    └── reporter.py             # Word/CSV 报告导出
+    ├── verify.py               # GFS 预报 vs 实况 的定量验证
+    ├── reporter.py             # Word/CSV 报告导出
+    ├── ai_narrative.py         # AI 预警叙事（DeepSeek，缺失时降级）
+    ├── weather_wall.py         # 封面页天气墙（城市天气卡片）
+    ├── theme_aether.py         # Aether 主题系统（浅色/暗色）
+    ├── city_prefs.py           # 天气墙城市列表持久化
+    ├── geocode.py              # 城市名 ↔ 经纬度双向解析
+    └── geolocate.py            # 浏览器定位组件封装
 ```
 
 ---
@@ -82,7 +103,26 @@ streamlit run app.py
 
 > ⚠️ 注意：`pip install` 与 `streamlit run` 是**终端命令**，请在系统命令行 / Anaconda Prompt 中执行，不要写进 `.py` 文件用 IDE 运行。
 
-**最短上手路径**：Tab1 上传 `示例数据/示例气象数据.csv` → Tab4 查看预警与建议 → Tab7 导出 Word 报告。更详细的操作见 `用户使用手册.html`。
+**最短上手路径**：Tab1 数据导入（上传 `示例数据/示例气象数据.csv`，在第 2 步查看质量报告）→ Tab4 查看预警与建议 → Tab5 导出 Word 报告。更详细的操作见 `用户使用手册.html`。
+
+---
+
+## 🧪 测试
+
+`tests/` 下为自测脚本。其中三个可直接运行，无需安装 pytest：
+
+```bash
+python -B tests/test_analyzer.py      # 预警检测 91 条
+python -B tests/test_data_quality.py  # 数据质控 9 条
+python -B tests/test_auth_session.py  # 登录会话 7 条
+```
+
+也可用 pytest 运行全部（`tests/test_weather_wall.py` 依赖 pytest 的 `parametrize`）：
+
+```bash
+pip install -r requirements-dev.txt
+pytest tests -q
+```
 
 ---
 
@@ -117,13 +157,13 @@ streamlit run app.py
 3. 点击 **New app** → 选择本仓库 → 分支 `main` → 主文件填写 `app.py`。
 4. 点击 **Deploy**，约 1–2 分钟后获得公开访问链接。
 
-所有功能（含 API 拉取、气候态参照）在云端均可正常使用，无需配置任何密钥。
+所有依赖联网的功能（Open-Meteo 气象 / 空气质量 / GFS 预报拉取）在云端均可正常使用。**但登录已是进入主程序的前置条件**：未配置 Supabase 密钥时，`app.py` 会停在登录页并提示如何写入 `.streamlit/secrets.toml`（不会崩溃），因此线上部署必须配置 4 项密钥——`SUPABASE_URL`、`SUPABASE_ANON_KEY`、`SUPABASE_SERVICE_ROLE_KEY`、`ADMIN_PASSWORD`（见下方章节）。另有 `LLM_API_KEY` 等 3 项为可选项，用于「AI 预警叙事」，缺失时自动降级为结构化摘要。
 
 ---
 
 ## 🔔 预警标准
 
-预警阈值体系依据**中国气象局《气象灾害预警信号发布与传播办法》（第 16 号令）**的国家标准实现，覆盖高温、寒潮、大风、大雾、暴雨、霜冻、雷电、霾八类灾害的蓝/黄/橙/红四级。用户亦可在应用侧边栏自定义调整阈值（留空则采用国家标准）。
+预警阈值体系依据**中国气象局《气象灾害预警信号发布与传播办法》（第 16 号令）**的国家标准实现，覆盖高温、寒潮、大风、大雾、暴雨、霜冻、雷电、霾八类灾害的蓝/黄/橙/红四级。侧边栏「自定义检测阈值」面板当前提供**高温、大风、大雾**三类阈值输入框；其余预警类型的阈值（含高温黄色、暴雨、霜冻、雷电、霾）读取 `config.py` 中的常量，并支持代码侧 `analyzer.set_custom_thresholds()` 覆盖，界面暂未提供对应输入框。
 
 ---
 
@@ -158,6 +198,7 @@ streamlit run app.py
   SUPABASE_SERVICE_ROLE_KEY = "eyJ..."     # service_role 密钥（仅服务端，严禁泄露）
   ADMIN_PASSWORD = "你的管理员密码"          # 管理员面板解锁密码
   ```
+  可选项（用于「AI 预警叙事」，缺失时自动降级）：`LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL`。完整清单见 `.streamlit/secrets.toml.example`。
 
 ### 4. 部署
 - `requirements.txt` 已加入 `supabase`，推送至 GitHub 后 Streamlit Cloud 自动安装。

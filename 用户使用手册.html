@@ -74,8 +74,8 @@
 
 <div class="hero">
   <h1>🌦️ 气象数据交互分析平台</h1>
-  <p>用户使用手册 · 数据导入 → 可视化分析 → 国家预警 → 智能建议 → 报告导出</p>
-  <span class="version">版本 v1.0 · 基于 Streamlit + Python</span>
+  <p>用户使用手册 · 数据导入 → 可视化分析 → 数值预报 → 智能分析与建议 → 报告导出 → 报文解码</p>
+  <span class="version">版本 v2.2.1 · 基于 Streamlit + Python</span>
 </div>
 
 <div class="container">
@@ -85,16 +85,15 @@
     <a href="#intro">一、软件简介</a>
     <a href="#install">二、安装与启动</a>
     <a href="#overview">三、界面总览</a>
-    <a href="#tab1">四、Tab1 数据导入</a>
-    <a href="#tab2">五、Tab2 数据质控</a>
-    <a href="#tab3">六、Tab3 可视化分析</a>
+    <a href="#tab1">四、Tab1 数据导入（含数据质控）</a>
+    <a href="#tab2">五、Tab2 可视化分析</a>
+    <a href="#tab3">六、Tab3 数值预报</a>
     <a href="#tab4">七、Tab4 智能分析与建议</a>
-    <a href="#tab5">八、Tab5 气候态参照</a>
+    <a href="#tab5">八、Tab5 报告导出</a>
     <a href="#tab6">九、Tab6 报文解码</a>
-    <a href="#tab7">十、Tab7 报告导出</a>
-    <a href="#sidebar">十一、侧边栏：自定义阈值</a>
-    <a href="#faq">十二、常见问题（FAQ）</a>
-    <a href="#demo">十三、示例数据使用说明</a>
+    <a href="#sidebar">十、侧边栏：自定义阈值</a>
+    <a href="#faq">十一、常见问题（FAQ）</a>
+    <a href="#demo">十二、示例数据使用说明</a>
   </div>
 
   <!-- 一、软件简介 -->
@@ -140,7 +139,7 @@
   <div class="step-box">
     <p><span class="step-num">3</span><strong>安装依赖（仅首次需要）</strong></p>
     <pre><span class="cmd">pip</span> install -r requirements.txt</pre>
-    <div class="tip">依赖包含：streamlit、pandas、numpy、plotly、matplotlib、openpyxl、python-docx、requests。若安装缓慢，可加 <code>-i https://pypi.tuna.tsinghua.edu.cn/simple</code> 使用清华镜像。</div>
+    <div class="tip">依赖包含：streamlit、pandas、numpy、plotly、openpyxl、python-docx、requests、supabase。其中 <code>supabase</code> 未锁定版本（<code>supabase&gt;=2.0.0</code>），其余固定版本。开发期测试依赖 <code>pytest</code> 在 <code>requirements-dev.txt</code>，线上部署无需安装。若安装缓慢，可加 <code>-i https://pypi.tuna.tsinghua.edu.cn/simple</code> 使用清华镜像。</div>
   </div>
 
   <div class="step-box">
@@ -149,11 +148,14 @@
     <p>启动后，终端会显示本地访问地址（默认为 <code>http://localhost:8501</code>），用浏览器打开即可使用。</p>
   </div>
 
+  <div class="warn">⚠️ 登录为进入主程序的前置条件：首次使用需把 <code>.streamlit/secrets.toml.example</code> 复制为 <code>.streamlit/secrets.toml</code>，填入 <code>SUPABASE_URL</code>、<code>SUPABASE_ANON_KEY</code>、<code>SUPABASE_SERVICE_ROLE_KEY</code>、<code>ADMIN_PASSWORD</code> 四项密钥。未配置时页面会停在登录页并提示如何设置（不会崩溃）。详细步骤见仓库根目录 <code>README.md</code> 的「登录与多用户私有数据」一节。</div>
+
   <div class="danger">⚠️ 注意：<strong>不要</strong>把 <code>pip install</code> 或 <code>streamlit run</code> 写进 .py 文件用 Spyder 运行——这些是终端命令，不是 Python 代码。Streamlit 是一个独立服务器进程，应通过外部终端启动。</div>
 
   <!-- 三、界面总览 -->
   <h2 id="overview">三、界面总览</h2>
-  <p>软件界面顶部为标题栏，主体分为 7 个标签页（Tab），左侧为阈值自定义侧边栏。每次使用的基本流程：<strong>先到 Tab1 导入数据，再到后续 Tab 分析</strong>。</p>
+  <p>软件界面顶部为标题栏，主体分为 6 个标签页（Tab），顺序为：<strong>数据导入 → 可视化分析 → 数值预报 → 智能分析与建议 → 报告导出 → 报文解码</strong>；左侧为阈值自定义侧边栏。每次使用的基本流程：<strong>先到 Tab1 导入数据，再到后续 Tab 分析</strong>。</p>
+  <div class="tip">💡 数据质控不再是独立标签页，已内置在「数据导入」向导的第 2 步，导入后默认展示质量报告（详见第四章）。</div>
 
   <div class="mockup">
     <svg viewBox="0 0 680 380" xmlns="http://www.w3.org/2000/svg">
@@ -161,22 +163,20 @@
       <!-- 标题栏 -->
       <rect x="0" y="0" width="680" height="52" rx="8" fill="#1f77b4"/>
       <text x="24" y="33" fill="#fff" font-size="18" font-weight="bold">🌦️ 气象数据交互分析平台</text>
-      <!-- Tab栏 -->
+      <!-- Tab栏（6 个，与 app.py tab_labels 顺序一致） -->
       <rect x="0" y="52" width="680" height="44" fill="#f0f3f5"/>
-      <rect x="12" y="62" width="84" height="28" rx="4" fill="#1f77b4"/>
-      <text x="54" y="81" fill="#fff" font-size="12" text-anchor="middle">📥 数据导入</text>
-      <rect x="104" y="62" width="84" height="28" rx="4" fill="#e8edf2"/>
-      <text x="146" y="81" fill="#555" font-size="12" text-anchor="middle">🔬 数据质控</text>
-      <rect x="196" y="62" width="92" height="28" rx="4" fill="#e8edf2"/>
-      <text x="242" y="81" fill="#555" font-size="12" text-anchor="middle">📈 可视化</text>
-      <rect x="296" y="62" width="108" height="28" rx="4" fill="#e8edf2"/>
-      <text x="350" y="81" fill="#555" font-size="12" text-anchor="middle">🚨 智能分析</text>
-      <rect x="412" y="62" width="84" height="28" rx="4" fill="#e8edf2"/>
-      <text x="454" y="81" fill="#555" font-size="12" text-anchor="middle">📅 气候态</text>
-      <rect x="504" y="62" width="84" height="28" rx="4" fill="#e8edf2"/>
-      <text x="546" y="81" fill="#555" font-size="12" text-anchor="middle">📡 报文</text>
-      <rect x="596" y="62" width="84" height="28" rx="4" fill="#e8edf2"/>
-      <text x="638" y="81" fill="#555" font-size="12" text-anchor="middle">📦 导出</text>
+      <rect x="12" y="62" width="100" height="28" rx="4" fill="#1f77b4"/>
+      <text x="62" y="81" fill="#fff" font-size="12" text-anchor="middle">📥 数据导入</text>
+      <rect x="120" y="62" width="100" height="28" rx="4" fill="#e8edf2"/>
+      <text x="170" y="81" fill="#555" font-size="12" text-anchor="middle">📈 可视化分析</text>
+      <rect x="228" y="62" width="96" height="28" rx="4" fill="#e8edf2"/>
+      <text x="276" y="81" fill="#555" font-size="12" text-anchor="middle">📡 数值预报</text>
+      <rect x="332" y="62" width="116" height="28" rx="4" fill="#e8edf2"/>
+      <text x="390" y="81" fill="#555" font-size="12" text-anchor="middle">🚨 智能分析与建议</text>
+      <rect x="456" y="62" width="96" height="28" rx="4" fill="#e8edf2"/>
+      <text x="504" y="81" fill="#555" font-size="12" text-anchor="middle">📦 报告导出</text>
+      <rect x="560" y="62" width="96" height="28" rx="4" fill="#e8edf2"/>
+      <text x="608" y="81" fill="#555" font-size="12" text-anchor="middle">📡 报文解码</text>
       <!-- 主体内容区 -->
       <rect x="12" y="108" width="500" height="260" rx="6" fill="#fafbfc" stroke="#e0e6ed"/>
       <text x="28" y="138" fill="#333" font-size="14" font-weight="bold">数据导入区</text>
@@ -208,12 +208,12 @@
       <rect x="544" y="258" width="108" height="28" rx="4" fill="#1f77b4"/>
       <text x="598" y="277" fill="#fff" font-size="11" text-anchor="middle">✓ 应用</text>
     </svg>
-    <div class="cap">图 1：软件主界面布局（顶部标题 + 7 个标签页 + 左侧阈值侧边栏）</div>
+    <div class="cap">图 1：软件主界面布局（顶部标题 + 6 个标签页 + 左侧阈值侧边栏）</div>
   </div>
 
   <!-- 四、Tab1 数据导入 -->
-  <h2 id="tab1">四、Tab1 数据导入</h2>
-  <p>这是使用软件的第一步。数据成功导入后，页面底部会显示"当前数据: N 条记录"。</p>
+  <h2 id="tab1">四、Tab1 数据导入（含数据质控）</h2>
+  <p>这是使用软件的第一步。导入向导分两步：<strong>Step 1 选择导入方式并完成导入</strong> → <strong>Step 2 数据预览与质量检查</strong>。也可点右上角"跳过向导"进入传统的多子标签模式。</p>
 
   <h3>4.1 文件导入（CSV / Excel）</h3>
   <ol>
@@ -231,15 +231,27 @@
   <p>展开"添加观测记录"表单，逐条填写时间、气温、风速等，点击"➕ 添加记录"。适合少量补录。</p>
 
   <h3>4.3 API 自动获取</h3>
-  <p>在"🌐 API 获取"子标签下：
+  <p>在"🌐 API 获取"子标签下，含 3 个子标签：<strong>Open-Meteo（气象）</strong>、<strong>Open-Meteo（空气质量）</strong>、<strong>ERA5（CDS 引导）</strong>。
     <ul>
       <li>填入<strong>纬度</strong>、<strong>经度</strong>（默认北京燕郊 39.94, 116.85）</li>
       <li>选择<strong>日期范围</strong></li>
-      <li>点击"🔍 获取数据"——自动从 Open-Meteo（ERA5 再分析）下载逐时数据</li>
+      <li>点击"🔍 获取数据"——自动从 Open-Meteo 下载逐时数据；气象与空气质量可分别获取后合并</li>
+      <li>ERA5 子标签为<strong>下载引导页</strong>：提供 CDS 官网入口与可复制的下载代码，数据下载后经"数据导入"作为气候态基准使用（需自行注册 CDS 账号）</li>
     </ul>
   </p>
 
   <div class="tip">💡 不确定数据格式？点击"📥 模板下载"获取 <code>气象数据模板.csv</code>，照着填即可。模板包含 timestamp（时间）、temperature（气温）、pressure（气压）等 11 个标准字段。</div>
+
+  <h3>4.4 Step 2：数据预览与质量检查（数据质控）</h3>
+  <p>导入成功后自动进入 Step 2，顶部显示三项指标（记录数、缺失率、疑似异常值），下方预览前 10 行，并<strong>默认展开质量报告</strong>：</p>
+  <table>
+    <tr><th>检查项</th><th>说明</th></tr>
+    <tr><td>范围校验</td><td>气温 -50~55℃、气压 500~1100hPa、湿度 0~100%、风速 0~75m/s 等</td></tr>
+    <tr><td>时间一致性</td><td>检测相邻时次突跳（如 1h 降温≥8℃ 标记可疑）</td></tr>
+    <tr><td>完整性检查</td><td>统计各字段缺失率、连续缺失段</td></tr>
+    <tr><td>质量评分</td><td>综合计算百分制评分（≥90 优秀 / ≥70 一般 / 其余较差），辅助判断数据可用性</td></tr>
+  </table>
+  <p>报告下方按严重程度逐条列出异常记录，便于你清洗数据。确认无误后点"✅ 确认数据，前往可视化分析"进入 Tab2。</p>
 
   <div class="mockup">
     <svg viewBox="0 0 680 260" xmlns="http://www.w3.org/2000/svg">
@@ -263,30 +275,34 @@
     <div class="cap">图 2：Tab1 数据导入界面</div>
   </div>
 
-  <!-- 五、Tab2 数据质控 -->
-  <h2 id="tab2">五、Tab2 数据质控</h2>
-  <p>导入数据后，此页自动执行质量检查：</p>
+  <!-- 五、Tab2 可视化分析 -->
+  <h2 id="tab2">五、Tab2 可视化分析</h2>
+  <p>本页通过顶部的「图表模块」下拉框切换 7 个模块，所有图表均为交互式（可缩放、悬停查看数值，并可点图表旁的"📥 导出 HTML"保存单图）：</p>
   <table>
-    <tr><th>检查项</th><th>说明</th></tr>
-    <tr><td>范围校验</td><td>气温 -50~55℃、气压 500~1100hPa、湿度 0~100%、风速 0~75m/s</td></tr>
-    <tr><td>时间一致性</td><td>检测相邻时次突跳（如 1h 降温≥8℃ 标记可疑）</td></tr>
-    <tr><td>完整性检查</td><td>统计各字段缺失率、连续缺失段</td></tr>
-    <tr><td>质量评分</td><td>综合计算百分制评分，辅助判断数据可用性</td></tr>
-  </table>
-  <p>页面会以表格列出所有异常记录（红色标记），便于你清洗数据。</p>
-
-  <!-- 六、Tab3 可视化分析 -->
-  <h2 id="tab3">六、Tab3 可视化分析</h2>
-  <p>本页含 4 个子标签，所有图表均为交互式（可缩放、悬停查看数值、下载为图片）：</p>
-  <table>
-    <tr><th>子标签</th><th>内容</th></tr>
+    <tr><th>模块</th><th>内容</th></tr>
     <tr><td>📊 综合看板</td><td>温/压/湿/风四要素 2×2 同屏显示</td></tr>
     <tr><td>🌬️ 风场分析</td><td>风向风速玫瑰图（16 方位）+ 主导风向/平均风速</td></tr>
     <tr><td>🔬 要素关系</td><td>散点矩阵（看要素相关性）+ 单要素时间序列</td></tr>
     <tr><td>📋 统计摘要</td><td>各要素均值/极值/标准差 + 多站点对比</td></tr>
+    <tr><td>📊 要素分布</td><td>要素分布直方图（默认含降水量，可多选要素叠加对比）</td></tr>
+    <tr><td>🌫️ 空气质量</td><td>大气污染物（SO₂/NOx/TSP/PM2.5/PM10）与 AQI 分级展示</td></tr>
+    <tr><td>📈 时序双要素</td><td>任选两个要素的双轴时间序列对比</td></tr>
   </table>
 
   <div class="tip">💡 风向玫瑰图按 16 个方位（N/NNE/NE…）分扇区，颜色深浅代表风速等级，可直观看出主导风向和强风频率。</div>
+
+  <!-- 六、Tab3 数值预报 -->
+  <h2 id="tab3">六、Tab3 数值预报</h2>
+  <p>接入 Open-Meteo 的 <strong>GFS 数值预报</strong>（免注册，单点逐时预报最长 16 天），用于查看未来天气趋势：</p>
+  <table>
+    <tr><th>内容</th><th>说明</th></tr>
+    <tr><td>时间序列</td><td>气温、体感温度、降水量的逐时预报曲线</td></tr>
+    <tr><td>高温预报面板</td><td>未来 72 小时最高气温，标注 35/37/40℃ 国家预警阈值线</td></tr>
+    <tr><td>逐日降水预报</td><td>按天汇总的降水量预报</td></tr>
+    <tr><td>空间预报场</td><td>抓取目标点周边网格，生成热力图（单时次热力图 + 等值线 / 多时次快照 / 距平异常检测）</td></tr>
+    <tr><td>生活指数</td><td>穿衣、带伞、体感舒适度、运动、紫外线、洗车、晾晒 7 项指数</td></tr>
+    <tr><td>预报验证</td><td>与已导入的实况数据按整点对齐，计算 MAE / RMSE / 偏差 / 相关系数</td></tr>
+  </table>
 
   <!-- 七、Tab4 智能分析与建议 -->
   <h2 id="tab4">七、Tab4 智能分析与建议（核心功能）</h2>
@@ -329,7 +345,7 @@
       <!-- 预警卡片 -->
       <rect x="24" y="72" width="200" height="56" rx="6" fill="#fff8e6" stroke="#f5a623"/>
       <text x="40" y="98" fill="#f5a623" font-size="14" font-weight="bold">☀ 高温黄色预警</text>
-      <text x="40" y="118" fill="#888" font-size="11">Ⅲ级 | 连续 5 天日最高≥35℃</text>
+      <text x="40" y="118" fill="#888" font-size="11">Ⅲ级 | 连续 3 天日最高≥35℃</text>
       <rect x="240" y="72" width="200" height="56" rx="6" fill="#fff0e6" stroke="#f26522"/>
       <text x="256" y="98" fill="#f26522" font-size="14" font-weight="bold">[橙] 大雾橙色预警</text>
       <text x="256" y="118" fill="#888" font-size="11">Ⅱ级 | 最低能见度 100m</text>
@@ -346,13 +362,16 @@
     <div class="cap">图 3：Tab4 预警卡片与建议生成效果</div>
   </div>
 
-  <!-- 八、Tab5 气候态参照 -->
-  <h2 id="tab5">八、Tab5 气候态参照</h2>
-  <p>输入经纬度后，软件拉取该地点近 5 年同期气候平均（ERA5），与你的数据对比：</p>
-  <ul>
-    <li><strong>距平分析</strong>：标注"当前气温较同期偏高 X℃"</li>
-    <li><strong>异常判断</strong>：比单纯阈值更有意义——35℃ 在盛夏可能正常，在隆冬则是极端异常</li>
-  </ul>
+  <!-- 八、Tab5 报告导出 -->
+  <h2 id="tab5">八、Tab5 报告导出</h2>
+  <table>
+    <tr><th>导出类型</th><th>格式</th><th>说明</th></tr>
+    <tr><td>数据导出</td><td>CSV</td><td>导出处理后的完整数据（UTF-8 含中文）</td></tr>
+    <tr><td>预报数据导出</td><td>CSV</td><td>导出已获取的 GFS 预报数据（需先在 Tab3 获取预报）</td></tr>
+    <tr><td>分析报告</td><td>Word (.docx)</td><td>含预警信号、统计摘要、防御建议的完整报告，可选「专业版（表格化排版）」或「通俗版（叙述式）」</td></tr>
+    <tr><td>统计摘要</td><td>界面</td><td>各要素关键统计指标一览</td></tr>
+  </table>
+  <div class="tip">💡 Word 报告可直接用于业务汇报或论文附录，格式已按规范排版。<strong>报告内不含图片</strong>，交互式图表请回应用界面查看（图表旁的"📥 导出 HTML"按钮可单独保存该图）。</div>
 
   <!-- 九、Tab6 报文解码 -->
   <h2 id="tab6">九、Tab6 报文解码</h2>
@@ -363,29 +382,20 @@
   </ul>
   <p>解析结果包含站点、时间、风、温湿、气压、能见度、云量等，可直接用于后续分析。</p>
 
-  <!-- 十、Tab7 报告导出 -->
-  <h2 id="tab7">十、Tab7 报告导出</h2>
-  <table>
-    <tr><th>导出类型</th><th>格式</th><th>说明</th></tr>
-    <tr><td>数据导出</td><td>CSV</td><td>导出处理后的完整数据（UTF-8 含中文）</td></tr>
-    <tr><td>分析报告</td><td>Word (.docx)</td><td>含预警信号、统计摘要、防御建议的完整报告</td></tr>
-    <tr><td>统计摘要</td><td>界面</td><td>各要素关键统计指标一览</td></tr>
-  </table>
-  <div class="tip">💡 Word 报告可直接用于业务汇报或论文附录，格式已按规范排版。</div>
-
-  <!-- 十一、侧边栏 -->
-  <h2 id="sidebar">十一、侧边栏：自定义预警阈值</h2>
-  <p>左侧栏的"⚙️ 自定义预警阈值"面板允许你调整各级阈值，以覆盖国家标准：</p>
+  <!-- 十、侧边栏 -->
+  <h2 id="sidebar">十、侧边栏：自定义预警阈值</h2>
+  <p>左侧栏的"⚙️ 自定义检测阈值"面板当前提供以下三组输入框（每组默认值即国家标准值，修改后即覆盖国家标准）：</p>
   <ul>
-    <li><strong>高温预警</strong>：黄色/橙色/红色 触发温度</li>
-    <li><strong>大风预警</strong>：蓝/黄/橙/红 触发风速</li>
-    <li><strong>大雾预警</strong>：黄/橙/红 触发能见度</li>
+    <li><strong>高温检测阈值</strong>：黄色/橙色/红色 触发温度</li>
+    <li><strong>大风检测阈值</strong>：蓝/黄/橙/红 触发风速</li>
+    <li><strong>大雾检测阈值</strong>：黄/橙/红 触发能见度</li>
   </ul>
-  <p>修改后点击"✓ 应用自定义阈值"即可生效。<strong>留空则使用国家预警标准。</strong></p>
+  <p>修改后点击"✓ 应用自定义阈值"即可生效。</p>
+  <div class="warn">⚠️ 界面暂只提供上述三类阈值输入框。寒潮、暴雨、霜冻、雷电、霾以及高温黄色预警的阈值当前读取 <code>config.py</code> 中的国家标准常量，仅支持在代码侧通过 <code>analyzer.set_custom_thresholds()</code> 覆盖。</div>
   <div class="warn">⚠️ 适用场景：不同行业可能需要更严格的标准（如电力行业高温预警可能降至 38℃），自定义阈值用于此目的。</div>
 
-  <!-- 十二、FAQ -->
-  <h2 id="faq">十二、常见问题（FAQ）</h2>
+  <!-- 十一、FAQ -->
+  <h2 id="faq">十一、常见问题（FAQ）</h2>
 
   <h3>Q1：启动后浏览器打不开？</h3>
   <p>确认终端显示的地址（如 <code>http://localhost:8501</code>），手动复制到浏览器地址栏。若端口被占用，用 <code>streamlit run app.py --server.port 8502</code> 换端口。</p>
@@ -394,7 +404,7 @@
   <p>软件支持常见中英文别名。若你的列名特殊，请参考"📥 模板下载"中的标准字段名重命名，或在 Tab1 手动录入。</p>
 
   <h3>Q3：预警没有触发？</h3>
-  <p>检查：① 数据量是否足够（高温需≥24条、寒潮需≥48条逐时数据）；② 字段名是否正确识别；③ 数据是否确实达到阈值。可在 Tab2 查看数据质量。</p>
+  <p>检查：① 数据量是否足够（高温需≥24条、寒潮需≥48条逐时数据）；② 字段名是否正确识别；③ 数据是否确实达到阈值。可在 Tab1 第 2 步的质量报告中查看数据质量。</p>
 
   <h3>Q4：API 获取失败？</h3>
   <p>确认网络连通，且日期范围不超过 Open-Meteo 的免费区间（历史数据约 1940 年至今）。</p>
@@ -402,9 +412,9 @@
   <h3>Q5：Spyder 里运行 app.py 报错？</h3>
   <p>Streamlit 应通过外部终端（cmd / Anaconda Prompt）启动，不要在 Spyder 内用 <code>%runfile</code> 运行。Spyder 仅用于编辑代码。</p>
 
-  <!-- 十三、示例数据 -->
-  <h2 id="demo">十三、示例数据使用说明</h2>
-  <p>项目自带示例数据 <code>示例数据/示例气象数据.csv</code>，覆盖 5 天（2026-07-01 至 07-05）逐时观测， deliberately 设计了多种天气场景：</p>
+  <!-- 十二、示例数据 -->
+  <h2 id="demo">十二、示例数据使用说明</h2>
+  <p>项目自带示例数据 <code>示例数据/示例气象数据.csv</code>，覆盖 5 天（2026-07-01 至 07-05）逐时观测，刻意设计了多种天气场景：</p>
   <table>
     <tr><th>日期</th><th>场景</th><th>预期触发预警</th></tr>
     <tr><td>07-01 ~ 07-02</td><td>正常夏季升温</td><td>—</td></tr>
@@ -418,11 +428,12 @@
   <div class="step-box">
     <p><span class="step-num">1</span>启动软件后，进入 <strong>Tab1 数据导入</strong></p>
     <p><span class="step-num">2</span>点击"上传 CSV 文件"，选择 <code>weather_app/示例数据/示例气象数据.csv</code></p>
-    <p><span class="step-num">3</span>依次查看 Tab2（质控）、Tab3（可视化）、Tab4（预警与建议）、Tab7（导出报告）</p>
+    <p><span class="step-num">3</span>在第 2 步查看质量报告，确认后点"✅ 确认数据，前往可视化分析"</p>
+    <p><span class="step-num">4</span>依次查看 Tab2（可视化）、Tab3（数值预报）、Tab4（预警与建议）、Tab5（导出报告）</p>
   </div>
 
   <div class="footer">
-    <p>气象数据交互分析平台 · 用户使用手册 v1.0</p>
+    <p>气象数据交互分析平台 · 用户使用手册 v2.2.1</p>
     <p>数据标准：中国气象局第16号令《气象灾害预警信号发布与传播办法》</p>
     <p>© 2026 气象编程 · 保留所有权利</p>
   </div>
