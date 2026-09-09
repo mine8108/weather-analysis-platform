@@ -12,7 +12,6 @@
 - 登录页为标准 Streamlit 表单，简洁清晰，无额外动画背景。
 """
 
-import json
 import secrets
 import socket
 from urllib.parse import urlparse
@@ -21,26 +20,33 @@ import streamlit as st
 
 
 # ============================================================
-# 一、Supabase 客户端
+# 一、Supabase 客户端（按会话持有）
 # ============================================================
-@st.cache_resource
-def get_supabase():
-    """返回 Supabase 客户端（带缓存，避免重复连接）。
+# 安全修复 P0-1：客户端不再使用 @st.cache_resource。该装饰器在 Streamlit 中
+# 是全局单例，所有用户、所有会话、所有 rerun 共享同一个对象；而
+# sign_in_with_password() 会把登录会话写进这个对象，于是并发用户之间身份
+# 互相串号（A 的保存落到 B 的账号、B 的读取被 RLS 判为无权）。现改为每个
+# 浏览器会话各自持有一个客户端，登录态互不可见。
+_SESSION_CLIENT_KEY = "_sb_client"
+_SESSION_ADMIN_KEY = "_sb_admin_client"
 
-    缺失依赖、密钥或网络不可达时，给出可读提示并终止当前脚本渲染。
+
+def _secrets_get(name: str, default: str = "") -> str:
+    """读 Streamlit secrets；缺文件或缺键时返回 default 而不抛异常。
+
+    安全修复 P0-4：缺少 secrets.toml 时 st.secrets.get 抛
+    StreamlitSecretNotFoundError（基类 FileNotFoundError，Mapping.get 不吞），
+    导致后面的配置指引永远显示不出来。
     """
     try:
-        from supabase import create_client
-    except ImportError:
-        st.error(
-            "❌ 缺少依赖 `supabase`。请在 requirements.txt 添加 `supabase` 后重新部署。"
-        )
-        st.stop()
-        return None
+        return str(st.secrets.get(name, default)).strip()
+    except Exception:
+        return default
 
-    url = str(st.secrets.get("SUPABASE_URL", "")).strip()
-    key = str(st.secrets.get("SUPABASE_ANON_KEY", "")).strip()
-    # 清理常见复制错误：去掉 REST 路径、协议前后空格、尾部斜杠
+
+def _clean_url(url: str) -> str:
+    """清理常见复制错误：REST 路径、协议前后空格、尾部斜杠。"""
+    url = (url or "").strip()
     if url.endswith("/rest/v1/"):
         url = url[:-9]
     elif url.endswith("/rest/v1"):
@@ -48,7 +54,44 @@ def get_supabase():
     url = url.rstrip("/")
     if url and not url.startswith(("http://", "https://")):
         url = "https://" + url
+    return url
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _dns_precheck(host: str):
+    """DNS 预检，返回 None 表示可解析，否则返回错误说明。
+
+    纯连通性信息，不含任何用户状态，可安全共享，避免每个新会话重复解析。
+    """
+    try:
+        socket.getaddrinfo(host, 443)
+        return None
+    except socket.gaierror as e:
+        return str(e)
+
+
+def _create_client(key_name: str, *, fatal: bool = True):
+    """按密钥名创建 Supabase 客户端。
+
+    fatal=True 时缺依赖/缺密钥/DNS 失败会给出可读提示并终止渲染；
+    fatal=False（管理客户端）时静默返回 None，由调用方降级处理。
+    """
+    try:
+        from supabase import create_client
+    except ImportError:
+        if not fatal:
+            return None
+        st.error(
+            "❌ 缺少依赖 `supabase`。请在 requirements.txt 添加 `supabase` 后重新部署。"
+        )
+        st.stop()
+        return None
+
+    url = _clean_url(_secrets_get("SUPABASE_URL"))
+    key = _secrets_get(key_name)
     if not url or not key:
+        if not fatal:
+            return None
         st.error(
             "❌ 未配置 Supabase 密钥。\n\n"
             "请在 Streamlit Cloud 的 **Settings → Secrets** 中添加：\n"
@@ -61,12 +104,13 @@ def get_supabase():
 
     # 提前解析域名：create_client 本身不会立即联网，真正出错往往在 sign_up/sign_in
     parsed = urlparse(url)
-    host = parsed.hostname or url.replace("https://", "").replace("http://", "").split("/")[0]
-    try:
-        socket.getaddrinfo(host, 443)
-    except socket.gaierror as e:
+    host = parsed.hostname or url.split("//")[-1].split("/")[0]
+    dns_error = _dns_precheck(host)
+    if dns_error:
+        if not fatal:
+            return None
         st.error(
-            f"❌ DNS 解析失败：{e}\n\n"
+            f"❌ DNS 解析失败：{dns_error}\n\n"
             f"当前 SUPABASE_URL：`{url}`\n"
             f"解析主机名：`{host}`\n\n"
             "请检查：\n"
@@ -81,6 +125,8 @@ def get_supabase():
     try:
         return create_client(url, key)
     except Exception as e:
+        if not fatal:
+            return None
         st.error(
             f"❌ 创建 Supabase 客户端失败：{e}\n\n"
             f"当前 SUPABASE_URL：`{url}`"
@@ -89,33 +135,31 @@ def get_supabase():
         return None
 
 
-@st.cache_resource
+def get_supabase():
+    """返回**当前会话专属**的 Supabase 客户端（含本会话登录态）。"""
+    cached = st.session_state.get(_SESSION_CLIENT_KEY)
+    if cached is not None:
+        return cached
+    client = _create_client("SUPABASE_ANON_KEY", fatal=True)
+    if client is None:
+        return None
+    st.session_state[_SESSION_CLIENT_KEY] = client
+    return client
+
+
 def get_supabase_admin():
-    """返回使用 service_role 密钥的管理客户端（绕过 RLS）。
+    """返回当前会话的管理客户端（service_role，绕过 RLS）。
 
     仅用于受 ADMIN_PASSWORD 保护的服务端管理操作。该密钥绝不进入前端。
     未配置时返回 None，由调用方降级处理。
     """
-    try:
-        from supabase import create_client
-    except ImportError:
-        return None
-
-    url = str(st.secrets.get("SUPABASE_URL", "")).strip()
-    key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
-    if url.endswith("/rest/v1/"):
-        url = url[:-9]
-    elif url.endswith("/rest/v1"):
-        url = url[:-8]
-    url = url.rstrip("/")
-    if url and not url.startswith(("http://", "https://")):
-        url = "https://" + url
-    if not url or not key:
-        return None
-    try:
-        return create_client(url, key)
-    except Exception:
-        return None
+    cached = st.session_state.get(_SESSION_ADMIN_KEY)
+    if cached is not None:
+        return cached
+    client = _create_client("SUPABASE_SERVICE_ROLE_KEY", fatal=False)
+    if client is not None:
+        st.session_state[_SESSION_ADMIN_KEY] = client
+    return client
 
 
 # ============================================================
@@ -126,13 +170,29 @@ def is_authenticated() -> bool:
     return bool(st.session_state.get("auth_user"))
 
 
+# 退出登录时保留的键：仅导航栈，不含任何用户数据
+_LOGOUT_KEEP = {"_nav_stack"}
+
+
 def sign_out_user():
-    """退出登录：清掉会话态里的用户信息"""
-    st.session_state.pop("auth_user", None)
-    # 顺带清掉仅属于当前用户的工作数据，防止串号
-    for k in ("df", "source", "manual_data", "warnings_list", "_import_history",
-              "_auto_load_done"):
-        st.session_state.pop(k, None)
+    """退出登录：先让服务端会话失效，再清空本会话全部业务状态。
+
+    安全修复 P0-2：历史实现只删 session_state 里的用户信息，从不调用
+    sb.auth.sign_out()，也不丢弃客户端对象，于是登出后仍持有上一用户的有效
+    令牌；同时漏清了 api_df/quality_score/climate_* 等键。
+    """
+    sb = st.session_state.get(_SESSION_CLIENT_KEY)
+    if sb is not None:
+        try:
+            sb.auth.sign_out()
+        except Exception:
+            pass
+    for k in list(st.session_state.keys()):
+        if k not in _LOGOUT_KEEP:
+            del st.session_state[k]
+    st.session_state["active_tab"] = 0
+    st.session_state["import_step"] = 0
+    st.session_state["import_method"] = None
 
 
 def _apply_cloud_theme(user) -> None:
@@ -242,24 +302,26 @@ def _do_auth(mode: str, email: str, password: str, invite_code: str = ""):
         st.rerun()
 
 
-def _register_with_invite(sb, email: str, password: str, code: str):
-    """邀请码授权注册流程：
-    1) 校验邀请码有效；2) 用 service_role 建账号（关闭了公开注册）；
-    3) 消费邀请码；4) 自动登录。
-    """
-    # 1) 校验邀请码（anon 可调用 SECURITY DEFINER 函数，不泄露码内容）
+def _release_invite_code(sb_admin, code: str) -> None:
+    """释放已认领但未核销的邀请码（建号失败时回滚）。失败静默。"""
+    if sb_admin is None:
+        return
     try:
-        valid = sb.rpc("is_invite_code_valid", {"p_code": code}).execute()
-    except Exception as e:
-        st.session_state["auth_error"] = _schema_error_msg(e)
-        st.rerun()
-        return
-    if not (valid.data):
-        st.session_state["auth_error"] = "邀请码无效或已被使用。"
-        st.rerun()
-        return
+        sb_admin.rpc("release_invite_code", {"p_code": code}).execute()
+    except Exception:
+        pass
 
-    # 2) 用 service_role 建账号（绕过关闭的公开注册）
+
+def _register_with_invite(sb, email: str, password: str, code: str):
+    """邀请码授权注册流程（原子认领）：
+    1) 原子认领邀请码；2) 用 service_role 建账号；3) 核销绑定；4) 自动登录。
+
+    安全修复 P1-1：原实现是「只读验码 → 建号 → 核销」三步非原子，并发持同一
+    邀请码的两个请求可双双通过只读验码、各建一个账号（一码多账号）。现改为
+    「原子认领 → 建号 → 核销」，认领在数据库函数内用 update ... where 的行锁
+    完成，并发只有一个请求能认领成功。
+    """
+    # 1) 先确认服务端具备管理密钥，再认领，避免认领后无法回滚
     sb_admin = get_supabase_admin()
     if sb_admin is None:
         st.session_state["auth_error"] = (
@@ -268,16 +330,29 @@ def _register_with_invite(sb, email: str, password: str, code: str):
         )
         st.rerun()
         return
+
+    # 2) 原子认领（认领成功的码在 15 分钟内对其他请求不可用）
+    try:
+        claimed = sb.rpc("claim_invite_code", {"p_code": code}).execute()
+    except Exception as e:
+        st.session_state["auth_error"] = _schema_error_msg(e)
+        st.rerun()
+        return
+    if not claimed.data:
+        st.session_state["auth_error"] = "邀请码无效、已被使用或正在被处理。"
+        st.rerun()
+        return
+
+    # 3) 用 service_role 建账号（绕过已关闭的公开注册）
     try:
         au = sb_admin.auth.admin.create_user(
             {"email": email, "password": password, "email_confirm": True}
         )
         new_uid = au.user.id if au.user else None
         if not new_uid:
-            st.session_state["auth_error"] = "建账号失败：未返回用户标识。"
-            st.rerun()
-            return
+            raise RuntimeError("未返回用户标识")
     except Exception as e:
+        _release_invite_code(sb_admin, code)
         msg = str(e).lower()
         if "already" in msg or "registered" in msg or "exists" in msg:
             st.session_state["auth_error"] = "该邮箱已注册，请直接登录。"
@@ -286,24 +361,28 @@ def _register_with_invite(sb, email: str, password: str, code: str):
         st.rerun()
         return
 
-    # 3) 消费邀请码（绑定新用户）
-    # 安全修复（P-04）：consume_invite_code 已收紧为仅 authenticated/service_role 可调，
-    # 注册流程中用户尚未登录（anon），故必须由 service_role 客户端调用。
-    # 顺带修复原隐藏 bug：except 未捕获 e 却引用 _schema_error_msg(e) 会 NameError。
+    # 4) 核销（绑定新用户）
+    # consume_invite_code 仅 authenticated/service_role 可调，注册时用户尚未
+    # 登录（anon），故必须由 service_role 客户端调用。
     try:
         sb_admin.rpc(
             "consume_invite_code", {"p_code": code, "p_user_id": new_uid}
         ).execute()
     except Exception as e:
-        # 消费失败不阻断登录，但记录提醒
+        # 核销失败必须回滚：删除刚建的账号并释放认领，
+        # 否则会留下一个没有消耗邀请码的孤儿账号，破坏「一码一账号」不变量。
+        try:
+            sb_admin.auth.admin.delete_user(new_uid)
+        except Exception:
+            pass
+        _release_invite_code(sb_admin, code)
         st.session_state["auth_error"] = (
-            "账号已创建，但邀请码核销异常：" + _schema_error_msg(e)
+            "邀请码核销失败，本次注册已回滚：" + _schema_error_msg(e)
         )
-        # 仍尝试登录，避免用户被卡住
-        _auto_login(sb, email, password)
+        st.rerun()
         return
 
-    # 4) 自动登录
+    # 5) 自动登录
     _auto_login(sb, email, password)
 
 

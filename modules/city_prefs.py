@@ -88,45 +88,21 @@ def _cloud_available() -> bool:
     return has_secrets and bool(st.session_state.get("auth_user"))
 
 
-def _supabase_client():
-    """轻量 Supabase 客户端（不调用 auth.get_supabase）。
-
-    为什么不用 auth.get_supabase：它在缺密钥/DNS 失败时会 st.error + st.stop()
-    （StopException 继承 BaseException，except Exception 抓不住），
-    持久化这类「尽力而为」的写入不允许中断页面渲染。
-    """
-    try:
-        from supabase import create_client
-    except ImportError:
-        return None
-    try:
-        url = str(st.secrets.get("SUPABASE_URL", "")).strip()
-        key = str(st.secrets.get("SUPABASE_ANON_KEY", "")).strip()
-    except Exception:
-        return None
-    if url.endswith("/rest/v1/"):
-        url = url[:-9]
-    elif url.endswith("/rest/v1"):
-        url = url[:-8]
-    url = url.rstrip("/")
-    if url and not url.startswith(("http://", "https://")):
-        url = "https://" + url
-    if not url or not key:
-        return None
-    try:
-        return create_client(url, key)
-    except Exception:
-        return None
-
-
 def _save_cloud(cities, show_wall: bool) -> None:
-    """登录用户：user_metadata.cities + show_wall。失败静默。"""
+    """登录用户：user_metadata.cities + show_wall。失败静默。
+
+    安全修复：改用 auth.get_supabase()，即当前会话专属且已完成登录的客户端。
+    原实现每次新建一个匿名客户端再调 update_user，客户端里没有会话，请求必然
+    被拒；异常又被静默吞掉，导致云端同步从未真正生效。
+    """
     if not _cloud_available():
         return
-    sb = _supabase_client()
-    if sb is None:
-        return
     try:
+        from auth import get_supabase
+
+        sb = get_supabase()
+        if sb is None:
+            return
         sb.auth.update_user({"data": {
             "cities": json.dumps(sanitize_cities(cities), ensure_ascii=False),
             "show_wall": "1" if show_wall else "0",

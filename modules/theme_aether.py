@@ -239,19 +239,18 @@ def _cloud_available() -> bool:
 def _save_pref_cloud(theme: str) -> None:
     """把主题写进 Supabase user_metadata（登录用户跨设备持久化）。
 
-    注意：不调用 auth.get_supabase——它在 DNS 失败/缺密钥时会 st.stop()
-    （StopException 继承 BaseException），主题持久化是尽力而为的写入，
-    不允许中断页面渲染。改为轻量 create_client + 全量捕获。
+    安全修复：改用 auth.get_supabase()，即当前会话专属且已完成登录的客户端。
+    原实现每次新建一个匿名客户端再调 update_user，客户端里没有会话，请求必然
+    被拒；异常被静默吞掉，导致跨设备主题同步从未真正生效。
     """
     if not _cloud_available():
         return
     try:
-        from supabase import create_client
-        url = str(st.secrets.get("SUPABASE_URL", "")).strip().rstrip("/")
-        key = str(st.secrets.get("SUPABASE_ANON_KEY", "")).strip()
-        if not url or not key:
+        from auth import get_supabase
+
+        sb = get_supabase()
+        if sb is None:
             return
-        sb = create_client(url, key)
         sb.auth.update_user({"data": {"theme": theme}})
     except Exception:
         pass  # 云端写入失败仅丢失跨设备同步，本地文件仍兜底
