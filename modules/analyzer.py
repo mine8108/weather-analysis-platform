@@ -325,12 +325,14 @@ def check_thunderstorm(df):
         return []  # 修复 R-37：与暴雨一致，要求最小样本长度
     thunder_codes = [95, 96, 97, 99]
     is_thunder = codes.isin(thunder_codes)
+    # R-14 补齐：检测窗口可在侧边栏调整
+    window_hours = float(CUSTOM_THRESHOLDS.get("thunder", {}).get("hours", 6) or 6)
 
     if "timestamp" in df.columns:
         ts = pd.to_datetime(df["timestamp"], errors="coerce")
         if ts.notna().any():
             last_ts = ts.max()
-            in_window = ts >= (last_ts - pd.Timedelta(hours=6))
+            in_window = ts >= (last_ts - pd.Timedelta(hours=window_hours))
             has_thunder = bool((is_thunder & in_window).any())
         else:
             has_thunder = bool(is_thunder.any())
@@ -345,7 +347,7 @@ def check_thunderstorm(df):
         "type": "雷电",
         "level": "黄色",
         "level_num": cfg["level"],
-        "detail": "最近 6 小时内检测到雷暴天气码 (WMO 95-99)",
+        "detail": f"最近 {window_hours:g} 小时内检测到雷暴天气码 (WMO 95-99)",
         "icon": cfg["icon"],
     }]
 

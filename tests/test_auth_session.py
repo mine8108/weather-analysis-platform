@@ -16,6 +16,8 @@ import os
 import sys
 import types
 
+import hashlib
+
 # 让本文件既能被 pytest 收集，也能直接 `python tests/test_auth_session.py` 运行
 _APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _APP_DIR not in sys.path:
@@ -254,6 +256,20 @@ def test_register_rejects_when_claim_fails():
     assert "create_user" not in client.names(), "认领失败却建了账号"
 
 
+def _script_register_uses_hash():
+    import streamlit as st
+
+    import auth
+
+    if st.session_state.get("_t_done"):
+        return
+    st.session_state["_t_done"] = True
+    auth._dns_precheck = lambda host: None
+    auth._register_with_invite(
+        auth.get_supabase(), "new@user.com", "password1", "GOODCODE"
+    )
+
+
 def _admin_client():
     """取最后一次创建的管理客户端（service_role 密钥那个）。"""
     admins = [c for c in CREATED if getattr(c, "key", None) == "service-key"]
@@ -288,6 +304,26 @@ def test_register_rolls_back_when_consume_fails():
         c[0] == "rpc" and c[1] == "release_invite_code" for c in calls
     ), "核销失败未释放认领"
     assert "已回滚" in at.session_state["auth_error"]
+
+
+def test_register_sends_hash_not_plaintext():
+    """R-22：认领与核销传给数据库的是 SHA-256 摘要，不是明文邀请码。"""
+    CREATED.clear()
+    _install_fake_supabase({"claim_ok": True})
+    at = _new_apptest(_script_register_uses_hash).run()
+    assert not at.exception, f"脚本异常: {at.exception}"
+
+    expected = hashlib.sha256("GOODCODE".encode("utf-8")).hexdigest()
+    assert len(expected) == 64
+
+    anon = [c for c in CREATED if getattr(c, "key", None) == "anon-key"][-1]
+    claim = [c[2] for c in anon.calls if c[0] == "rpc" and c[1] == "claim_invite_code"]
+    assert claim and claim[0]["p_code"] == expected, claim
+
+    admin = _admin_client()
+    consume = [c[2] for c in admin.calls if c[0] == "rpc" and c[1] == "consume_invite_code"]
+    assert consume and consume[0]["p_code"] == expected, consume
+    assert "GOODCODE" not in str(claim) + str(consume), "明文邀请码不得进入请求参数"
 
 
 def test_clean_url_normalizes():

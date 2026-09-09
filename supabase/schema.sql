@@ -75,6 +75,10 @@ create policy "profiles_insert_service"
 
 -- ============================================================
 -- 3. invite_codes：邀请码表（默认对所有客户端隐藏）
+--    安全修复（R-22）：code 列存的是 SHA-256 十六进制摘要，不是明文邀请码。
+--    应用侧写入与校验前都会先哈希，因此直接读库看不到任何可用邀请码。
+--    迁移前遗留的明文码不再匹配，需删除后由管理员重新生成：
+--        delete from public.invite_codes where used_by is null;
 -- ============================================================
 create table if not exists public.invite_codes (
     code       text primary key,

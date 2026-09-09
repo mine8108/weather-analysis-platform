@@ -12,6 +12,7 @@
 - 登录页为标准 Streamlit 表单，简洁清晰，无额外动画背景。
 """
 
+import hashlib
 import secrets
 import socket
 from urllib.parse import urlparse
@@ -310,7 +311,7 @@ def _release_invite_code(sb_admin, code: str) -> None:
     if sb_admin is None:
         return
     try:
-        sb_admin.rpc("release_invite_code", {"p_code": code}).execute()
+        sb_admin.rpc("release_invite_code", {"p_code": _hash_invite_code(code)}).execute()
     except Exception:
         pass
 
@@ -335,8 +336,10 @@ def _register_with_invite(sb, email: str, password: str, code: str):
         return
 
     # 2) 原子认领（认领成功的码在 15 分钟内对其他请求不可用）
+    # 安全修复 R-22：库里只存 SHA-256 摘要，因此传哈希而不是明文
+    code_hash = _hash_invite_code(code)
     try:
-        claimed = sb.rpc("claim_invite_code", {"p_code": code}).execute()
+        claimed = sb.rpc("claim_invite_code", {"p_code": code_hash}).execute()
     except Exception as e:
         st.session_state["auth_error"] = _schema_error_msg(e)
         st.rerun()
@@ -369,7 +372,7 @@ def _register_with_invite(sb, email: str, password: str, code: str):
     # 登录（anon），故必须由 service_role 客户端调用。
     try:
         sb_admin.rpc(
-            "consume_invite_code", {"p_code": code, "p_user_id": new_uid}
+            "consume_invite_code", {"p_code": code_hash, "p_user_id": new_uid}
         ).execute()
     except Exception as e:
         # 核销失败必须回滚：删除刚建的账号并释放认领，
@@ -509,11 +512,12 @@ def _render_admin_panel():
             if st.button("生成并复制", key="invite_gen"):
                 codes = [_gen_code() for _ in range(int(n))]
                 try:
+                    # 安全修复 R-22：库里只写 SHA-256 摘要，明文仅在内存中展示一次
                     sb_admin.table("invite_codes").insert(
-                        [{"code": c} for c in codes]
+                        [{"code": _hash_invite_code(c)} for c in codes]
                     ).execute()
                     st.session_state["invite_codes_out"] = codes
-                    st.success("已生成，请复制下方邀请码。")
+                    st.success("已生成，请复制下方邀请码（仅本次显示，之后无法再查看）。")
                 except Exception as e:
                     st.error(_schema_error_msg(e))
         codes_out = st.session_state.get("invite_codes_out")
@@ -567,6 +571,16 @@ def _render_admin_panel():
 def _gen_code() -> str:
     """生成 12 位可读大写邀请码。"""
     return secrets.token_hex(6).upper()
+
+
+def _hash_invite_code(code: str) -> str:
+    """邀请码哈希（安全修复 R-22）。
+
+    invite_codes.code 列改存 SHA-256 十六进制摘要而不是明文，即使数据库被读走
+    也无法反推可用的邀请码。校验 / 认领 / 核销全部按哈希比对，SQL 函数签名不变。
+    注意：迁移后库里遗留的明文码不再匹配，需由管理员重新生成（见 schema.sql 说明）。
+    """
+    return hashlib.sha256((code or "").strip().upper().encode("utf-8")).hexdigest()
 
 
 # ============================================================

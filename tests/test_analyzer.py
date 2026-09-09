@@ -776,6 +776,16 @@ def test_thunderstorm_only_last_six_records_considered_current_behaviour():
     assert _levels(analyzer.check_thunderstorm(pd.DataFrame({"weather_code": [0, 0, 0, 0, 0, 0, 0, 95]}))) == ["黄色"]
 
 
+def test_thunderstorm_window_honours_custom_config():
+    """R-14 补齐：雷电检测窗口可通过侧边栏自定义阈值调整。"""
+    ts = pd.date_range("2026-07-01 00:00", periods=12, freq="1h")
+    frame = pd.DataFrame({"timestamp": ts, "weather_code": [95] + [0] * 11})
+
+    _assert_empty(analyzer.check_thunderstorm(frame), "check_thunderstorm(默认 6h 窗口)")
+    with _custom_thresholds({"thunder": {"hours": 24}}):
+        assert _levels(analyzer.check_thunderstorm(frame)) == ["黄色"]
+
+
 def test_thunderstorm_single_record_is_rejected():
     """修复 R-37：雷电检测要求最小样本长度（≥3 条），1 条记录不再报警。"""
     _assert_empty(

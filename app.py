@@ -869,7 +869,7 @@ with st.sidebar:
     st.header("[设置] 自定义检测阈值")
 
     with st.expander("[工具] 调整阈值（覆盖国家标准）", expanded=False):
-        st.caption("留空则使用国家预警阈值标准")
+        st.caption("默认值即国家标准值，修改后点底部按钮生效（仅影响当前会话）")
 
         custom = {}
 
@@ -900,6 +900,39 @@ with st.sidebar:
         fg_o = st.number_input("橙色 <", value=200, step=50, key="fg_o")
         fg_r = st.number_input("红色 <", value=50, step=10, key="fg_r")
         custom["fog"] = {"黄色": fg_y, "橙色": fg_o, "红色": fg_r}
+
+        # R-14 补齐：暴雨 / 霜冻 / 霾 / 雷电 四类此前只能改 config.py 才生效
+        st.write("**暴雨检测阈值 (mm)**")
+        col_r1, col_r2 = st.columns(2)
+        with col_r1:
+            rs_b = st.number_input("蓝色 ≥（12h）", value=50.0, step=5.0, key="rs_b")
+            rs_o = st.number_input("橙色 ≥（3h）", value=50.0, step=5.0, key="rs_o")
+        with col_r2:
+            rs_y = st.number_input("黄色 ≥（6h）", value=50.0, step=5.0, key="rs_y")
+            rs_r = st.number_input("红色 ≥（3h）", value=100.0, step=5.0, key="rs_r")
+        custom["rainstorm"] = {"蓝色": rs_b, "黄色": rs_y, "橙色": rs_o, "红色": rs_r}
+
+        st.write("**霜冻检测阈值 (℃)**")
+        col_fr1, col_fr2 = st.columns(2)
+        with col_fr1:
+            fr_b = st.number_input("蓝色 ≤", value=0.0, step=0.5, key="fr_b")
+            fr_o = st.number_input("橙色 ≤", value=-5.0, step=0.5, key="fr_o")
+        with col_fr2:
+            fr_y = st.number_input("黄色 ≤", value=-3.0, step=0.5, key="fr_y")
+        custom["frost"] = {"蓝色": fr_b, "黄色": fr_y, "橙色": fr_o}
+
+        st.write("**霾检测阈值 (m)**")
+        col_hz1, col_hz2 = st.columns(2)
+        with col_hz1:
+            hz_y = st.number_input("黄色 <", value=3000, step=100, key="hz_y")
+        with col_hz2:
+            hz_o = st.number_input("橙色 <", value=2000, step=100, key="hz_o")
+        custom["haze"] = {"黄色": hz_y, "橙色": hz_o}
+
+        st.write("**雷电检测窗口**")
+        th_h = st.number_input("最近 N 小时内的雷暴码", min_value=1, max_value=24,
+                               value=6, step=1, key="th_h")
+        custom["thunder"] = {"hours": th_h}
 
         if st.button("[OK] 应用自定义阈值", use_container_width=True):
             set_custom_thresholds(custom)
