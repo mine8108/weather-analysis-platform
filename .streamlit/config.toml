@@ -1,7 +1,9 @@
 [server]
 headless = true
 port = 8501
-enableCORS = false
+# 安全修复（R-24）：CORS 恢复 Streamlit 默认值 true，避免任意第三方站点
+# 借访客浏览器访问本应用接口；XSRF 保护保持开启。
+enableCORS = true
 enableXsrfProtection = true
 
 [theme]
