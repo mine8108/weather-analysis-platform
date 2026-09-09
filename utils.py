@@ -140,3 +140,22 @@ def render_back_button(label="← 返回", fallback=0, key=None):
     k = key or f"back_{fallback}"
     if st_local.button(label, key=k):
         go_back(fallback)
+
+# ============================================================
+# 四、异常文案脱敏（修复 R-19）
+# ============================================================
+
+def safe_error_text(exc, fallback="操作失败，请稍后重试或联系管理员。"):
+    """把异常转成可安全展示给用户的界面文案。
+
+    默认只返回通俗摘要，避免把内部路径、SQL 片段、第三方响应原文暴露给普通
+    用户；侧边栏「调试模式」开启时才附带原始信息，便于排查问题。
+    """
+    try:
+        from config import get_debug_mode
+        debug = bool(get_debug_mode())
+    except Exception:
+        debug = False
+    if debug:
+        return f"{fallback}（调试详情：{str(exc)[:200]}）"
+    return fallback

@@ -18,6 +18,8 @@ from urllib.parse import urlparse
 
 import streamlit as st
 
+from utils import safe_error_text
+
 
 # ============================================================
 # 一、Supabase 客户端（按会话持有）
@@ -128,8 +130,9 @@ def _create_client(key_name: str, *, fatal: bool = True):
         if not fatal:
             return None
         st.error(
-            f"❌ 创建 Supabase 客户端失败：{e}\n\n"
-            f"当前 SUPABASE_URL：`{url}`"
+            "❌ 创建 Supabase 客户端失败："
+            + safe_error_text(e, "请检查 SUPABASE_URL 与密钥配置。")
+            + f"\n\n当前 SUPABASE_URL：`{url}`"
         )
         st.stop()
         return None
@@ -298,7 +301,7 @@ def _do_auth(mode: str, email: str, password: str, invite_code: str = ""):
         elif "weak password" in msg or ("password" in msg and "6" in msg):
             st.session_state["auth_error"] = "密码强度不足：至少 6 位。"
         else:
-            st.session_state["auth_error"] = f"登录/注册失败：{e}"
+            st.session_state["auth_error"] = safe_error_text(e, "登录或注册失败，请稍后重试。")
         st.rerun()
 
 
@@ -357,7 +360,7 @@ def _register_with_invite(sb, email: str, password: str, code: str):
         if "already" in msg or "registered" in msg or "exists" in msg:
             st.session_state["auth_error"] = "该邮箱已注册，请直接登录。"
         else:
-            st.session_state["auth_error"] = f"建账号失败：{str(e)[:150]}"
+            st.session_state["auth_error"] = safe_error_text(e, "建账号失败，请稍后重试或联系管理员。")
         st.rerun()
         return
 
@@ -399,8 +402,8 @@ def _auto_login(sb, email: str, password: str):
         _apply_cloud_theme(res.user)
         st.rerun()
     except Exception as e:
-        st.session_state["auth_error"] = (
-            f"账号已创建但自动登录失败，请手动登录：{str(e)[:150]}"
+        st.session_state["auth_error"] = safe_error_text(
+            e, "账号已创建但自动登录失败，请手动登录。"
         )
         st.rerun()
 
@@ -525,7 +528,7 @@ def _render_admin_panel():
         try:
             users = _list_users(sb_admin)
         except Exception as e:
-            st.error(f"获取用户失败：{str(e)[:150]}")
+            st.error(safe_error_text(e, "获取用户失败。"))
             users = []
         if not users:
             st.caption("暂无用户或获取失败。")
@@ -558,7 +561,7 @@ def _render_admin_panel():
                     ).eq("user_id", uid).execute()
                     st.success("配额已更新。")
                 except Exception as e:
-                    st.error(f"更新失败：{str(e)[:150]}")
+                    st.error(safe_error_text(e, "更新失败。"))
 
 
 def _gen_code() -> str:
@@ -621,7 +624,7 @@ def _schema_error_msg(e) -> str:
             "数据库函数未创建：请在 Supabase 控制台 → SQL Editor 中，"
             "运行 `supabase/schema.sql` 全部内容，然后刷新页面。"
         )
-    return f"操作失败：{str(e)[:150]}"
+    return safe_error_text(e, "操作失败，请检查数据库配置或联系管理员。")
 
 
 def _fmt_mb(b: int) -> str:

@@ -15,7 +15,7 @@ import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import FIELD_ALIASES, STANDARD_FIELDS
-from utils import retry_with_backoff
+from utils import retry_with_backoff, safe_error_text
 
 
 # 安全修复（P-07）：上传资源限制
@@ -567,7 +567,7 @@ def fetch_open_meteo(lat, lon, start_date, end_date):
     data = resp.json()
 
     if "hourly" not in data:
-        return None, f"API 返回异常: {data}"
+        return None, "API 返回异常（可能是该位置或时段无数据），请调整参数后重试。"
 
     hourly = data["hourly"]
     df = pd.DataFrame({
@@ -619,7 +619,7 @@ def fetch_open_meteo_air_quality(lat, lon, start_date, end_date):
     except requests.exceptions.ConnectionError:
         return None, "⚠️ 网络连接失败，请检查网络后重试"
     except Exception as e:
-        return None, f"⚠️ API 请求失败: {str(e)[:200]}"
+        return None, safe_error_text(e, "⚠️ API 请求失败，请稍后重试。")
 
     if "hourly" not in data:
         return None, f"API 返回异常（可能该位置无空气质量数据）"
@@ -635,7 +635,7 @@ def fetch_open_meteo_air_quality(lat, lon, start_date, end_date):
             "nox": hourly.get("nitrogen_dioxide", [None]*n),
         })
     except Exception as e:
-        return None, f"数据解析失败: {str(e)[:200]}"
+        return None, safe_error_text(e, "数据解析失败，请检查数据格式。")
 
     # 标记缺失字段
     missing = [k for k, v in hourly.items() if v is None or all(x is None for x in v)]

@@ -21,6 +21,21 @@ def _safe_xaxis(df):
     return df.index
 
 
+_MAX_PLOT_POINTS = 3000
+
+
+def _downsample(df, max_points=_MAX_PLOT_POINTS):
+    """等间隔抽稀，保证大数据量下图表仍可交互（修复 R-28）。
+
+    按行等距取样而非随机抽样，保留时间顺序与峰谷形态；数据量未超阈值时
+    原样返回，行为不变。
+    """
+    if df is None or len(df) <= max_points:
+        return df
+    step = -(-len(df) // max_points)  # 向上取整
+    return df.iloc[::step]
+
+
 def time_series_chart(df, field, title, color, y_label, unit="", rolling_window=None):
     """通用时间序列折线图
 
@@ -29,6 +44,7 @@ def time_series_chart(df, field, title, color, y_label, unit="", rolling_window=
     if field not in df.columns or df[field].dropna().empty:
         return None
 
+    df = _downsample(df)  # 修复 R-28：超大数据量等间隔抽稀
     x_data = _safe_xaxis(df)
     fig = go.Figure()
     fig.add_trace(go.Scatter(
@@ -147,6 +163,7 @@ def dashboard_view(df):
         # 降级：无时间列仍可尝试用索引渲染
         pass
 
+    df = _downsample(df)  # 修复 R-28：超大数据量等间隔抽稀
     x_data = _safe_xaxis(df)
     fig = make_subplots(
         rows=2, cols=2,
@@ -218,6 +235,9 @@ def scatter_matrix(df):
     plot_fields = ["temperature", "pressure", "humidity", "wind_speed",
                   "so2", "nox", "pm25", "pm10"]
     available = [f for f in plot_fields if f in df.columns and not df[f].dropna().empty]
+    # 修复 R-28：散点矩阵是 O(n²) 子图，变量数与点数都要设上限
+    available = available[:6]
+    sub = _downsample(df, 1500)
 
     if len(available) < 2:
         return None
@@ -246,7 +266,7 @@ def scatter_matrix(df):
             if i != j:
                 fig.add_trace(
                     go.Scatter(
-                        x=df[fj], y=df[fi],
+                        x=sub[fj], y=sub[fi],
                         mode="markers",
                         marker=dict(size=4, opacity=0.5, color=COLORS["primary"]),
                         showlegend=False,
@@ -258,7 +278,7 @@ def scatter_matrix(df):
                 # 对角线：直方图
                 fig.add_trace(
                     go.Histogram(
-                        x=df[fi],
+                        x=sub[fi],
                         marker_color=COLORS["primary"],
                         showlegend=False,
                         nbinsx=20,
@@ -273,7 +293,7 @@ def scatter_matrix(df):
 
     fig.update_layout(
         title="要素间散点矩阵",
-        height=250 * n,
+        height=min(250 * n, 1400),  # 修复 R-28：变量多时不再无限增高
         margin=dict(l=60, r=20, t=60, b=60),
     )
     return fig

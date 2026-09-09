@@ -10,6 +10,7 @@ import pandas as pd
 import streamlit as st
 
 from auth import get_supabase
+from utils import safe_error_text
 
 
 def _user_id() -> str | None:
@@ -50,7 +51,7 @@ def save_dataset(df: pd.DataFrame, name: str, dataset_id: str | None = None) -> 
             st.error(f"保存失败：{err}")
         return False
     except Exception as e:
-        st.error(f"保存失败：{str(e)[:200]}")
+        st.error(safe_error_text(e, "保存失败，请稍后重试。"))
         return False
 
 
@@ -131,7 +132,7 @@ def load_dataset(dataset_id: str):
                 df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
             return df, row["name"]
     except Exception as e:
-        st.error(f"载入失败：{str(e)[:200]}")
+        st.error(safe_error_text(e, "载入失败，请稍后重试。"))
     return None, None
 
 
