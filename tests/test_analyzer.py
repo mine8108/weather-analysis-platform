@@ -528,16 +528,13 @@ def test_fog_no_trigger():
     )
 
 
-def test_fog_boundary_equal_to_threshold_current_behaviour():
-    """现状记录（缺陷 D-8）：能见度恰好等于阈值时仍触发，detail 自相矛盾。
-
-    analyzer.py:183 用 `<=` 比较，而 config 的 condition 写的是「能见度<500m」，
-    于是 500 m 会输出「最低能见度 500 m（＜500 m）」。
-    """
+def test_fog_boundary_equal_to_threshold_is_not_triggered():
+    """修复 R-36：能见度恰好等于阈值不再触发，与 config 的「能见度<500m」一致。"""
     warnings = analyzer.check_fog(_frame(24, visibility=_const(24, 0.5)))
+    _assert_empty(warnings, "check_fog(能见度恰好 500 m)")
 
-    assert _levels(warnings) == ["黄色"], f"实际 {warnings!r}"
-    assert "500 m（＜500 m）" in warnings[0]["detail"]
+    below = analyzer.check_fog(_frame(24, visibility=_const(24, 0.49)))
+    assert _levels(below) == ["黄色"], f"实际 {below!r}"
 
 
 def test_fog_missing_visibility_column_returns_empty():
@@ -660,7 +657,8 @@ def test_frost_blue_trigger_zero():
     assert warn["type"] == "霜冻"
     assert warn["level"] == "蓝色"
     assert warn["level_num"] == FROST_WARNING["蓝色"]["level"] == "Ⅳ级"
-    assert "0.0℃（≤0℃）" in warn["detail"]
+    assert "0.0℃（≤0℃" in warn["detail"]
+    assert "以气温近似地温" in warn["detail"]  # 修复 R-38：把近似口径写进结论
 
 
 def test_frost_yellow_trigger_minus_three_point_five():
@@ -746,7 +744,7 @@ def test_thunderstorm_always_yellow():
     assert set(THUNDER_WARNING) == {"黄色", "橙色", "红色"}, "config 定义了三级雷电预警"
 
     for code in (95, 96, 97, 99):
-        warnings = analyzer.check_thunderstorm(pd.DataFrame({"weather_code": [code]}))
+        warnings = analyzer.check_thunderstorm(pd.DataFrame({"weather_code": [0, 0, code]}))
         assert _levels(warnings) == ["黄色"], f"天气码 {code} 实际 {warnings!r}"
         assert warnings[0]["level_num"] == THUNDER_WARNING["黄色"]["level"]
         assert warnings[0]["icon"] == THUNDER_WARNING["黄色"]["icon"]
@@ -778,11 +776,15 @@ def test_thunderstorm_only_last_six_records_considered_current_behaviour():
     assert _levels(analyzer.check_thunderstorm(pd.DataFrame({"weather_code": [0, 0, 0, 0, 0, 0, 0, 95]}))) == ["黄色"]
 
 
-def test_thunderstorm_single_record_still_triggers_current_behaviour():
-    """现状记录（缺陷 D-9）：雷电检测同样没有最小样本长度校验，1 条记录即可报警。"""
-    warnings = analyzer.check_thunderstorm(pd.DataFrame({"weather_code": [95]}))
-
-    assert _levels(warnings) == ["黄色"], f"实际 {warnings!r}"
+def test_thunderstorm_single_record_is_rejected():
+    """修复 R-37：雷电检测要求最小样本长度（≥3 条），1 条记录不再报警。"""
+    _assert_empty(
+        analyzer.check_thunderstorm(pd.DataFrame({"weather_code": [95]})),
+        "check_thunderstorm(1 条记录)",
+    )
+    assert _levels(
+        analyzer.check_thunderstorm(pd.DataFrame({"weather_code": [0, 0, 95]}))
+    ) == ["黄色"]
 
 
 def test_thunderstorm_all_nan_returns_empty():

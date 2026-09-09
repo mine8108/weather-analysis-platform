@@ -1,0 +1,40 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  regression:
+    name: 回归测试
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: 认证与多租户回归（P0/P1）
+        run: python -B tests/test_auth_session.py
+
+      - name: 数据质控回归（R-09/R-16）
+        run: python -B tests/test_data_quality.py
+
+      - name: 预警引擎回归（R-14/R-29~R-40）
+        run: python -B tests/test_analyzer.py
+
+      # 其余 pytest 用例（含天气墙）作为补充信号，失败不阻断门禁
+      - name: pytest 全量收集
+        continue-on-error: true
+        run: python -m pytest tests -q

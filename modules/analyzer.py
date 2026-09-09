@@ -24,6 +24,22 @@ def set_custom_thresholds(custom):
     CUSTOM_THRESHOLDS = custom
 
 
+def heat_index_celsius(t_c, rh):
+    """Rothfusz 热指数：摄氏度输入、摄氏度输出（修复 R-27 / R-29）。
+
+    该回归式的系数以华氏度为单位（NWS 标准式），必须先换算到 °F 计算、
+    再把结果换回 ℃；否则 36℃/70% 会算出 146.8℃ 这种物理上不可能的值。
+    原先代码里另有一处 `mean(t) + 0.05*mean(rh)` 的简化式，现统一到本函数。
+    """
+    tf = float(t_c) * 9.0 / 5.0 + 32.0
+    rh = float(rh)
+    hi_f = (-42.379 + 2.04901523 * tf + 10.14333127 * rh
+            - 0.22475541 * tf * rh - 6.83783e-3 * tf ** 2
+            - 5.481717e-2 * rh ** 2 + 1.22874e-3 * tf ** 2 * rh
+            + 8.5282e-4 * tf * rh ** 2 - 1.99e-6 * tf ** 2 * rh ** 2)
+    return (hi_f - 32.0) * 5.0 / 9.0
+
+
 def check_high_temperature(df):
     """高温事件检测
 
@@ -182,25 +198,29 @@ def check_gale(df):
 
 
 def check_fog(df):
-    """大雾事件检测"""
+    """大雾事件检测
+
+    修复 R-36：判据改为严格小于，与 config 的「能见度<Xm」措辞一致
+    （原实现用 `<=`，能见度恰好 500 m 也会输出「＜500 m」）。
+    """
     warnings_list = []
     if "visibility" not in df.columns:
         return warnings_list
 
-    vis = df["visibility"].dropna()
+    vis = pd.to_numeric(df["visibility"], errors="coerce").dropna()
     if len(vis) == 0:
         return warnings_list
 
-    min_vis = vis.tail(24).min()
+    min_vis_m = float(vis.tail(24).min()) * 1000  # 转为米
 
     for level in ["红色", "橙色", "黄色"]:  # 从高到低检查
         threshold = CUSTOM_THRESHOLDS.get("fog", {}).get(level, FOG_WARNING[level]["visibility"])
-        if min_vis <= threshold / 1000:  # 转换为km
+        if min_vis_m < threshold:
             warnings_list.append({
                 "type": "大雾",
                 "level": level,
                 "level_num": FOG_WARNING[level]["level"],
-                "detail": f"最低能见度 {min_vis * 1000:.0f} m（＜{threshold} m）",
+                "detail": f"最低能见度 {min_vis_m:.0f} m（＜{threshold} m）",
                 "icon": FOG_WARNING[level]["icon"],
             })
             break
@@ -282,11 +302,10 @@ def check_frost(df):
                 "type": "霜冻",
                 "level": level,
                 "level_num": cfg["level"],
-                "detail": f"最低气温 {min_temp:.1f}℃（≤{threshold}℃）",
+                "detail": f"最低气温 {min_temp:.1f}℃（≤{threshold}℃，以气温近似地温）",
                 "icon": cfg["icon"],
             })
             break
-
     return warnings_list
 
 
@@ -302,6 +321,8 @@ def check_thunderstorm(df):
         return []
 
     codes = pd.to_numeric(df["weather_code"], errors="coerce")
+    if len(codes.dropna()) < 3:
+        return []  # 修复 R-37：与暴雨一致，要求最小样本长度
     thunder_codes = [95, 96, 97, 99]
     is_thunder = codes.isin(thunder_codes)
 
@@ -928,7 +949,7 @@ def _render_smart_advice(df):
         temps = df["temperature"].dropna()
         humids = df["humidity"].dropna()
         if len(temps) >= 10 and len(humids) >= 10:
-            hi = temps.mean() + 0.05 * humids.mean()  # 简化热指数
+            hi = heat_index_celsius(temps.mean(), humids.mean())  # 修复 R-27：统一热指数口径
             if hi > 35:
                 advices.append(f"🥵 高温高湿 (热指数≈{hi:.0f})，中暑风险高，避免长时间户外活动。")
 
@@ -1011,14 +1032,8 @@ def multi_factor_coupling(df):
 
     # 高温+高湿 → 热应激
     if avg_t >= 35 and avg_h >= 60:
-        # 修复 R-29：Rothfusz 回归系数以华氏度为单位，原实现直接传入摄氏度，
-        # 导致 36℃/70% 输出 146.8℃。这里先换算到 °F 计算，再换回 ℃。
-        tf = avg_t * 9.0 / 5.0 + 32.0
-        hi_f = (-42.379 + 2.04901523 * tf + 10.14333127 * avg_h
-                - 0.22475541 * tf * avg_h - 6.83783e-3 * tf ** 2
-                - 5.481717e-2 * avg_h ** 2 + 1.22874e-3 * tf ** 2 * avg_h
-                + 8.5282e-4 * tf * avg_h ** 2 - 1.99e-6 * tf ** 2 * avg_h ** 2)
-        hi = (hi_f - 32.0) * 5.0 / 9.0
+        # 修复 R-29：改用统一的热指数函数（先换算 °F 再回归、结果换回 ℃）
+        hi = heat_index_celsius(avg_t, avg_h)
         alerts.append({
             "type": "热应激（耦合）",
             "severity": "危险",
