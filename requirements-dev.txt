@@ -1,0 +1,2 @@
+# 开发期依赖：不参与线上部署（线上只安装 requirements.txt）
+pytest>=8.0

@@ -561,6 +561,9 @@ def fetch_open_meteo(lat, lon, start_date, end_date):
     }
 
     resp = requests.get(url, params=params, timeout=30)
+    # 修复 R-17：429/5xx 必须抛 HTTPError，否则 retry_with_backoff 里的 429
+    # 分支永远不会触发（原实现只解析 JSON，限流时静默拿到错误体）。
+    resp.raise_for_status()
     data = resp.json()
 
     if "hourly" not in data:
@@ -584,8 +587,13 @@ def fetch_open_meteo(lat, lon, start_date, end_date):
     return df, None
 
 
+@retry_with_backoff(max_retries=2, base_delay=2, backoff_factor=2)
 def fetch_open_meteo_air_quality(lat, lon, start_date, end_date):
-    """从 Open-Meteo Air Quality API 获取大气污染数据"""
+    """从 Open-Meteo Air Quality API 获取大气污染数据
+
+    修复 R-17：原实现有 raise_for_status 却没挂重试装饰器，
+    与 fetch_open_meteo 的能力装反了。
+    """
     import requests
 
     url = "https://air-quality-api.open-meteo.com/v1/air-quality"
@@ -1028,7 +1036,11 @@ c.retrieve(
 def render_template_download():
     """渲染模板下载区域"""
     st.subheader("[导入] 模板下载")
-    template_path = "templates/data_template.csv"
+    # 修复 R-26：用 __file__ 推导绝对路径，避免依赖当前工作目录
+    template_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "templates", "data_template.csv",
+    )
     try:
         # 模块级缓存，避免每次 render 都读磁盘
         if "_template_cache" not in st.session_state:

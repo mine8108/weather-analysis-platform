@@ -1,10 +1,11 @@
 """
-报告导出模块：图表 PNG 导出、增强 Word 分析报告、数据 CSV 导出
+报告导出模块：增强 Word 分析报告、数据 CSV 导出
 
 设计要点：
-- 专业版：完整章节 + 表格 + 图表 + 防御建议，专业受众可作为正式交付物
+- 专业版：完整章节 + 表格 + 防御建议，专业受众可作为正式交付物
 - 通俗版：叙述式 + 生活语言 + 问答式，适合非专业用户
-- fc_df 图表支持：修复「仅有 GFS 预报时报告无图」的根因
+- 报告内不含图片，图表请回应用界面查看（R-10：原文案宣称「图表自动嵌入」，
+  与实现不符，已修正）
 - 排版规范：封面表 + 目录 + 子标题 + 表格 + 分页 + 配色
 """
 
@@ -296,7 +297,7 @@ def _build_cover_meta(df, fc_df, fc_analysis, warnings_list, score, source):
 # ============================================================
 def _build_professional_report(doc, df, fc_df, fc_analysis, life_indices,
                                warnings_list, score, source):
-    """专业版：完整章节 + 表格 + 图表 + 防御建议"""
+    """专业版：完整章节 + 表格 + 防御建议（不含图片）"""
     has_obs = df is not None and not df.empty
     has_fc = fc_df is not None or fc_analysis is not None
     has_warnings = bool(warnings_list)
@@ -1153,7 +1154,7 @@ def render_export_tab(df, warnings_list, score, source=""):
 
     # ---- Word 报告 ----
     st.write("---")
-    st.write("#### [文档] Word 分析报告 (含图表 + 统计 + 预报)")
+    st.write("#### [文档] Word 分析报告 (含统计 + 预报)")
 
     report_style = st.radio("报告风格", ["📊 专业版", "💬 通俗版"],
                             horizontal=True, key="report_style")
@@ -1162,14 +1163,14 @@ def render_export_tab(df, warnings_list, score, source=""):
                    "包含「这天气怎么样」一句话回答、问答式预警、出门穿衣指南等。")
     else:
         st.caption("完整章节结构：封面 + 目录 + 报告说明 + 观测统计 + 预报概况 "
-                   "+ 事件检测 + 生活指南 + 防御建议 + 技术说明。表格化排版，"
-                   "图表自动嵌入。")
+                   "+ 事件检测 + 生活指南 + 防御建议 + 技术说明。报告以表格化排版"
+                   "呈现（不含图片），交互式图表请回应用界面查看。")
 
     fc_analysis = st.session_state.get("fc_analysis", None)
 
     btn_label = ("[生成] 生成通俗版叙述报告"
                  if report_style == "💬 通俗版"
-                 else "[生成] 生成专业版图文报告")
+                 else "[生成] 生成专业版表格报告")
     if st.button(btn_label, use_container_width=True, key="gen_report"):
         with st.spinner("正在生成图文报告..."):
             try:
