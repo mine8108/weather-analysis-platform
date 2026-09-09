@@ -2,8 +2,6 @@
 分析建议引擎：历史事件检测（基于国家预警标准阈值）、多要素耦合分析、空��质量评估、公众出行/农业建议生成
 """
 
-from datetime import timedelta
-
 import pandas as pd
 import numpy as np
 import streamlit as st
@@ -27,53 +25,63 @@ def set_custom_thresholds(custom):
 
 
 def check_high_temperature(df):
-    """高温事件检测"""
+    """高温事件检测
+
+    修复 R-30：等级从高到低判定，红色分支不再不可达（原实现「橙→红」顺序
+    首个命中即 break，41℃ 只报橙色）。
+    修复 R-14：黄色阈值与连续天数改读 config，可被侧边栏自定义覆盖。
+    修复 R-32：timestamp 先做 to_datetime 转换，字符串时间列不再抛
+    AttributeError 导致整页检测中断。
+    """
     warnings_list = []
     if "temperature" not in df.columns:
         return warnings_list
 
-    temps = df["temperature"].dropna()
+    temps = pd.to_numeric(df["temperature"], errors="coerce").dropna()
     if len(temps) < 24:  # 至少24条小时数据
         return warnings_list
 
-    # 检查连续3天日最高气温≥35℃
+    cfg = HIGH_TEMP_WARNING
+    yellow_cfg = cfg["黄色"]
+    custom = CUSTOM_THRESHOLDS.get("high_temp", {})
+
+    # 检查连续 N 天日最高气温≥阈值
     if "timestamp" in df.columns:
-        df_copy = df.copy()
-        df_copy["date"] = df_copy["timestamp"].dt.date
-        daily_max = df_copy.groupby("date")["temperature"].max()
-        hot_days = (daily_max >= 35).sum()
-        # 检查连续3天
-        consecutive = 0
-        max_consecutive = 0
-        for val in (daily_max >= 35):
-            if val:
-                consecutive += 1
-                max_consecutive = max(max_consecutive, consecutive)
-            else:
-                consecutive = 0
+        ts = pd.to_datetime(df["timestamp"], errors="coerce")
+        valid = ts.notna()
+        if valid.any():
+            daily = pd.DataFrame({
+                "date": ts[valid].dt.date,
+                "temperature": pd.to_numeric(df.loc[valid, "temperature"], errors="coerce"),
+            }).dropna()
+            if not daily.empty:
+                yellow_temp = custom.get("黄色", yellow_cfg["temp"])
+                need_days = yellow_cfg.get("days", 3)
+                daily_max = daily.groupby("date")["temperature"].max()
+                consecutive = max_consecutive = 0
+                for hit in (daily_max >= yellow_temp):
+                    consecutive = consecutive + 1 if hit else 0
+                    max_consecutive = max(max_consecutive, consecutive)
+                if max_consecutive >= need_days:
+                    warnings_list.append({
+                        "type": "高温",
+                        "level": "黄色",
+                        "level_num": yellow_cfg["level"],
+                        "detail": f"已连续 {max_consecutive} 天日最高气温≥{yellow_temp}℃",
+                        "icon": yellow_cfg["icon"],
+                    })
 
-        if max_consecutive >= 3:
-            warnings_list.append({
-                "type": "高温",
-                "level": "黄色",
-                "level_num": "Ⅲ级",
-                "detail": f"已连续 {max_consecutive} 天日最高气温≥35℃",
-                "icon": "\u2600",
-            })
-
-    # 检查24h内最高气温≥37℃ 或 ≥40℃
-    recent_24h = temps.tail(24) if len(temps) >= 24 else temps
-    max_recent = recent_24h.max()
-
-    for level in ["橙色", "红色"]:
-        threshold = CUSTOM_THRESHOLDS.get("high_temp", {}).get(level, HIGH_TEMP_WARNING[level]["temp"])
+    # 检查24h内最高气温：从高到低判级，只取最高级别
+    max_recent = temps.tail(24).max()
+    for level in ["红色", "橙色"]:
+        threshold = custom.get(level, cfg[level]["temp"])
         if max_recent >= threshold:
             warnings_list.append({
                 "type": "高温",
                 "level": level,
-                "level_num": HIGH_TEMP_WARNING[level]["level"],
+                "level_num": cfg[level]["level"],
                 "detail": f"24h 内最高气温达 {max_recent:.1f}℃，≥{threshold}℃",
-                "icon": HIGH_TEMP_WARNING[level]["icon"],
+                "icon": cfg[level]["icon"],
             })
             break  # 只取最高级别
 
@@ -81,43 +89,50 @@ def check_high_temperature(df):
 
 
 def check_cold_wave(df):
-    """寒潮事件检测"""
+    """寒潮事件检测
+
+    修复 R-31：等级从高到低判定，最强级优先（原实现「蓝→黄→橙→红」顺序
+    首个命中即返回，48h 降温 30℃ 只报蓝色）。
+    修复 R-34：数据不足 49 条时蓝色（48h 口径）改为跳过，不再把 48h 降温
+    硬置为 0。
+    修复 R-14：降温与最低气温阈值统一读 config，并支持自定义覆盖。
+    """
     warnings_list = []
-    if "temperature" not in df.columns or len(df) < 48:
+    if "temperature" not in df.columns:
         return warnings_list
 
-    temps = df["temperature"].dropna()
-    if len(temps) < 48:
+    temps = pd.to_numeric(df["temperature"], errors="coerce").dropna()
+    if len(temps) < 24:
         return warnings_list
 
-    # 计算48h和24h降温
-    t_now = temps.iloc[-1]
-    t_24h_ago = temps.iloc[-25] if len(temps) >= 25 else temps.iloc[0]
-    t_48h_ago = temps.iloc[-49] if len(temps) >= 49 else temps.iloc[0]
+    t_now = float(temps.iloc[-1])
+    t_24h_ago = float(temps.iloc[-25]) if len(temps) >= 25 else float(temps.iloc[0])
+    drop_24h = t_24h_ago - t_now  # 降温为正
+    drop_48h = (float(temps.iloc[-49]) - t_now) if len(temps) >= 49 else None
+    min_temp = float(temps.tail(24).min())
 
-    min_temp = temps.tail(24).min()
-
+    custom = CUSTOM_THRESHOLDS.get("cold_wave", {})
     checks = [
-        ("蓝色", COLD_WAVE_WARNING["蓝色"]["temp_drop"], COLD_WAVE_WARNING["蓝色"]["min_temp"], 48,
-         t_now - t_48h_ago if len(temps) >= 49 else 0),
-        ("黄色", COLD_WAVE_WARNING["黄色"]["temp_drop"], COLD_WAVE_WARNING["黄色"]["min_temp"], 24,
-         t_now - t_24h_ago),
-        ("橙色", COLD_WAVE_WARNING["橙色"]["temp_drop"], COLD_WAVE_WARNING["橙色"]["min_temp"], 24,
-         t_now - t_24h_ago),
-        ("红色", COLD_WAVE_WARNING["红色"]["temp_drop"], COLD_WAVE_WARNING["红色"]["min_temp"], 24,
-         t_now - t_24h_ago),
+        ("红色", drop_24h),
+        ("橙色", drop_24h),
+        ("黄色", drop_24h),
+        ("蓝色", drop_48h),
     ]
 
-    for level, drop_thresh, min_thresh, _, actual_drop in checks:
-        actual_drop = -actual_drop  # 降温为正
-        custom_drop = CUSTOM_THRESHOLDS.get("cold_wave", {}).get(level, {}).get("temp_drop", drop_thresh)
-        if actual_drop >= custom_drop and min_temp <= min_thresh:
+    for level, drop in checks:
+        if drop is None:
+            continue
+        cfg = COLD_WAVE_WARNING[level]
+        drop_thresh = custom.get(level, {}).get("temp_drop", cfg["temp_drop"])
+        min_thresh = custom.get(level, {}).get("min_temp", cfg["min_temp"])
+        if drop >= drop_thresh and min_temp <= min_thresh:
             warnings_list.append({
                 "type": "寒潮",
                 "level": level,
-                "level_num": COLD_WAVE_WARNING[level]["level"],
-                "detail": f"降温 {actual_drop:.1f}℃（≥{custom_drop}℃），最低气温 {min_temp:.1f}℃（≤{min_thresh}℃）",
-                "icon": COLD_WAVE_WARNING[level]["icon"],
+                "level_num": cfg["level"],
+                "detail": (f"降温 {drop:.1f}℃（≥{drop_thresh}℃），"
+                           f"最低气温 {min_temp:.1f}℃（≤{min_thresh}℃）"),
+                "icon": cfg["icon"],
             })
             break
 
@@ -194,28 +209,41 @@ def check_fog(df):
 
 
 def check_rainstorm(df):
-    """暴雨事件检测"""
+    """暴雨事件检测
+
+    修复 R-14：阈值改读 RAINSTORM_WARNING，支持自定义覆盖。
+    修复 R-37：增加最小样本长度校验（原实现 2 条数据即可报橙色）。
+    """
     warnings_list = []
     if "precipitation" not in df.columns:
         return warnings_list
 
-    precip = df["precipitation"].dropna()
-    if len(precip) == 0 or precip.sum() == 0:
+    precip = pd.to_numeric(df["precipitation"], errors="coerce").dropna()
+    if len(precip) < 3 or precip.sum() == 0:
         return warnings_list
 
     # 滚动窗口求和
-    rain_12h = precip.tail(12).sum() if len(precip) >= 12 else precip.sum()
-    rain_6h = precip.tail(6).sum() if len(precip) >= 6 else precip.sum()
-    rain_3h = precip.tail(3).sum() if len(precip) >= 3 else precip.sum()
+    rain_12h = precip.tail(12).sum()
+    rain_6h = precip.tail(6).sum()
+    rain_3h = precip.tail(3).sum()
 
-    if rain_3h >= 100:
-        level, detail = "红色", f"3h 降雨量 {rain_3h:.1f} mm（≥100 mm）"
-    elif rain_3h >= 50:
-        level, detail = "橙色", f"3h 降雨量 {rain_3h:.1f} mm（≥50 mm）"
-    elif rain_6h >= 50:
-        level, detail = "黄色", f"6h 降雨量 {rain_6h:.1f} mm（≥50 mm）"
-    elif rain_12h >= 50:
-        level, detail = "蓝色", f"12h 降雨量 {rain_12h:.1f} mm（≥50 mm）"
+    custom = CUSTOM_THRESHOLDS.get("rainstorm", {})
+
+    def _thr(level):
+        return custom.get(level, RAINSTORM_WARNING[level]["rain"])
+
+    if rain_3h >= _thr("红色"):
+        level = "红色"
+        detail = f"3h 降雨量 {rain_3h:.1f} mm（≥{_thr('红色')} mm）"
+    elif rain_3h >= _thr("橙色"):
+        level = "橙色"
+        detail = f"3h 降雨量 {rain_3h:.1f} mm（≥{_thr('橙色')} mm）"
+    elif rain_6h >= _thr("黄色"):
+        level = "黄色"
+        detail = f"6h 降雨量 {rain_6h:.1f} mm（≥{_thr('黄色')} mm）"
+    elif rain_12h >= _thr("蓝色"):
+        level = "蓝色"
+        detail = f"12h 降雨量 {rain_12h:.1f} mm（≥{_thr('蓝色')} mm）"
     else:
         return warnings_list
 
@@ -231,81 +259,106 @@ def check_rainstorm(df):
 
 
 def check_frost(df):
-    """霜冻事件检测（用气温近似地温）"""
+    """霜冻事件检测（用气温近似地温，见 R-38）
+
+    修复 R-14：阈值改读 FROST_WARNING，支持自定义覆盖，等级从高到低判定。
+    """
     warnings_list = []
     if "temperature" not in df.columns:
         return warnings_list
 
-    temps = df["temperature"].dropna()
-    min_temp = temps.tail(24).min()
-
-    if min_temp <= -5:
-        level, detail = "橙色", f"最低气温 {min_temp:.1f}℃（≤-5℃）"
-    elif min_temp <= -3:
-        level, detail = "黄色", f"最低气温 {min_temp:.1f}℃（≤-3℃）"
-    elif min_temp <= 0:
-        level, detail = "蓝色", f"最低气温 {min_temp:.1f}℃（≤0℃）"
-    else:
+    temps = pd.to_numeric(df["temperature"], errors="coerce").dropna()
+    if len(temps) == 0:
         return warnings_list
 
-    warnings_list.append({
-        "type": "霜冻",
-        "level": level,
-        "level_num": FROST_WARNING[level]["level"],
-        "detail": detail,
-        "icon": FROST_WARNING[level]["icon"],
-    })
+    min_temp = float(temps.tail(24).min())
+    custom = CUSTOM_THRESHOLDS.get("frost", {})
+
+    for level in ["橙色", "黄色", "蓝色"]:
+        cfg = FROST_WARNING[level]
+        threshold = custom.get(level, cfg["ground_temp"])
+        if min_temp <= threshold:
+            warnings_list.append({
+                "type": "霜冻",
+                "level": level,
+                "level_num": cfg["level"],
+                "detail": f"最低气温 {min_temp:.1f}℃（≤{threshold}℃）",
+                "icon": cfg["icon"],
+            })
+            break
 
     return warnings_list
 
 
 def check_thunderstorm(df):
-    """雷电事件检测（基于天气码）"""
+    """雷电事件检测（基于天气码）
+
+    修复 R-14：等级与图标改读 THUNDER_WARNING（原为硬编码字符串）。
+    修复 R-39：窗口改为「最近 6 小时」而非最近 6 条记录，避免窗口外漏报。
+
+    说明：WMO 天气码无法区分国标橙/红两级（那属预报口径），观测侧固定黄色。
+    """
     if "weather_code" not in df.columns:
         return []
 
-    codes = df["weather_code"].dropna().tail(6)
+    codes = pd.to_numeric(df["weather_code"], errors="coerce")
     thunder_codes = [95, 96, 97, 99]
-    has_thunder = codes.isin(thunder_codes).any()
+    is_thunder = codes.isin(thunder_codes)
 
-    if has_thunder:
-        return [{
-            "type": "雷电",
-            "level": "黄色",
-            "level_num": "Ⅲ级",
-            "detail": "检测到雷暴天气码 (WMO 95-99)",
-            "icon": "\u26a1",
-        }]
-    return []
+    if "timestamp" in df.columns:
+        ts = pd.to_datetime(df["timestamp"], errors="coerce")
+        if ts.notna().any():
+            last_ts = ts.max()
+            in_window = ts >= (last_ts - pd.Timedelta(hours=6))
+            has_thunder = bool((is_thunder & in_window).any())
+        else:
+            has_thunder = bool(is_thunder.any())
+    else:
+        has_thunder = bool(codes.dropna().tail(6).isin(thunder_codes).any())
+
+    if not has_thunder:
+        return []
+
+    cfg = THUNDER_WARNING["黄色"]
+    return [{
+        "type": "雷电",
+        "level": "黄色",
+        "level_num": cfg["level"],
+        "detail": "最近 6 小时内检测到雷暴天气码 (WMO 95-99)",
+        "icon": cfg["icon"],
+    }]
 
 
 def check_haze(df):
-    """霾事件检测"""
+    """霾事件检测
+
+    修复 R-33：霾只在能见度不低于大雾黄色阈值（默认 500 m）时判定，
+    避免同一观测同时报「大雾」与「霾」的矛盾结论。
+    修复 R-14：阈值改读 HAZE_WARNING，支持自定义覆盖。
+    """
     if "visibility" not in df.columns:
         return []
 
-    vis = df["visibility"].dropna()
+    vis = pd.to_numeric(df["visibility"], errors="coerce").dropna()
     if len(vis) == 0:
         return []
 
-    min_vis = vis.tail(24).min() * 1000  # 转为米
+    min_vis = float(vis.tail(24).min()) * 1000  # 转为米
+    if min_vis < FOG_WARNING["黄色"]["visibility"]:
+        return []  # 低于大雾黄色阈值，归入大雾，不重复报霾
 
-    if min_vis < 2000:
-        return [{
-            "type": "霾",
-            "level": "橙色",
-            "level_num": "Ⅱ级",
-            "detail": f"能见度 {min_vis:.0f} m（＜2000 m，可能为霾）",
-            "icon": "\ud83d\udfe0",
-        }]
-    elif min_vis < 3000:
-        return [{
-            "type": "霾",
-            "level": "黄色",
-            "level_num": "Ⅲ级",
-            "detail": f"能见度 {min_vis:.0f} m（＜3000 m，可能为霾）",
-            "icon": "\ud83d\udfe1",
-        }]
+    custom = CUSTOM_THRESHOLDS.get("haze", {})
+    for level in ["橙色", "黄色"]:
+        cfg = HAZE_WARNING[level]
+        threshold = custom.get(level, cfg["visibility"])
+        if min_vis < threshold:
+            return [{
+                "type": "霾",
+                "level": level,
+                "level_num": cfg["level"],
+                "detail": f"能见度 {min_vis:.0f} m（＜{threshold} m，可能为霾）",
+                "icon": cfg["icon"],
+            }]
     return []
 
 
@@ -958,10 +1011,14 @@ def multi_factor_coupling(df):
 
     # 高温+高湿 → 热应激
     if avg_t >= 35 and avg_h >= 60:
-        hi = -42.379 + 2.04901523 * avg_t + 10.14333127 * avg_h - \
-             0.22475541 * avg_t * avg_h - 6.83783e-3 * avg_t ** 2 - \
-             5.481717e-2 * avg_h ** 2 + 1.22874e-3 * avg_t ** 2 * avg_h + \
-             8.5282e-4 * avg_t * avg_h ** 2 - 1.99e-6 * avg_t ** 2 * avg_h ** 2
+        # 修复 R-29：Rothfusz 回归系数以华氏度为单位，原实现直接传入摄氏度，
+        # 导致 36℃/70% 输出 146.8℃。这里先换算到 °F 计算，再换回 ℃。
+        tf = avg_t * 9.0 / 5.0 + 32.0
+        hi_f = (-42.379 + 2.04901523 * tf + 10.14333127 * avg_h
+                - 0.22475541 * tf * avg_h - 6.83783e-3 * tf ** 2
+                - 5.481717e-2 * avg_h ** 2 + 1.22874e-3 * tf ** 2 * avg_h
+                + 8.5282e-4 * tf * avg_h ** 2 - 1.99e-6 * tf ** 2 * avg_h ** 2)
+        hi = (hi_f - 32.0) * 5.0 / 9.0
         alerts.append({
             "type": "热应激（耦合）",
             "severity": "危险",
