@@ -413,33 +413,38 @@ _ADMIN_MAX_ATTEMPTS = 5          # 连续失败 5 次锁定
 _ADMIN_LOCK_SECONDS = 300        # 锁定 5 分钟
 _ADMIN_SESSION_SECONDS = 600     # 解锁后 10 分钟自动失效
 
+# 安全修复（R-18）：失败计数与锁定时间放在模块级（进程内全局），而不是
+# st.session_state。原实现新开浏览器会话或清 cookie 即可重置计数，限流形同
+# 虚设。Streamlit Cloud 单进程服务，进程内全局对全部会话生效。
+_ADMIN_FAILS = 0
+_ADMIN_LOCKED_UNTIL = 0.0
+
 
 def _try_admin_unlock(admin_pw: str, pw: str) -> None:
-    """校验管理员密码：常量时间比较 + 失败计数 + 锁定退避。"""
+    """校验管理员密码：常量时间比较 + 全局失败计数 + 锁定退避。"""
+    global _ADMIN_FAILS, _ADMIN_LOCKED_UNTIL
     import time as _t
 
     now = _t.time()
-    locked_until = st.session_state.get("admin_locked_until", 0)
-    if now < locked_until:
-        st.error(f"尝试次数过多，请 {int(locked_until - now)} 秒后再试。")
+    if now < _ADMIN_LOCKED_UNTIL:
+        st.error(f"尝试次数过多，请 {int(_ADMIN_LOCKED_UNTIL - now)} 秒后再试。")
         return
 
     if pw and secrets.compare_digest(pw.encode("utf-8"), admin_pw.encode("utf-8")):
+        _ADMIN_FAILS = 0
+        _ADMIN_LOCKED_UNTIL = 0.0
         st.session_state["admin_unlocked"] = True
         st.session_state["admin_unlock_time"] = now
-        st.session_state["admin_fail_count"] = 0
-        st.session_state.pop("admin_locked_until", None)
         st.rerun()
         return
 
-    fails = int(st.session_state.get("admin_fail_count", 0)) + 1
-    if fails >= _ADMIN_MAX_ATTEMPTS:
-        st.session_state["admin_locked_until"] = now + _ADMIN_LOCK_SECONDS
-        st.session_state["admin_fail_count"] = 0
+    _ADMIN_FAILS += 1
+    if _ADMIN_FAILS >= _ADMIN_MAX_ATTEMPTS:
+        _ADMIN_LOCKED_UNTIL = now + _ADMIN_LOCK_SECONDS
+        _ADMIN_FAILS = 0
         st.error(f"密码错误次数过多，已锁定 {_ADMIN_LOCK_SECONDS // 60} 分钟。")
     else:
-        st.session_state["admin_fail_count"] = fails
-        st.error(f"密码错误。剩余尝试 {_ADMIN_MAX_ATTEMPTS - fails} 次。")
+        st.error(f"密码错误。剩余尝试 {_ADMIN_MAX_ATTEMPTS - _ADMIN_FAILS} 次。")
 
 
 def _admin_unlock_expired() -> bool:

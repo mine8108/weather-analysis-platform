@@ -1,8 +1,11 @@
 name: Keep Streamlit App Alive
 
+# 修复 R-23：原为每 5 分钟一次（月均约 8640 次运行），远超实际需要。
+# Streamlit Community Cloud 的休眠阈值是数小时级空闲，每 6 小时 ping 一次
+# 足以避免休眠，同时把 Actions 用量降到约 1/72。
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "0 */6 * * *"
   workflow_dispatch:
 
 jobs:

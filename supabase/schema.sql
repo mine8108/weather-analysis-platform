@@ -98,7 +98,10 @@ begin
         add constraint invite_codes_used_by_fkey
             foreign key (used_by) references auth.users(id) on delete cascade;
 exception
-    when others then null;
+    -- 修复 R-20：原来 here 用 `when others then null` 静默吞掉失败，
+    -- 迁移没生效也无从察觉；改为发出 warning，可重复执行的性质不变。
+    when others then
+        raise warning '邀请码外键迁移未完成（可忽略，若外键已正确则无需处理）：%', sqlerrm;
 end $$;
 
 alter table public.invite_codes enable row level security;
