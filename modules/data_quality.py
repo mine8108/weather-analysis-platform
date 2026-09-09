@@ -7,19 +7,33 @@ import streamlit as st
 from config import FIELD_RANGES
 
 
+def _numeric(df, field):
+    """取数值列；非数值（object/字符串）列安全转为 NaN。
+
+    修复 R-16：导入链路从不保证数值列 dtype，原实现对 object 列直接做
+    `col < lo` 或 `.diff()` 会抛 TypeError，整个质控页面因此崩掉。
+    """
+    return pd.to_numeric(df[field], errors="coerce")
+
+
 def range_check(df):
-    """范围校验：检测各字段是否在合理范围内"""
+    """范围校验：检测各字段是否在合理范围内。
+
+    修复 R-16：百分比统一以总行数为分母，与 compute_quality_score 的扣分
+    口径一致（原实现以非空样本为分母，两处口径不同）。
+    """
     issues = []
+    total = max(len(df), 1)
     for field, (lo, hi) in FIELD_RANGES.items():
         if field not in df.columns:
             continue
-        col = df[field].dropna()
+        col = _numeric(df, field).dropna()
         if len(col) == 0:
             continue
         out_of_range = (col < lo) | (col > hi)
         if out_of_range.any():
-            count = out_of_range.sum()
-            pct = count / len(col) * 100
+            count = int(out_of_range.sum())
+            pct = count / total * 100
             issues.append({
                 "type": "范围异常",
                 "field": field,
@@ -31,12 +45,17 @@ def range_check(df):
 
 
 def temporal_consistency_check(df):
-    """时间一致性检测：检测相邻时次突跳"""
+    """时间一致性检测：按站点分组，检测真实 1 小时步长上的相邻时次突跳。
+
+    修复 R-16：
+    - 原实现不按 station_id 分组，多站点数据会把不同站点的相邻行当成同一序列；
+    - 原实现不校验时间步长，规则文案却写「1h 变化」，非逐时数据会产生假阳性；
+    - 原实现对 object 列调用 .diff() 会抛 TypeError，现先数值化。
+    """
     issues = []
     if "timestamp" not in df.columns:
         return issues
 
-    # 检测时间是否有序
     if not df["timestamp"].is_monotonic_increasing:
         issues.append({
             "type": "时间乱序",
@@ -53,18 +72,35 @@ def temporal_consistency_check(df):
         "humidity": (30.0, "1h 湿度变化≥30%"),
     }
 
+    if "station_id" in df.columns:
+        groups = [g for _, g in df.groupby("station_id", dropna=False)]
+    else:
+        groups = [df]
+
     for field, (threshold, desc) in check_rules.items():
         if field not in df.columns:
             continue
-        diffs = df[field].diff().abs()
-        spikes = diffs > threshold
-        if spikes.any():
-            count = spikes.sum()
+        total_spikes = 0
+        for g in groups:
+            if field not in g.columns or len(g) < 2:
+                continue
+            g = g.sort_values("timestamp")
+            values = _numeric(g, field)
+            diffs = values.diff().abs()
+            step_hours = (
+                pd.to_datetime(g["timestamp"], errors="coerce")
+                .diff()
+                .dt.total_seconds()
+                / 3600.0
+            )
+            is_hourly = step_hours.between(0.5, 1.5)
+            total_spikes += int(((diffs > threshold) & is_hourly).sum())
+        if total_spikes:
             issues.append({
                 "type": "数据突跳",
                 "field": field,
-                "detail": f"{count} 处 {desc}",
-                "count": count,
+                "detail": f"{total_spikes} 处 {desc}",
+                "count": total_spikes,
                 "severity": "warning",
             })
     return issues
@@ -117,7 +153,7 @@ def compute_quality_score(df, issues):
 
 def render_quality_report(df):
     """渲染数据质量报告"""
-    st.subheader("[实验] 数据质量控制")
+    st.subheader("[质控] 数据质量控制")
 
     if df is None or df.empty:
         st.info("请先导入数据")

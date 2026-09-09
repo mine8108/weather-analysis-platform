@@ -1096,6 +1096,13 @@ if st.session_state["active_tab"] == 0:
 
             st.dataframe(df.head(10), use_container_width=True)
 
+            # 数据质量控制：导入后默认显示（R-09 接入）。
+            # 返回的百分制评分写入 session_state，供报告导出与摘要卡复用；
+            # 原实现该键恒为 0.0，Word 报告里的「质量评分」一直是 0 分。
+            _qr = _safe_render("导入-质控", render_quality_report, df)
+            if _qr:
+                st.session_state["quality_score"] = _qr[0]
+
             c1, c2, c3 = st.columns(3)
             with c1:
                 if st.button("✅ 确认数据，前往可视化分析", use_container_width=True, key="wiz_confirm"):
@@ -1160,6 +1167,11 @@ if st.session_state["active_tab"] == 0:
                 st.metric("当前数据", f"{len(st.session_state['df'])} 条记录")
             with c_b:
                 st.metric("数据来源", st.session_state.get("source", "多源"))
+            # 数据质量控制：跳过向导时同样默认展示（R-09）
+            _qr_skip = _safe_render("导入-质控", render_quality_report,
+                                    st.session_state["df"])
+            if _qr_skip:
+                st.session_state["quality_score"] = _qr_skip[0]
             if st.button("🔄 返回向导模式", key="back_to_wizard"):
                 st.session_state["import_step"] = 0
                 st.rerun()
