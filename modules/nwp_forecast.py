@@ -539,13 +539,17 @@ def air_quality_aqi_chart(aq_df, dark=None):
         )
 
     # ---- 五、真图例：色块 + 等级 + 区间上限，整体位于绘图区之外（零遮挡）----
-    for (_lo, _hi, nm, col), top in zip(_AQ_LEVELS, _band_edges[1:-1] + [None]):
+    # 注意：_AQ_LEVELS 的第 4 个元素是 **token 名**（如 "aqi-1"），不是颜色值。
+    # 直接喂给 Plotly 会抛 ValueError（Invalid value ... Received value: 'aqi-1'），
+    # 由 safe_chart 兜住并显示为「图表加载出现异常」。这里必须经 _aq_color() 解析。
+    for (_lo, _hi, nm, tok), top in zip(_AQ_LEVELS, _band_edges[1:-1] + [None]):
         label = (f"{nm.replace('污染', '')} >{_band_edges[-2]}" if top is None
                  else f"{nm.replace('污染', '')} ≤{top}")
         fig.add_trace(go.Scatter(
             x=[None], y=[None], mode="markers", name=label, showlegend=True,
             hoverinfo="skip",
-            marker=dict(symbol="square", size=11, color=col, line=dict(width=0)),
+            marker=dict(symbol="square", size=11, color=_aq_color(tok, dark),
+                        line=dict(width=0)),
         ))
 
     # ---- 六、坐标轴与版式 ----
