@@ -622,14 +622,24 @@ with st.sidebar:
         theme_aether.set_theme(dark)
         st.rerun()
     # 天气墙显示开关：用户可自主显示/隐藏首页天气墙，选择持久化（刷新保持）
+    #
+    # 单一真相源：以 widget 键 ``wall_show_toggle`` 为准，``_wall_show`` 只是它的
+    # 一份只读镜像，供主区渲染时判断。
+    #
+    # 改造前这里把同一个开关拆成了两个状态（``_wall_show`` + widget 键），靠
+    # 「值不一致才写回 + 再 st.rerun() 一次」缝合。这个写法有两个问题：
+    #   1. 主题切换等无关 rerun 会插入同步间隙，两个状态存在可漂移的窗口，
+    #      表现为「点一个开关，另一个的勾选状态跟着动」这类难以复现的现象；
+    #   2. 每次切换都要多跑一轮完整脚本（整页重算），切换手感变钝。
+    # 现在改成每次 rerun 都无条件同步镜像，且**不再额外 rerun**：
+    # 开关值在本次渲染中立刻对主区生效（st.checkbox 同步返回新值）。
     wall_show = st.checkbox("[显示] 天气墙", value=st.session_state.get("_wall_show", True),
                             key="wall_show_toggle",
                             help="显示/隐藏首页天气墙，选择自动保存")
-    if wall_show != st.session_state.get("_wall_show", True):
+    if st.session_state.get("_wall_show") != wall_show:
         st.session_state["_wall_show"] = wall_show
         from modules.city_prefs import save_show_wall
         save_show_wall(wall_show)  # 持久化：本地文件 + 登录时 Supabase
-        st.rerun()
     st.divider()
     # 导入历史
     history = st.session_state.get("_import_history", [])
