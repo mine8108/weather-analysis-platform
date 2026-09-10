@@ -172,7 +172,7 @@ def get_tokens(dark: bool | None = None) -> dict:
 # 四、DOM 主题属性同步脚本
 # ============================================================
 def theme_attr_js() -> str:
-    """把 ``data-dsh-theme`` 写到 ``<html>`` 上，并持续守住它。
+    """把 ``data-dsh-theme`` 写到 ``<html>`` 上。
 
     必须用 ``st.html(..., unsafe_allow_javascript=True)`` 注入：
     **``st.markdown(unsafe_allow_html=True)`` 会把 ``<script>`` 剥掉**
@@ -180,9 +180,18 @@ def theme_attr_js() -> str:
     正是走 markdown 注入脚本，实际上从未执行过——这类「写了但没生效」的
     静默失效是暗色模式长期修不干净的重要原因。
 
-    需要 MutationObserver 的原因：Streamlit 的 React 根组件在 hydration 与每次
-    rerun 时会重建 DOM，外部写上的属性会被冲掉，表现为「刷新后样式回弹成亮色」。
-    这里只监听 ``<html>`` 自身的属性变化，开销可忽略。
+    **这里刻意不使用 MutationObserver**（R-44）。曾经用观察者守 ``<html>`` 的属性
+    以对抗「刷新后样式回弹」，但实测造成渲染进程主线程被占死：切换主题时页面
+    完全无响应（点击后主线程阻塞 >8s，页面探测超时；关掉本脚本后同一操作
+    4ms 内恢复响应）。原因是 Streamlit 的 React 根组件在每次 rerun 时持续改写
+    ``<html>``/``<body>`` 的 class 与 style，观察者被高频触发，而 Streamlit 每次
+    重渲染都会重新执行本脚本、**再挂一个新的观察者**，观察者数量随 rerun 累加，
+    回调频率成倍上升，最终把主线程压死。
+
+    替代方案依赖一个更稳的事实：本脚本随每次 rerun 重新执行，
+    而样式块（含整套变量）是幂等注入的，因此**每次渲染都会重新把属性写正确**，
+    不需要长期的观察者。另外把主题属性同时写到 ``<html>`` 与 ``<body>``：
+    Streamlit 只会重写 ``body`` 上的 class，属性得以保留。
     """
     theme = "dark" if is_dark() else "light"
     # 外层 div 仅用于承载脚本，display:none 保证不影响布局
@@ -190,15 +199,12 @@ def theme_attr_js() -> str:
 (function() {{
   var ATTR = "{THEME_ATTR}", WANT = "{theme}";
   function apply() {{
-    var el = document.documentElement;
-    if (el && el.getAttribute(ATTR) !== WANT) el.setAttribute(ATTR, WANT);
+    var h = document.documentElement;
+    if (h && h.getAttribute(ATTR) !== WANT) h.setAttribute(ATTR, WANT);
+    var b = document.body;
+    if (b && b.getAttribute(ATTR) !== WANT) b.setAttribute(ATTR, WANT);
   }}
   apply();
-  if (window.MutationObserver && document.documentElement) {{
-    new MutationObserver(apply).observe(document.documentElement, {{
-      attributes: true, attributeFilter: ["class", "style", ATTR]
-    }});
-  }}
   if (document.readyState !== "complete") {{
     document.addEventListener("DOMContentLoaded", apply);
     window.addEventListener("load", apply);
@@ -216,19 +222,24 @@ def inject_theme() -> None:
     改造前本函数只在**登录成功后**的 ``app.py`` 中被调用，未登录时直接
     ``st.stop()``，导致登录页完全没有样式、也不跟随用户保存的暗色偏好。
     现在由 ``app.py`` 在登录门禁之前调用。
+
+    排障开关（仅用于定位渲染进程卡死，正常部署不要设置）：
+    - ``DSH_THEME_NO_DARK_CSS=1``：不输出暗色覆盖层
+    - ``DSH_THEME_NO_BASE_CSS=1``：不输出形状/排版基线
+    - ``DSH_THEME_NO_JS=1``：不注入主题属性脚本
     """
-    css = "\n".join(
-        [
-            f"@import url('{FONTS_URL}');",
-            "/* ===== 主题变量（亮/暗两套同时在场，靠 html[data-dsh-theme] 切换） ===== */",
-            theme_css.root_vars_css(False),
-            theme_css.root_vars_css(True),
-            "/* ===== 形状与排版基线 ===== */",
-            theme_css.BASE_CSS,
-            "/* ===== Streamlit 原生组件暗色覆盖 ===== */",
-            theme_css.dark_extra_css(),
-        ]
-    )
-    st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
+    import os
+
+    parts = [f"@import url('{FONTS_URL}');",
+             "/* ===== 主题变量（亮/暗两套同时在场，靠 html[data-dsh-theme] 切换） ===== */",
+             theme_css.root_vars_css(False),
+             theme_css.root_vars_css(True)]
+    if not os.environ.get("DSH_THEME_NO_BASE_CSS"):
+        parts += ["/* ===== 形状与排版基线 ===== */", theme_css.BASE_CSS]
+    if not os.environ.get("DSH_THEME_NO_DARK_CSS"):
+        parts += ["/* ===== Streamlit 原生组件暗色覆盖 ===== */", theme_css.dark_extra_css()]
+
+    st.markdown(f"<style>{chr(10).join(parts)}</style>", unsafe_allow_html=True)
     # 脚本必须走 st.html：markdown 的 unsafe_allow_html 会被 DOMPurify 剥掉 <script>
-    st.html(theme_attr_js(), unsafe_allow_javascript=True)
+    if not os.environ.get("DSH_THEME_NO_JS"):
+        st.html(theme_attr_js(), unsafe_allow_javascript=True)
