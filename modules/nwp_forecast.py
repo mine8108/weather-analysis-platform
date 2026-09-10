@@ -26,6 +26,17 @@ from plotly.subplots import make_subplots
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import retry_with_backoff
 from config import COLORS, safe_chart, _is_dark, WARN_LEVEL_ORDER, LIFE_INDEX_META as _LIFE_INDEX_META, WIND_DIRECTIONS
+from modules.design_tokens import color_value, css_var, token_value, warn_token
+
+
+def _sev(token: str) -> str:
+    """把严重度 token 名解析成当前主题下的 CSS 变量引用。
+
+    ``_calc_life_indices`` 返回的是**语义 token 名**（如 ``"sev-best"``）而不是
+    hex：同一份计算结果在亮/暗两套主题下都要可读，把颜色定死在返回结构里
+    会导致换肤后颜色不跟随（这正是改造前的问题）。
+    """
+    return css_var(token)
 
 
 # ============================================================
@@ -279,15 +290,26 @@ _AQ_POLLUTANTS = [
     ("o3",    "O₃",    _O3_BP,   _O3_I),
 ]
 
-# 国标六级 (AQI 区间, 等级, 颜色) — 低饱和柔和色系
+# 国标六级 (AQI 区间, 等级, token 名)
+# 色值统一由 design_tokens 提供：改造前本表与 config.AQI_LEVELS 各存一份 hex，
+# 两处取值不同，同一个 AQI 等级在分析页与预报页呈现不同颜色。
 _AQ_LEVELS = [
-    (0, 50, "优", "#3fa660"),
-    (51, 100, "良", "#c9a227"),
-    (101, 150, "轻度污染", "#e08a3c"),
-    (151, 200, "中度污染", "#d45d4f"),
-    (201, 300, "重度污染", "#9c4d79"),
-    (301, 99999, "严重污染", "#8e3b4d"),
+    (0, 50, "优", "aqi-1"),
+    (51, 100, "良", "aqi-2"),
+    (101, 150, "轻度污染", "aqi-3"),
+    (151, 200, "中度污染", "aqi-4"),
+    (201, 300, "重度污染", "aqi-5"),
+    (301, 99999, "严重污染", "aqi-6"),
 ]
+
+
+def _aq_color(token: str, dark: bool | None = None) -> str:
+    """AQI token → 具体色值。
+
+    图表场景必须用具体色值而非 var()：plotly.js 绘制的是 SVG，
+    不会解析 CSS 自定义属性（本机实测 var() 会整段失效）。
+    """
+    return token_value(token, dark)
 
 
 def _iaqi(c, bp, iaqi_nodes):
@@ -331,15 +353,15 @@ def _compute_cn_aqi(conc):
         if ia is not None:
             iaqis.append((ia, label))
     if not iaqis:
-        return None, "无数据", "—", "#94a3b8"
+        return None, "无数据", "—", token_value("text-muted")
     aqi = int(round(max(i for i, _ in iaqis)))
-    level, color = "严重污染", "#8e3b4d"
-    for lo, hi, name, col in _AQ_LEVELS:
+    level, token = "严重污染", "aqi-6"
+    for lo, hi, name, tok in _AQ_LEVELS:
         if lo <= aqi <= hi:
-            level, color = name, col
+            level, token = name, tok
             break
     primary = "无" if aqi <= 50 else max(iaqis, key=lambda x: x[0])[1]
-    return aqi, level, primary, color
+    return aqi, level, primary, _aq_color(token)
 
 
 def fetch_air_quality(lat, lon, days=7):
@@ -444,18 +466,18 @@ def air_quality_aqi_chart(aq_df, dark=None):
 
     def _level_of(v):
         """AQI 数值 → (等级名, 色值)。"""
-        for lo, hi, nm, col in _AQ_LEVELS:
+        for lo, hi, nm, tok in _AQ_LEVELS:
             if lo <= v <= hi:
-                return nm, col
-        return "—", "#94a3b8"
+                return nm, _aq_color(tok, dark)
+        return "—", token_value("text-muted", dark)
 
     fig = go.Figure()
 
     # ---- 一、六级背景色带（layer="below"：沉在折线之下，永不遮挡数据）----
     _band_edges = [0, 50, 100, 150, 200, 300, 500]
-    for i, (_lo, _hi, _nm, col) in enumerate(_AQ_LEVELS):
+    for i, (_lo, _hi, _nm, tok) in enumerate(_AQ_LEVELS):
         fig.add_hrect(y0=_band_edges[i], y1=_band_edges[i + 1],
-                      fillcolor=col, opacity=0.18, line_width=0, layer="below")
+                      fillcolor=_aq_color(tok, dark), opacity=0.18, line_width=0, layer="below")
     # 分档色两两相近（中度/重度/严重尤其接近），补一条细虚线拉开识别度
     for _edge in _band_edges[1:-1]:
         fig.add_hline(y=_edge, line_width=1, line_dash="dot",
@@ -486,11 +508,11 @@ def air_quality_aqi_chart(aq_df, dark=None):
     try:
         if ts.min() <= now <= ts.max():
             fig.add_vline(x=now, line_width=1.6, line_dash="dash",
-                          line_color="#334155" if not dark else "#cbd5e1",
+                          line_color=token_value("chart-ref-line"),
                           annotation_text="现在", annotation_position="top left",
                           annotation_font=dict(
                               size=10,
-                              color="#334155" if not dark else "#cbd5e1"))
+                              color=token_value("chart-ref-line")))
     except (TypeError, ValueError):
         pass  # 时间轴异常时跳过参考线，不影响折线本身
     if len(valid):
@@ -501,7 +523,7 @@ def air_quality_aqi_chart(aq_df, dark=None):
             x=[_pk_x], y=[_pk_y], mode="markers", name="峰值",
             showlegend=False, hoverinfo="skip",
             marker=dict(size=10, color=_pk_col,
-                        line=dict(color="#ffffff" if not dark else "#0f172a",
+                        line=dict(color=token_value("chart-marker-line"),
                                   width=1.5)),
         ))
         # 峰值贴近上边界时把标注翻到点下方，避免顶到图例或被裁掉
@@ -512,7 +534,7 @@ def air_quality_aqi_chart(aq_df, dark=None):
             ax=0, ay=-34 if _above else 34,
             xanchor="center", yanchor="bottom" if _above else "top",
             font=dict(size=10, color=_pk_col),
-            bgcolor="rgba(15,23,42,0.85)" if dark else "rgba(255,255,255,0.9)",
+            bgcolor=token_value("chart-tip-bg"),
             bordercolor=_pk_col, borderwidth=1, borderpad=3,
         )
 
@@ -610,7 +632,7 @@ def _forecast_time_series(fdf):
     # ---- 主气温线 ----
     fig.add_trace(
         go.Scatter(x=fdf["timestamp"], y=fdf["temperature"], mode="lines",
-                   name="气温", line=dict(color=COLORS["temp_color"], width=2.2),
+                   name="气温", line=dict(color=color_value("temp_color"), width=2.2),
                    hovertemplate="%{x|%m-%d %H:%M}<br>气温: %{y:.1f}C<extra></extra>"),
         secondary_y=False,
     )
@@ -656,7 +678,7 @@ def _forecast_time_series(fdf):
     hp12 = fdf.set_index("timestamp")["precipitation"].resample("12h").sum().reset_index()
     fig.add_trace(
         go.Bar(x=hp12["timestamp"], y=hp12["precipitation"], name="降水 (12h)",
-               marker_color=COLORS["rain_color"], opacity=0.55,
+               marker_color=color_value("rain_color"), opacity=0.55,
                width=36000000,  # 12h in ms
                hovertemplate="%{x|%m-%d %H:%M} (12h)<br>降水: %{y:.1f} mm<extra></extra>"),
         secondary_y=True,
@@ -680,7 +702,7 @@ def _forecast_time_series(fdf):
               "<span style='color:#d69e2e'>4-7天中</span> | "
               "<span style='color:#c0392b'>8+天低</span>"),
         showarrow=False, font=dict(size=10),
-        bgcolor="rgba(15,23,42,0.9)" if _is_dark() else "rgba(255,255,255,0.82)",
+        bgcolor=token_value("chart-tip-bg"),
         bordercolor="#475569" if _is_dark() else "#ccc",
         borderwidth=1, borderpad=5, align="right",
     )
@@ -713,7 +735,7 @@ def _forecast_time_series(fdf):
         legend=dict(
             x=0.01, y=0.98,
             xanchor="left", yanchor="top",
-            bgcolor="rgba(15,23,42,0.9)" if _is_dark() else "rgba(255,255,255,0.85)",
+            bgcolor=token_value("chart-tip-bg"),
             bordercolor="#475569" if _is_dark() else "#ddd", borderwidth=1,
         ),
     )
@@ -725,7 +747,7 @@ def _high_temp_72h_panel(hh):
     fig = make_subplots(specs=[[{"secondary_y": False}]])
     fig.add_trace(go.Scatter(
         x=hh["timestamp"], y=hh["temperature"], mode="lines+markers",
-        name="气温", line=dict(color=COLORS["temp_color"], width=2), marker=dict(size=4),
+        name="气温", line=dict(color=color_value("temp_color"), width=2), marker=dict(size=4),
     ))
     fig.add_trace(go.Scatter(
         x=hh["timestamp"], y=hh["apparent_temperature"], mode="lines",
@@ -748,7 +770,7 @@ def _high_temp_72h_panel(hh):
         legend=dict(
             x=0.01, y=0.98,
             xanchor="left", yanchor="top",
-            bgcolor="rgba(15,23,42,0.9)" if _is_dark() else "rgba(255,255,255,0.85)",
+            bgcolor=token_value("chart-tip-bg"),
             bordercolor="#475569" if _is_dark() else "#ddd", borderwidth=1,
         ),
     )
@@ -772,11 +794,11 @@ _WS_BINS = [0.5, 1.6, 3.4, 5.5, 8.0, 10.8, 13.9, 17.2]
 _WS_LABELS = ["0.5-1.5", "1.6-3.3", "3.4-5.4", "5.5-7.9",
               "8.0-10.7", "10.8-13.8", "13.9-17.1", "≥17.2"]
 _WS_CN = ["软风", "轻风", "微风", "和风", "清风", "强风", "劲风", "大风及以上"]
-# 蓝相渐变（1-5 级弱->强），6 级起转暖色警示（对照目标模板配色）
-_WS_COLORS = ["#dceef5", "#a8d2e8", "#74b4d9", "#4592c8",
-              "#2b6cb0", "#f2b53c", "#ef6a4f", "#c0392b"]
+# 蒲福风级配色带改走共享 token：改造前这里是 8 色、visualizer 的风玫瑰是另一套
+# 9 色，同一个应用里两张风玫瑰图用不同颜色；且浅色档在暗色主题下几乎不可见。
+_WS_COLORS = [css_var(f"beaufort-{i}") for i in range(1, 9)]
 _CALM_THRESHOLD = 0.5  # 静风阈值 (m/s)
-_CALM_COLOR = "#d4d4d8"  # 静风图例色（浅灰）
+_CALM_COLOR = css_var("beaufort-9")  # 静风图例色
 
 
 def _wind_rose_stats(fdf):
@@ -822,11 +844,11 @@ def _wind_rose_chart(fdf, dark=None):
     if valid.empty:
         return None, None
 
-    bg = "#0f172a" if dark else "#ffffff"
-    grid = "#475569" if dark else "#cbd5e1"
-    tick_col = "#94a3b8" if dark else "#6b7280"
-    title_col = "#e2e8f0" if dark else "#1f2937"
-    seg_line = "rgba(15,23,42,0.35)" if dark else "rgba(255,255,255,0.9)"
+    bg = token_value("surface")
+    grid = token_value("chart-grid")
+    tick_col = token_value("chart-axis")
+    title_col = token_value("chart-title")
+    seg_line = token_value("chart-marker-line")
 
     def _base_layout(fig):
         fig.update_layout(
@@ -1209,8 +1231,6 @@ def _analyze_forecast(fdf):
 
 def _render_forecast_advice(analysis, life_indices=None):
     """渲染预报智能分析结果。life_indices 传入后作为子节嵌入到『预报精度详情』之前。"""
-    from config import WARN_STYLES
-
     st.write("---")
     st.write("### 智能分析与建议")
 
@@ -1222,35 +1242,29 @@ def _render_forecast_advice(analysis, life_indices=None):
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         st.markdown(_uni_card("最高气温", f"{ex['max_temp'][0]:.0f}", "C",
-                               delta=ex["max_temp"][1], color="#ef4444"), unsafe_allow_html=True)
+                               delta=ex["max_temp"][1], color=css_var("temp")), unsafe_allow_html=True)
     with c2:
         st.markdown(_uni_card("最低气温", f"{ex['min_temp'][0]:.0f}", "C",
-                               delta=ex["min_temp"][1], color="#3b82f6"), unsafe_allow_html=True)
+                               delta=ex["min_temp"][1], color=css_var("humid")), unsafe_allow_html=True)
     with c3:
         st.markdown(_uni_card("累计降水", f"{ex['total_precip']:.0f}", " mm",
-                               color="#22c55e"), unsafe_allow_html=True)
+                               color=css_var("pres")), unsafe_allow_html=True)
     with c4:
         st.markdown(_uni_card("最大风速", f"{ex['max_wind'][0]:.1f}", "m/s",
-                               delta=ex["max_wind"][1], color="#f59e0b"), unsafe_allow_html=True)
+                               delta=ex["max_wind"][1], color=css_var("wind")), unsafe_allow_html=True)
 
     # 预警
     if analysis["warnings"]:
         st.write("#### 预警信号")
         sorted_w = sorted(analysis["warnings"], key=lambda w: WARN_LEVEL_ORDER.get(w["level"], 4))
         cols = st.columns(min(len(sorted_w), 2))
-        dark_ws = {
-            "蓝色": {"color": "#60a5fa", "bg": "#1e3a5f"},
-            "黄色": {"color": "#f59e0b", "bg": "#3d2e0c"},
-            "橙色": {"color": "#fb923c", "bg": "#3d1f0c"},
-            "红色": {"color": "#ef4444", "bg": "#3d0c0c"},
-        }
         for i, warn in enumerate(sorted_w):
-            style = dark_ws.get(warn["level"], dark_ws["蓝色"]) if _is_dark() else WARN_STYLES.get(warn["level"], WARN_STYLES["蓝色"])
-            detail_color = "#94a3b8" if _is_dark() else "#555"
+            # 与 analyzer.py 共用同一套预警级别 token，消除「同一预警两个页面两种红」
+            level_color = css_var(warn_token(warn["level"]))
             with cols[i % 2]:
-                st.markdown(f"""<div style="background:{style['bg']};border-left:4px solid {style['color']};padding:10px 12px;border-radius:4px;margin-bottom:6px;font-size:13px">
-<b style="color:{style['color']};font-size:15px">{warn['icon']} {warn['type']}{warn['level']}</b>
-<br><span style="color:{detail_color}">{warn['level_num']} | {warn['detail']}</span></div>""", unsafe_allow_html=True)
+                st.markdown(f"""<div style="background:color-mix(in srgb, {level_color} 12%, {css_var('surface')});border-left:4px solid {level_color};padding:10px 12px;border-radius:4px;margin-bottom:6px;font-size:13px">
+<b style="color:{level_color};font-size:15px">{warn['icon']} {warn['type']}{warn['level']}</b>
+<br><span style="color:{css_var('text-secondary')}">{warn['level_num']} | {warn['detail']}</span></div>""", unsafe_allow_html=True)
     else:
         st.success("[OK] 未来预报期内未触发预警信号")
 
@@ -1268,15 +1282,15 @@ def _render_forecast_advice(analysis, life_indices=None):
             c1, c2, c3 = st.columns(3)
             with c1:
                 st.markdown(_uni_card("趋势变化", f"{tt['diff_mean']:+.1f}", "C",
-                                       delta=f"±{tt['diff_std']:.1f}C", color="#8b5cf6"), unsafe_allow_html=True)
+                                       delta=f"±{tt['diff_std']:.1f}C", color=css_var("vis")), unsafe_allow_html=True)
             with c2:
                 st.markdown(_uni_card("波动程度", tt.get("volatility", ""), "",
-                                       delta=f"标准差 {tt['overall_std']:.1f}C", color="#06b6d4"), unsafe_allow_html=True)
+                                       delta=f"标准差 {tt['overall_std']:.1f}C", color=css_var("rain")), unsafe_allow_html=True)
             with c3:
                 hot_days = prec.get("consecutive_hot", 0)
                 d = f"最长 {hot_days} 天" if hot_days > 0 else None
                 st.markdown(_uni_card("连续高温", f"{hot_days}", " 天",
-                                       delta=d, color="#ef4444"), unsafe_allow_html=True)
+                                       delta=d, color=css_var("temp")), unsafe_allow_html=True)
         # 降水精度
         pcat = prec.get("precip_cats", {})
         mp = prec.get("max_6h_precip")
@@ -1322,14 +1336,30 @@ def _get_now_row(fdf):
 # ============================================================
 # 通用统计卡片（统一视觉语言，替代 st.metric）
 # ============================================================
-def _uni_card(label, value, unit="", delta=None, color="#3b82f6", dark=None):
-    """通用统计卡片：彩色左边框 + 标签/大值/副文本，统一替代 st.metric()"""
-    if dark is None:
-        dark = _is_dark()
-    bg = "#1e293b" if dark else "#ffffff"
-    border = "#334155" if dark else "#e2e8f0"
-    label_c = "#94a3b8" if dark else "#64748b"
-    val_c = "#e2e8f0" if dark else "#1e293b"
+# 改造前本文件有三处几乎逐字重复的卡片构造代码，各自维护一份
+# `bg/border/label_color/val_color = "#xxx" if dark else "#yyy"` 分支：
+#   _uni_card / _render_current_conditions 内的 _card / _render_life_indices 内的 _card
+# 三份分支的标准色并不一致（#1e293b vs #232a3d、#64748b vs #94a3b8），
+# 于是同一页面里不同卡片在暗色下深浅不同。现在统一由下面的辅助函数产出，
+# 且一律走 CSS 变量，主题切换无需 Python 重新渲染。
+def _card_surface() -> tuple[str, str, str, str]:
+    """返回卡片统一的 (底色, 描边, 弱化文字, 主文字) 四个 CSS 值。"""
+    return (
+        css_var("surface"),
+        css_var("line"),
+        css_var("text-muted"),
+        css_var("text-primary"),
+    )
+
+
+def _uni_card(label, value, unit="", delta=None, color=None):
+    """通用统计卡片：彩色左边框 + 标签/大值/副文本，统一替代 st.metric()
+
+    ``color`` 传入 token 名（如 ``"temp"`` / ``"wind"``）或任意 CSS 颜色值；
+    不传时用品牌强调色。改造前默认值是写死的 ``#3b82f6``，在暗色下偏暗。
+    """
+    color = color or css_var("accent")
+    bg, border, label_c, val_c = _card_surface()
 
     delta_html = ""
     if delta:
@@ -1398,40 +1428,28 @@ def _render_current_conditions(fdf):
             pass
 
     bf_level, bf_name = get_beaufort_level(wind)
-    dark = _is_dark()
 
-    # --- 干湿描述 ---
+    # --- 干湿描述（颜色改走 token，暗色下自动取更亮一档）---
     if humid >= 80:
-        humid_desc = "潮湿"
-        humid_color = "#3b82f6"
+        humid_desc, humid_color = "潮湿", css_var("humid")
     elif humid >= 60:
-        humid_desc = "湿润"
-        humid_color = "#06b6d4"
+        humid_desc, humid_color = "湿润", css_var("rain")
     elif humid >= 40:
-        humid_desc = "舒适"
-        humid_color = "#22c55e"
+        humid_desc, humid_color = "舒适", css_var("pres")
     else:
-        humid_desc = "干燥"
-        humid_color = "#f59e0b"
+        humid_desc, humid_color = "干燥", css_var("wind")
 
     # --- 降水概率描述 ---
     if precip_prob >= 70:
-        prob_desc = "很可能下雨"
-        prob_color = "#3b82f6"
+        prob_desc, prob_color = "很可能下雨", css_var("humid")
     elif precip_prob >= 40:
-        prob_desc = "有可能下雨"
-        prob_color = "#06b6d4"
+        prob_desc, prob_color = "有可能下雨", css_var("rain")
     elif precip_prob >= 10:
-        prob_desc = "基本无雨"
-        prob_color = "#22c55e"
+        prob_desc, prob_color = "基本无雨", css_var("pres")
     else:
-        prob_desc = "晴朗"
-        prob_color = "#f59e0b"
+        prob_desc, prob_color = "晴朗", css_var("wind")
 
-    bg = "#1e293b" if dark else "#ffffff"
-    border = "#334155" if dark else "#e2e8f0"
-    label_color = "#94a3b8" if dark else "#64748b"
-    val_color = "#e2e8f0" if dark else "#1e293b"
+    bg, border, label_color, val_color = _card_surface()
 
     def _card(icon, label, value, unit, sub, color):
         return f"""
@@ -1451,10 +1469,10 @@ def _render_current_conditions(fdf):
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
         st.markdown(_card("[T]", "气温", f"{temp:.1f}", "C",
-                         f"体感 {app_temp:.1f}C", "#ef4444"), unsafe_allow_html=True)
+                         f"体感 {app_temp:.1f}C", css_var("temp")), unsafe_allow_html=True)
     with c2:
         st.markdown(_card("[W]", f"风力 {bf_level}级", f"{wind:.1f}", "m/s",
-                         bf_name, "#f39c12"), unsafe_allow_html=True)
+                         bf_name, css_var("wind")), unsafe_allow_html=True)
     with c3:
         st.markdown(_card("[H]", "相对湿度", f"{humid:.0f}", "%",
                          humid_desc, humid_color), unsafe_allow_html=True)
@@ -1467,7 +1485,7 @@ def _render_current_conditions(fdf):
                              f"{aq_level} · {aq_primary}", aq_color), unsafe_allow_html=True)
         else:
             st.markdown(_card("[AQ]", "空气质量", "—", "",
-                             "暂无数据", "#94a3b8"), unsafe_allow_html=True)
+                             "暂无数据", css_var("text-muted")), unsafe_allow_html=True)
 
 
 # ============================================================
@@ -1534,41 +1552,41 @@ def _calc_life_indices(fdf):
     # 1. 穿衣指数
     ref_temp = app_temp if abs(app_temp - temp) > 2 else temp
     if ref_temp < 5:
-        indices["clothing"] = {"level": "厚冬装", "score": 5, "advice": "羽绒/棉服+毛衣+保暖内衣", "color": "#3b82f6"}
+        indices["clothing"] = {"level": "厚冬装", "score": 5, "advice": "羽绒/棉服+毛衣+保暖内衣", "color": "accent"}
     elif ref_temp < 12:
-        indices["clothing"] = {"level": "初冬装", "score": 4, "advice": "风衣/外套+毛衣或薄羽绒", "color": "#06b6d4"}
+        indices["clothing"] = {"level": "初冬装", "score": 4, "advice": "风衣/外套+毛衣或薄羽绒", "color": "humid"}
     elif ref_temp < 18:
-        indices["clothing"] = {"level": "春秋装", "score": 3, "advice": "薄外套/夹克+长裤", "color": "#22c55e"}
+        indices["clothing"] = {"level": "春秋装", "score": 3, "advice": "薄外套/夹克+长裤", "color": "sev-best"}
     elif ref_temp < 25:
-        indices["clothing"] = {"level": "轻便", "score": 2, "advice": "长袖/薄衫+单裤", "color": "#84cc16"}
+        indices["clothing"] = {"level": "轻便", "score": 2, "advice": "长袖/薄衫+单裤", "color": "sev-good"}
     elif ref_temp < 30:
-        indices["clothing"] = {"level": "夏装", "score": 1, "advice": "短袖/短裤/短裙", "color": "#f59e0b"}
+        indices["clothing"] = {"level": "夏装", "score": 1, "advice": "短袖/短裤/短裙", "color": "sev-mid"}
     else:
-        indices["clothing"] = {"level": "酷热", "score": 0, "advice": "透气浅色衣物，注意防晒", "color": "#ef4444"}
+        indices["clothing"] = {"level": "酷热", "score": 0, "advice": "透气浅色衣物，注意防晒", "color": "sev-bad"}
 
     # 2. 带伞建议
     rain_codes = set(range(50, 70)) | set(range(80, 87)) | set(range(95, 100))
     has_rain_code = wcode in rain_codes
     if total_precip_72 > 10 or (has_rain_code and precip > 0.5):
-        indices["umbrella"] = {"level": "必带伞", "score": 3, "advice": "未来72h有明显降水，出门务必带伞", "color": "#3b82f6"}
+        indices["umbrella"] = {"level": "必带伞", "score": 3, "advice": "未来72h有明显降水，出门务必带伞", "color": "humid"}
     elif total_precip_72 > 0.1 or precip_prob >= 40 or has_rain_code:
-        indices["umbrella"] = {"level": "建议备伞", "score": 2, "advice": "有降水可能，建议随身携带雨具", "color": "#06b6d4"}
+        indices["umbrella"] = {"level": "建议备伞", "score": 2, "advice": "有降水可能，建议随身携带雨具", "color": "rain"}
     else:
-        indices["umbrella"] = {"level": "无需带伞", "score": 0, "advice": "未来72h无明显降水", "color": "#22c55e"}
+        indices["umbrella"] = {"level": "无需带伞", "score": 0, "advice": "未来72h无明显降水", "color": "sev-best"}
 
     # 3. 体感舒适度 (Thom 不适指数: 高值=炎热, 低值=寒冷, 15-19=舒适)
     if ssd >= 29:
-        indices["comfort"] = {"level": "炎热不舒适", "score": round(ssd, 1), "advice": "体感闷热，减少户外停留，注意防暑", "color": "#ef4444"}
+        indices["comfort"] = {"level": "炎热不舒适", "score": round(ssd, 1), "advice": "体感闷热，减少户外停留，注意防暑", "color": "sev-bad"}
     elif ssd >= 24:
-        indices["comfort"] = {"level": "偏热", "score": round(ssd, 1), "advice": "多数人感到偏热，注意通风降温", "color": "#f59e0b"}
+        indices["comfort"] = {"level": "偏热", "score": round(ssd, 1), "advice": "多数人感到偏热，注意通风降温", "color": "sev-mid"}
     elif ssd >= 20:
-        indices["comfort"] = {"level": "较舒适", "score": round(ssd, 1), "advice": "少部分人可能感觉微热", "color": "#eab308"}
+        indices["comfort"] = {"level": "较舒适", "score": round(ssd, 1), "advice": "少部分人可能感觉微热", "color": "sev-mid"}
     elif ssd >= 15:
-        indices["comfort"] = {"level": "舒适", "score": round(ssd, 1), "advice": "体感舒适宜人，适合户外活动", "color": "#22c55e"}
+        indices["comfort"] = {"level": "舒适", "score": round(ssd, 1), "advice": "体感舒适宜人，适合户外活动", "color": "sev-best"}
     elif ssd >= 10:
-        indices["comfort"] = {"level": "偏凉", "score": round(ssd, 1), "advice": "体感偏凉，适当添衣", "color": "#06b6d4"}
+        indices["comfort"] = {"level": "偏凉", "score": round(ssd, 1), "advice": "体感偏凉，适当添衣", "color": "humid"}
     else:
-        indices["comfort"] = {"level": "寒冷不舒适", "score": round(ssd, 1), "advice": "体感寒冷，注意保暖防寒", "color": "#3b82f6"}
+        indices["comfort"] = {"level": "寒冷不舒适", "score": round(ssd, 1), "advice": "体感寒冷，注意保暖防寒", "color": "accent"}
 
     # 4. 运动指数
     exercise_score = 100
@@ -1580,35 +1598,35 @@ def _calc_life_indices(fdf):
     exercise_score -= min(30, total_precip_72 * 2)
     exercise_score -= min(20, max(0, (avg_wind_72 - 10.8) * 3))
     if exercise_score >= 70:
-        indices["exercise"] = {"level": "适宜", "score": int(exercise_score), "advice": "天气适合户外运动", "color": "#22c55e"}
+        indices["exercise"] = {"level": "适宜", "score": int(exercise_score), "advice": "天气适合户外运动", "color": "sev-best"}
     elif exercise_score >= 50:
-        indices["exercise"] = {"level": "较适宜", "score": int(exercise_score), "advice": "可适度户外活动", "color": "#84cc16"}
+        indices["exercise"] = {"level": "较适宜", "score": int(exercise_score), "advice": "可适度户外活动", "color": "sev-good"}
     elif exercise_score >= 30:
-        indices["exercise"] = {"level": "一般", "score": int(exercise_score), "advice": "建议室内运动为主", "color": "#f59e0b"}
+        indices["exercise"] = {"level": "一般", "score": int(exercise_score), "advice": "建议室内运动为主", "color": "sev-mid"}
     else:
-        indices["exercise"] = {"level": "不适宜", "score": int(exercise_score), "advice": "天气条件差，避免户外运动", "color": "#ef4444"}
+        indices["exercise"] = {"level": "不适宜", "score": int(exercise_score), "advice": "天气条件差，避免户外运动", "color": "sev-bad"}
 
     # 5. 紫外线指数 (天气码近似推断)
     sunny_codes = set(range(0, 3))
     cloudy_codes = set(range(3, 6)) | {45, 48}
     if wcode in sunny_codes and avg_temp_72 > 15:
-        indices["uv"] = {"level": "很强", "score": 4, "advice": "紫外线强，外出涂防晒霜、戴帽子和太阳镜", "color": "#ef4444"}
+        indices["uv"] = {"level": "很强", "score": 4, "advice": "紫外线强，外出涂防晒霜、戴帽子和太阳镜", "color": "sev-bad"}
     elif wcode in sunny_codes:
-        indices["uv"] = {"level": "强", "score": 3, "advice": "紫外线较强，注意防晒", "color": "#f59e0b"}
+        indices["uv"] = {"level": "强", "score": 3, "advice": "紫外线较强，注意防晒", "color": "sev-mid"}
     elif wcode in cloudy_codes:
-        indices["uv"] = {"level": "中等", "score": 2, "advice": "紫外线中等，可适当防护", "color": "#eab308"}
+        indices["uv"] = {"level": "中等", "score": 2, "advice": "紫外线中等，可适当防护", "color": "sev-mid"}
     else:
-        indices["uv"] = {"level": "低", "score": 1, "advice": "紫外线弱，无需特别防护", "color": "#22c55e"}
+        indices["uv"] = {"level": "低", "score": 1, "advice": "紫外线弱，无需特别防护", "color": "sev-best"}
 
     # 6. 洗车指数 (72h 累计降水)
     if total_precip_72 < 0.1:
-        indices["carwash"] = {"level": "适宜", "score": 3, "advice": "未来三天基本无雨，放心洗车", "color": "#22c55e"}
+        indices["carwash"] = {"level": "适宜", "score": 3, "advice": "未来三天基本无雨，放心洗车", "color": "sev-best"}
     elif total_precip_72 < 5:
-        indices["carwash"] = {"level": "较适宜", "score": 2, "advice": "小雨可能，影响不大", "color": "#84cc16"}
+        indices["carwash"] = {"level": "较适宜", "score": 2, "advice": "小雨可能，影响不大", "color": "sev-good"}
     elif total_precip_72 < 15:
-        indices["carwash"] = {"level": "一般", "score": 1, "advice": "有降水，建议暂缓洗车", "color": "#f59e0b"}
+        indices["carwash"] = {"level": "一般", "score": 1, "advice": "有降水，建议暂缓洗车", "color": "sev-mid"}
     else:
-        indices["carwash"] = {"level": "不适宜", "score": 0, "advice": "雨水较多，别洗了", "color": "#ef4444"}
+        indices["carwash"] = {"level": "不适宜", "score": 0, "advice": "雨水较多，别洗了", "color": "sev-bad"}
 
     # 7. 晾晒指数
     dry_score = 100
@@ -1616,13 +1634,13 @@ def _calc_life_indices(fdf):
     dry_score -= min(30, max(0, (avg_humid_72 - 70) * 2))
     dry_score += min(20, avg_wind_72 * 2)  # 微风有利晾晒
     if dry_score >= 70:
-        indices["drying"] = {"level": "非常适宜", "score": int(dry_score), "advice": "天气干燥有风，适合晾晒衣物", "color": "#22c55e"}
+        indices["drying"] = {"level": "非常适宜", "score": int(dry_score), "advice": "天气干燥有风，适合晾晒衣物", "color": "sev-best"}
     elif dry_score >= 50:
-        indices["drying"] = {"level": "适宜", "score": int(dry_score), "advice": "可以晾晒，但注意天气变化", "color": "#84cc16"}
+        indices["drying"] = {"level": "适宜", "score": int(dry_score), "advice": "可以晾晒，但注意天气变化", "color": "sev-good"}
     elif dry_score >= 30:
-        indices["drying"] = {"level": "一般", "score": int(dry_score), "advice": "湿度偏大，晾晒较慢", "color": "#f59e0b"}
+        indices["drying"] = {"level": "一般", "score": int(dry_score), "advice": "湿度偏大，晾晒较慢", "color": "sev-mid"}
     else:
-        indices["drying"] = {"level": "不适宜", "score": int(dry_score), "advice": "潮湿多雨，不宜室外晾晒", "color": "#ef4444"}
+        indices["drying"] = {"level": "不适宜", "score": int(dry_score), "advice": "潮湿多雨，不宜室外晾晒", "color": "sev-bad"}
 
     return indices
 
@@ -1643,18 +1661,14 @@ def _render_life_indices(indices, inline=False):
     title_level = "####" if inline else "###"
     st.write(f"{title_level} 生活出行指南")
 
-    dark = _is_dark()
-    bg = "#1e293b" if dark else "#ffffff"
-    border = "#334155" if dark else "#e2e8f0"
-    label_color = "#94a3b8" if dark else "#64748b"
-    val_color = "#e2e8f0" if dark else "#1e293b"
+    bg, border, label_color, val_color = _card_surface()
 
     def _card(key, info):
         icon, name = _LIFE_INDEX_META.get(key, ("[?]", key))
         level = info["level"]
         score = info["score"]
         advice = info["advice"]
-        color = info["color"]
+        color = _sev(info["color"])
         score_text = f"{score}" if isinstance(score, int) else f"{score:.1f}"
         return f"""
         <div style="background:{bg};border:1px solid {border};border-radius:10px;
@@ -1662,7 +1676,8 @@ def _render_life_indices(indices, inline=False):
             <div style="position:absolute;left:0;top:0;bottom:0;width:4px;background:{color};"></div>
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
                 <span style="font-size:0.82rem;color:{label_color};">{icon} {name}</span>
-                <span style="font-size:0.75rem;font-weight:600;color:{color};background:{color}22;
+                <span style="font-size:0.75rem;font-weight:600;color:{color};
+                             background:color-mix(in srgb, {color} 16%, transparent);
                              padding:2px 8px;border-radius:10px;">{level}</span>
             </div>
             <div style="font-size:1.4rem;font-weight:700;color:{color};margin-bottom:4px;">{score_text}</div>
@@ -1931,3 +1946,4 @@ def render_forecast_tab():
     st.write("### [验证] 预报验证 (GFS vs 实况)")
     with st.expander("展开预报验证", expanded=False):
         _render_forecast_verification()
+

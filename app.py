@@ -42,6 +42,7 @@ from modules.nwp_forecast import render_forecast_tab
 from utils import df_fingerprint as _df_fingerprint, go_back as _go_back, _safe_toast
 from auth import render_auth_page, is_authenticated, sign_out_user
 from modules import theme_aether
+from modules.design_tokens import css_var
 from modules.weather_wall import render_wall
 
 # 主题初始化：必须在任何读取 dark_mode 的代码（CSS 注入、_is_dark）之前执行。
@@ -283,13 +284,15 @@ def _render_progress_bar():
     cols = st.columns(len(steps))
     for i, (label, icon) in enumerate(steps):
         with cols[i]:
+            # 进度步骤配色改走 token：这里是纯内联 HTML，硬编码的
+            # #1a365d / #e8f0fe 在暗色下会让「已完成」步骤变成刺眼的浅蓝方块
             if i <= current:
-                color = "#1a365d"
-                bg = "#e8f0fe"
+                color = css_var("accent")
+                bg = css_var("accent-soft")
                 mark = "✓"
             else:
-                color = "#b0b8c4"
-                bg = "#f5f6f8"
+                color = css_var("text-muted")
+                bg = css_var("surface-2")
                 mark = "·"
             st.markdown(f"""
             <div style="
@@ -330,7 +333,7 @@ def _render_next_step_hint():
         st.markdown(f"""
         <div style="
             background: var(--warning-bg);
-            border-left: 3px solid #e8943a;
+            border-left: 3px solid var(--warning-ink);
             padding: 8px 14px;
             border-radius: 0 8px 8px 0;
             margin-bottom: 6px;
@@ -418,359 +421,23 @@ def _record_import(source, df):
 st.set_page_config(**PAGE_CONFIG)
 
 # ============================================================
+# 视觉系统 — 单次注入，覆盖亮/暗两套 token + Streamlit 原生组件覆盖层
+# ============================================================
+# 改造前这里是「一大段亮色 :root 变量块」，再由 theme_aether 注入第二套变量
+# 靠「后定义者胜出」压掉它，两套配色同时在跑且权重相同；同时它位于登录门禁
+# 之后，登录页完全没有主题样式。现在：
+#   · token 统一来自 modules/design_tokens.py（唯一真相源）
+#   · 样式必须在登录门禁【之前】注入，否则未登录状态不跟随用户主题偏好
+# set_page_config 必须是第一个 st 调用，因此注入紧跟其后。
+theme_aether.inject_theme()
+
+# ============================================================
 # 登录门禁：未登录只渲染登录页，已登录才进入主程序
 # ============================================================
 if not is_authenticated():
     render_auth_page()
     st.stop()
 
-# ============================================================
-# 视觉系统 — CSS 变量统一亮/暗模式
-# ============================================================
-st.markdown("""
-<style>
-/* ===== 变量: 亮色模式 ===== */
-:root {
-    --bg-primary: #ffffff;
-    --bg-secondary: #f8fafc;
-    --bg-tertiary: #f1f5f9;
-    --bg-hover: #e2e8f0;
-    --text-primary: #0f172a;
-    --text-secondary: #475569;
-    --text-muted: #94a3b8;
-    --border-color: #e2e8f0;
-    --border-hover: #3b82f6;
-    --accent: #1d4ed8;
-    --accent-hover: #1e3a8a;
-    --accent-soft: #eff6ff;
-    --success-bg: #f0fdf4;
-    --warning-bg: #fffbeb;
-    --error-bg: #fef2f2;
-    --radius-sm: 6px;
-    --radius-md: 10px;
-    --radius-lg: 14px;
-    --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
-    --shadow-md: 0 4px 12px -2px rgba(0,0,0,0.06);
-    --shadow-lg: 0 12px 24px -4px rgba(0,0,0,0.08);
-    --transition: 150ms cubic-bezier(0.4, 0, 0.2, 1);
-    --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
-    --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-}
-
-/* ===== 布局基础 ===== */
-.stApp {
-    background: var(--bg-primary);
-    font-family: var(--font-ui);
-}
-.block-container {
-    padding: 3.5rem 2rem 1.5rem !important;
-    max-width: 1200px !important;
-}
-
-/* ===== 标题层级 ===== */
-.main-header {
-    font-size: 1.6rem;
-    font-weight: 700;
-    color: var(--accent);
-    letter-spacing: -0.02em;
-    margin-top: 0;
-    margin-bottom: 4px;
-    padding-top: 0.5rem;
-}
-.sub-header {
-    font-size: 0.85rem;
-    color: var(--text-muted);
-    letter-spacing: 0.01em;
-    margin-bottom: 1.2rem;
-}
-h1, h2, h3 {
-    color: var(--text-primary) !important;
-    letter-spacing: -0.01em;
-}
-h1 { font-size: 1.5rem !important; font-weight: 700 !important; }
-h2 { font-size: 1.2rem !important; font-weight: 600 !important; }
-h3 { font-size: 1.05rem !important; font-weight: 600 !important; }
-
-/* ===== 文本 ===== */
-p, span, label, .stMarkdown {
-    color: var(--text-secondary) !important;
-    line-height: 1.6;
-}
-.stCaption {
-    color: var(--text-muted) !important;
-    font-size: 0.8rem;
-}
-
-/* ===== 卡片 (st.container border / stMetric / stAlert / stExpander) ===== */
-[data-testid="stVerticalBlockBorderWrapper"] {
-    background: var(--bg-secondary) !important;
-    border: none !important;
-    border-radius: var(--radius-md) !important;
-    box-shadow: var(--shadow-sm) !important;
-}
-[data-testid="stMetric"] {
-    background: var(--bg-secondary) !important;
-    border: none !important;
-    border-radius: var(--radius-md) !important;
-    box-shadow: var(--shadow-sm) !important;
-    padding: 14px !important;
-}
-[data-testid="stMetric"]:hover {
-    box-shadow: var(--shadow-md) !important;
-}
-[data-testid="stMetric"] label {
-    color: var(--text-muted) !important;
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}
-[data-testid="stMetricValue"] {
-    color: var(--text-primary) !important;
-    font-family: var(--font-mono);
-    font-size: 1.5rem !important;
-    font-weight: 700;
-}
-
-/* ===== 按钮 ===== */
-.stButton > button {
-    background: var(--bg-secondary) !important;
-    color: var(--text-primary) !important;
-    border: none !important;
-    border-radius: var(--radius-sm) !important;
-    font-family: var(--font-ui);
-    font-size: 0.875rem;
-    font-weight: 500;
-    padding: 6px 16px !important;
-    transition: all var(--transition);
-    box-shadow: var(--shadow-sm);
-}
-.stButton > button:hover {
-    background: var(--bg-hover) !important;
-    box-shadow: var(--shadow-md);
-    transform: translateY(-1px);
-}
-.stButton > button:active {
-    transform: translateY(0);
-    box-shadow: var(--shadow-sm);
-}
-button[kind="primary"] {
-    background: #faf6ef !important;
-    color: #1e293b !important;
-    border: none !important;
-    box-shadow: 0 1px 2px rgba(120, 90, 40, 0.08), var(--shadow-sm) !important;
-    font-weight: 600 !important;
-}
-button[kind="primary"]:hover {
-    background: #f3eddf !important;
-    box-shadow: 0 2px 4px rgba(120, 90, 40, 0.12), var(--shadow-md) !important;
-}
-
-/* ===== 输入框 ===== */
-.stTextInput input, .stNumberInput input, .stSelectbox [data-baseweb="select"] {
-    background: var(--bg-secondary) !important;
-    color: var(--text-primary) !important;
-    border: none !important;
-    box-shadow: 0 0 0 1px var(--border-color) inset;
-    border-radius: var(--radius-sm) !important;
-    font-family: var(--font-ui);
-    transition: box-shadow var(--transition);
-}
-.stTextInput input:focus, .stNumberInput input:focus {
-    box-shadow: 0 0 0 2px var(--accent), 0 0 0 4px rgba(37,99,235,0.1) !important;
-}
-.stNumberInput button {
-    background: var(--bg-tertiary) !important;
-    color: var(--text-secondary) !important;
-    border: none !important;
-}
-
-/* ===== 展开器 ===== */
-[data-testid="stExpander"] {
-    background: var(--bg-secondary) !important;
-    border: none !important;
-    border-radius: var(--radius-md) !important;
-    box-shadow: var(--shadow-sm);
-}
-[data-testid="stExpander"] summary {
-    color: var(--text-primary) !important;
-    font-weight: 500;
-    transition: color var(--transition);
-}
-[data-testid="stExpander"] summary:hover {
-    color: var(--accent) !important;
-}
-
-/* ===== 提示框 ===== */
-div[data-testid="stAlert"] {
-    background: var(--bg-secondary) !important;
-    border: none !important;
-    border-radius: var(--radius-md) !important;
-    box-shadow: var(--shadow-sm);
-}
-.stSuccess { background: var(--success-bg) !important; border-left: 3px solid #22c55e !important; }
-.stWarning { background: var(--warning-bg) !important; border-left: 3px solid #f59e0b !important; }
-.stError   { background: var(--error-bg) !important;   border-left: 3px solid #ef4444 !important; }
-
-/* ===== 数据表格 ===== */
-[data-testid="stDataFrame"] {
-    border: none !important;
-    border-radius: var(--radius-md) !important;
-    overflow: hidden;
-    box-shadow: var(--shadow-sm) !important;
-}
-[data-testid="stDataFrame"] thead th {
-    background: var(--bg-tertiary) !important;
-    color: var(--text-secondary) !important;
-    font-weight: 600;
-    font-size: 0.8rem;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-    border-bottom: none !important;
-}
-[data-testid="stDataFrame"] tbody tr:nth-child(even) {
-    background: var(--bg-secondary);
-}
-[data-testid="stDataFrame"] tbody td {
-    color: var(--text-secondary) !important;
-    font-family: var(--font-mono);
-    font-size: 0.85rem;
-}
-
-/* ===== Tab ===== */
-.stTabs [data-baseweb="tab"] {
-    color: var(--text-muted) !important;
-    font-weight: 500;
-    transition: color var(--transition);
-}
-.stTabs [data-baseweb="tab"][aria-selected="true"] {
-    color: var(--accent) !important;
-    font-weight: 600;
-}
-.stTabs [data-baseweb="tab-list"] {
-    border-bottom: none !important;
-    gap: 0;
-}
-
-/* ===== Radio (主 Tab 导航) ===== */
-[data-testid="stRadio"] [role="radiogroup"] {
-    gap: 4px;
-}
-[data-testid="stRadio"] [role="radiogroup"] label {
-    color: var(--text-secondary) !important;
-    font-weight: 500;
-    font-size: 0.875rem;
-    padding: 8px 18px;
-    border: none !important;
-    border-radius: var(--radius-sm);
-    transition: all var(--transition);
-}
-[data-testid="stRadio"] [role="radiogroup"] label:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary) !important;
-}
-[data-testid="stRadio"] [data-baseweb="radio"]:has(input:checked) + div label {
-    background: var(--accent-soft);
-    color: var(--accent) !important;
-    font-weight: 600;
-}
-
-/* ===== 侧边栏 ===== */
-[data-testid="stSidebar"] {
-    background: var(--bg-secondary);
-    border-right: none;
-}
-[data-testid="stSidebar"] .stMarkdown,
-[data-testid="stSidebar"] label,
-[data-testid="stSidebar"] p {
-    color: var(--text-secondary) !important;
-}
-
-/* ===== 分割线 ===== */
-hr {
-    border: none;
-    height: 1px;
-    background: var(--border-color);
-    margin: 1rem 0;
-}
-
-/* ===== 文件上传 ===== */
-[data-testid="stFileUploader"] section {
-    background: var(--bg-secondary) !important;
-    border: none !important;
-    border-radius: var(--radius-md) !important;
-    box-shadow: var(--shadow-sm) !important;
-}
-[data-testid="stFileUploader"] section:hover {
-    box-shadow: var(--shadow-md) !important;
-}
-[data-testid="stFileUploader"] section p {
-    color: var(--text-muted) !important;
-}
-
-/* ===== 滚动条 ===== */
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: var(--bg-primary); }
-::-webkit-scrollbar-thumb {
-    background: var(--border-color);
-    border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
-
-/* ===== Plotly 图表容器 ===== */
-.js-plotly-plot, .plot-container {
-    border-radius: var(--radius-md) !important;
-}
-.js-plotly-plot .plotly .main-svg {
-    border-radius: var(--radius-md);
-}
-
-/* ===== 移动端 ===== */
-@media screen and (max-width: 768px) {
-    .block-container { padding: 1rem 0.5rem !important; }
-    .main-header { font-size: 1.3rem !important; }
-    .sub-header { font-size: 0.75rem !important; }
-    [data-testid="column"] { flex: 1 1 100% !important; min-width: 100% !important; }
-    .stTabs [data-baseweb="tab"] { padding: 6px 10px !important; font-size: 0.75rem !important; }
-    .stButton > button { width: 100% !important; }
-    [data-testid="stRadio"] [role="radiogroup"] { flex-direction: column !important; gap: 2px; }
-    [data-testid="stRadio"] [role="radiogroup"] label { padding: 6px 12px !important; font-size: 0.8rem !important; }
-    [data-testid="stMetric"] { padding: 10px !important; }
-    .js-plotly-plot, .plot-container { max-height: 280px !important; }
-    [data-testid="stDataFrame"] { overflow-x: auto !important; font-size: 0.75rem !important; }
-}
-@media screen and (min-width: 769px) and (max-width: 1024px) {
-    .block-container { padding: 1.2rem 1rem !important; }
-    .main-header { font-size: 1.5rem !important; }
-}
-
-/* ===== MultiSelect 标签: 淡蓝色（亮暗模式自动适配变量） ===== */
-[data-testid="stMultiSelect"] [data-baseweb="tag"] {
-    background-color: var(--accent-soft) !important;
-}
-[data-testid="stMultiSelect"] [data-baseweb="tag"] span {
-    color: var(--accent) !important;
-}
-
-/* ===== 无边框安全网：兜底清除所有 Streamlit 组件边框 ===== */
-[data-testid="stVerticalBlock"],
-[data-testid="stVerticalBlockBorderWrapper"],
-[data-testid="stColumn"],
-.stSelectbox [data-baseweb="select"],
-.stTextInput > div > div,
-.stNumberInput > div > div,
-[data-testid="stRadio"] [role="radiogroup"] label,
-[data-testid="stCheckbox"] label,
-button[kind="secondary"],
-.stDownloadButton button,
-div[data-baseweb="popover-content"] {
-    border: none !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# ---- Aether 主题覆盖层（亮/暗统一由 theme_aether 按当前主题输出一套变量，
-#      旧版亮/暗变量块由此接管，避免两套皮肤并存） ----
-theme_aether.inject_theme()
 
 # 头部
 st.markdown('<div class="main-header">[天气] 气象数据交互分析平台</div>', unsafe_allow_html=True)

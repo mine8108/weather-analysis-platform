@@ -486,7 +486,14 @@ LIFE_INDEX_META = {
 # ============================================================
 # 五、配色方案
 # ============================================================
+# 说明：本表是项目早期的图表配色表，键名被各模块大量引用。
+# 为避免与 modules/design_tokens.py 的 token 表漂移（改造前同一个「红色」
+# 在 config、analyzer、nwp_forecast 三处取值不同），此处取值已与
+# design_tokens.LIGHT_TOKENS 对齐：
+#   · 模块内联样式用 design_tokens.color_var(key) → var(--token)，随主题切换；
+#   · 图表参数用 design_tokens.color_value(key)   → 当前主题的具体色值。
 COLORS = {
+    # 通用分类色（primary/purple 等映射到 token，见 COLOR_KEY_TO_TOKEN）
     "primary": "#1f77b4",
     "secondary": "#ff7f0e",
     "success": "#2ca02c",
@@ -495,24 +502,24 @@ COLORS = {
     "info": "#17becf",
     "purple": "#9467bd",
     "pink": "#e377c2",
-    # 预警颜色
-    "warn_blue": "#2f6fb8",
-    "warn_yellow": "#d69e2e",
-    "warn_orange": "#d96c3d",
-    "warn_red": "#c0392b",
-    # 图表色系
-    "temp_color": "#e74c3c",
-    "pres_color": "#27ae60",
-    "humid_color": "#3498db",
-    "wind_color": "#f39c12",
-    "vis_color": "#9b59b6",
-    "rain_color": "#2980b9",
-    # 大气污染物色系
-    "so2_color": "#d4a017",    # SO₂ 硫磺黄
-    "nox_color": "#c0504d",    # NOx 铁锈红棕
-    "tsp_color": "#8b7355",    # TSP 灰棕
-    "pm25_color": "#5b7a9e",   # PM2.5 灰蓝
-    "pm10_color": "#6b5b7a",   # PM10 灰紫
+    # 预警颜色（与 design_tokens 的 warn-4/3/2/1 同源）
+    "warn_blue": "#1f5c9e",
+    "warn_yellow": "#8a6410",
+    "warn_orange": "#a8561f",
+    "warn_red": "#a82c22",
+    # 图表色系（与 design_tokens 的 temp/pres/humid/wind/vis/rain 同源）
+    "temp_color": "#c0392b",
+    "pres_color": "#1f7a4d",
+    "humid_color": "#1f6fb2",
+    "wind_color": "#8a5a0a",
+    "vis_color": "#7d4fa8",
+    "rain_color": "#1f6fa8",
+    # 大气污染物色系（与 design_tokens 的 so2/nox/tsp/pm25/pm10 同源）
+    "so2_color": "#a37a10",    # SO₂ 硫磺黄
+    "nox_color": "#a8443f",    # NOx 铁锈红棕
+    "tsp_color": "#7a6549",    # TSP 灰棕
+    "pm25_color": "#4a6b8f",   # PM2.5 灰蓝
+    "pm10_color": "#5f5578",   # PM10 灰紫
 }
 
 # ============================================================
@@ -537,12 +544,12 @@ AQI_BREAKPOINTS = {
 }
 
 AQI_LEVELS = {
-    1:  {"range": (0, 50),     "label": "优",     "en": "Excellent",           "color": "#3fa660"},
-    2:  {"range": (51, 100),   "label": "良",     "en": "Good",                "color": "#c9a227"},
-    3:  {"range": (101, 150),  "label": "轻度污染", "en": "Lightly Polluted",    "color": "#e08a3c"},
-    4:  {"range": (151, 200),  "label": "中度污染", "en": "Moderately Polluted",  "color": "#d45d4f"},
-    5:  {"range": (201, 300),  "label": "重度污染", "en": "Heavily Polluted",     "color": "#9c4d79"},
-    6:  {"range": (301, 500),  "label": "严重污染", "en": "Severely Polluted",    "color": "#8e3b4d"},
+    1:  {"range": (0, 50),     "label": "优",     "en": "Excellent",           "color": "#2f7d4f"},
+    2:  {"range": (51, 100),   "label": "良",     "en": "Good",                "color": "#7d6210"},
+    3:  {"range": (101, 150),  "label": "轻度污染", "en": "Lightly Polluted",    "color": "#a85f1e"},
+    4:  {"range": (151, 200),  "label": "中度污染", "en": "Moderately Polluted",  "color": "#a8443f"},
+    5:  {"range": (201, 300),  "label": "重度污染", "en": "Heavily Polluted",     "color": "#7d3d60"},
+    6:  {"range": (301, 500),  "label": "严重污染", "en": "Severely Polluted",    "color": "#8a3040"},
 }
 
 # 健康建议（按AQI等级，HJ 633-2026 新增敏感人群分类）
@@ -566,19 +573,20 @@ AIR_POLLUTANT_LIMITS = {
     "tsp":  {"annual": 200,"daily": 300},
 }
 
-# 预警级别样式（低饱和柔和色系）
+# 预警级别样式（与 design_tokens 的 warn-4/3/2/1 同源）
 WARN_STYLES = {
-    "蓝色": {"color": "#2f6fb8", "bg": "#e6f0ff", "text_color": "white"},
-    "黄色": {"color": "#d69e2e", "bg": "#fff8e6", "text_color": "#333"},
-    "橙色": {"color": "#d96c3d", "bg": "#fff0e6", "text_color": "white"},
-    "红色": {"color": "#c0392b", "bg": "#ffe6e6", "text_color": "white"},
+    "蓝色": {"color": "#1f5c9e", "bg": "#e6f0ff", "text_color": "white"},
+    "黄色": {"color": "#8a6410", "bg": "#fff8e6", "text_color": "#333"},
+    "橙色": {"color": "#a8561f", "bg": "#fff0e6", "text_color": "white"},
+    "红色": {"color": "#a82c22", "bg": "#ffe6e6", "text_color": "white"},
 }
 
 # ============================================================
 # 六、Streamlit 页面配置
 # ============================================================
 # 应用版本号：每次发布时 bump，页面脚注展示，用于线上版本快速辨识
-APP_VERSION = "2.2.5"
+# 2.3.0：主题系统重构（token 单一真相源 + 统一暗色覆盖层），主题分支预览用
+APP_VERSION = "2.3.0"
 
 PAGE_CONFIG = {
     "page_title": "气象数据交互分析平台",
@@ -665,12 +673,22 @@ def safe_chart(fig, section_label, *, use_container_width=True, key=None):
     参数：
       fig: plotly Figure 对象
       section_label: 图表区块名称（如 "温度时序图"），用于错误报告中定位
+
+    主题：这是全应用唯一的图表渲染出口，因此在这里统一套用图表模板，
+    并显式传 ``theme=None`` 关闭 Streamlit 的前端主题覆盖——否则
+    Streamlit 会用它自己的（config.toml 里钉死的亮色）主题盖掉
+    figure 的 layout，图表在暗色模式下就会露白底、黑字看不见。
     """
     import streamlit as st
     import traceback
 
     try:
-        kwargs = {"use_container_width": use_container_width}
+        from modules import chart_theme
+
+        chart_theme.register()
+        chart_theme.apply(fig)
+
+        kwargs = {"use_container_width": use_container_width, "theme": None}
         if key:
             kwargs["key"] = key
         st.plotly_chart(fig, **kwargs)
