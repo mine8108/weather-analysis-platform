@@ -14,6 +14,11 @@ from config import (
     AQI_BREAKPOINTS, AQI_LEVELS, AQI_ADVICE, AIR_POLLUTANT_LIMITS,
     get_beaufort_level, FIELD_LABELS, WARN_LEVEL_ORDER,
 )
+from modules.design_tokens import (
+    aqi_token,
+    css_var,
+    warn_token,
+)
 
 # 可配置的事件检测规则（用户可在侧边栏自定义覆盖）
 CUSTOM_THRESHOLDS = {}
@@ -401,12 +406,17 @@ def _calc_single_aqi(conc, pollutant):
 
 
 def _aqi_level_name(aqi):
-    """AQI → 等级标签"""
+    """AQI → (等级标签, 主题 token 名)。
+
+    返回 token 名而不是 hex：调用方需要的是「跟着当前主题走」的颜色，
+    把 hex 定死在返回值里会让暗色模式拿到浅色主题的深色值
+    （改造前 ``AQI_LEVELS[...]["color"]`` 就是这样，暗色下 AQI 大数字发暗）。
+    """
     for lv, info in sorted(AQI_LEVELS.items()):
         lo, hi = info["range"]
         if lo <= aqi <= hi:
-            return info["label"], info["color"]
-    return "严重污染", "#8e3b4d"
+            return info["label"], aqi_token(info["label"])
+    return "严重污染", aqi_token("严重污染")
 
 
 def check_air_quality(df):
@@ -488,23 +498,28 @@ def _render_air_quality_section(df):
 
     aqi = result["aqi"]
     level = result["level"]
-    color = result["color"]
     primary = result["primary"] or "无"
+    # result["color"] 是 token 名，这里解析成当前主题下的 CSS 变量引用。
+    # 改造前用的是 hex 拼接（{color}22），换成 var() 后拼接会产出非法 CSS，
+    # 因此背景改走 color-mix()。
+    color = css_var(result["color"])
 
     # ---- AQI 概览卡 ----
     st.markdown(f"""
     <div style="
-        background: linear-gradient(135deg, {color}22 0%, {color}08 100%);
+        background: linear-gradient(135deg,
+            color-mix(in srgb, {color} 16%, transparent) 0%,
+            color-mix(in srgb, {color} 4%, transparent) 100%);
         border: 2px solid {color};
         border-radius: 12px;
         padding: 20px 24px;
         margin: 12px 0;
         text-align: center;
     ">
-        <div style="font-size: 0.85rem; color: {'#94a3b8' if st.session_state.get('dark_mode', False) else '#888'}; margin-bottom: 4px;">空气质量指数 (AQI)</div>
+        <div style="font-size: 0.85rem; color: {css_var('text-muted')}; margin-bottom: 4px;">空气质量指数 (AQI)</div>
         <div style="font-size: 3rem; font-weight: 800; color: {color}; line-height: 1.1;">{aqi}</div>
         <div style="font-size: 1.2rem; font-weight: 600; color: {color}; margin: 4px 0;">{level}</div>
-        <div style="font-size: 0.82rem; color: {'#94a3b8' if st.session_state.get('dark_mode', False) else '#666'};">首要污染物: {primary}</div>
+        <div style="font-size: 0.82rem; color: {css_var('text-secondary')};">首要污染物: {primary}</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -1150,28 +1165,24 @@ def render_analysis_tab(df):
         all_warnings.sort(key=lambda w: WARN_LEVEL_ORDER.get(w["level"], 4))
 
         cols = st.columns(min(len(all_warnings), 3))
-        is_dark = st.session_state.get("dark_mode", False)
-        dark_styles = {
-            "蓝色": {"color": "#60a5fa", "bg": "#1e3a5f", "text_color": "white"},
-            "黄色": {"color": "#f59e0b", "bg": "#3d2e0c", "text_color": "#e2e8f0"},
-            "橙色": {"color": "#fb923c", "bg": "#3d1f0c", "text_color": "white"},
-            "红色": {"color": "#ef4444", "bg": "#3d0c0c", "text_color": "white"},
-        }
         for i, warn in enumerate(all_warnings):
-            style = dark_styles.get(warn["level"], dark_styles["蓝色"]) if is_dark else WARN_STYLES.get(warn["level"], WARN_STYLES["蓝色"])
+            # 预警级别色统一由 design_tokens.warn_token 解析：改造前这里有一份
+            # 私有 dark_styles 字典，与 nwp_forecast 的另一份取值不同，
+            # 同一个「红色预警」在两个页面呈现两种红。
+            level_color = css_var(warn_token(warn["level"]))
             with cols[i % 3]:
                 st.markdown(f"""
                 <div style="
-                    background-color: {style['bg']};
-                    border-left: 4px solid {style['color']};
+                    background-color: color-mix(in srgb, {level_color} 14%, {css_var('surface')});
+                    border-left: 4px solid {level_color};
                     padding: 12px 16px;
                     border-radius: 4px;
                     margin-bottom: 8px;
                 ">
-                    <div style="font-size: 18px; font-weight: bold; color: {style['color']};">
+                    <div style="font-size: 18px; font-weight: bold; color: {level_color};">
                         {warn['icon']} {warn['type']}{warn['level']}事件
                     </div>
-                    <div style="font-size: 13px; color: {'#94a3b8' if is_dark else '#666'}; margin: 4px 0;">
+                    <div style="font-size: 13px; color: {css_var('text-secondary')}; margin: 4px 0;">
                         {warn['level_num']} | {warn['detail']}
                     </div>
                 </div>

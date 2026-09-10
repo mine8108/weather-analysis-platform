@@ -310,18 +310,23 @@ def _build_meta(detection):
 
 
 _CSS = """
-.report-card{background:#ffffff;color:#1f2933;border:1px solid #e2e8f0;
+/* 屏幕预览用 token 取色：改造前这里是写死的白底深蓝标题，
+   暗色模式下整块报告卡保持白底、正文 #27303a 压在深色页面上，
+   形成页面里最刺眼的「亮块」。.docx 导出仍保持学术白底版式
+   （见 _build_docx），因此两者视觉不再强绑定。 */
+.report-card{background:var(--bg-primary);color:var(--text-primary);
+  border:1px solid var(--border-color);
   border-radius:10px;padding:20px 24px;margin:10px 0;
-  box-shadow:0 1px 3px rgba(15,23,42,.10);
+  box-shadow:var(--shadow-sm);
   font-family:"Microsoft YaHei","PingFang SC","Source Han Sans SC",sans-serif;
   line-height:1.75;}
-.report-head{border-bottom:2px solid #1f4e79;padding-bottom:8px;margin-bottom:14px;}
-.report-title{font-size:20px;font-weight:700;color:#1f4e79;letter-spacing:1px;}
-.report-sub{font-size:12px;color:#64748b;margin-top:4px;}
+.report-head{border-bottom:2px solid var(--accent);padding-bottom:8px;margin-bottom:14px;}
+.report-title{font-size:20px;font-weight:700;color:var(--accent);letter-spacing:1px;}
+.report-sub{font-size:12px;color:var(--text-muted);margin-top:4px;}
 .sec{margin:14px 0;}
-.sec-h{font-size:15px;font-weight:700;color:#1f4e79;
-  border-left:4px solid #1f4e79;padding-left:10px;margin-bottom:6px;}
-.report-card p{margin:4px 0;font-size:14px;color:#27303a;}
+.sec-h{font-size:15px;font-weight:700;color:var(--accent);
+  border-left:4px solid var(--accent);padding-left:10px;margin-bottom:6px;}
+.report-card p{margin:4px 0;font-size:14px;color:var(--text-secondary);}
 """
 
 

@@ -17,6 +17,7 @@
 | **报文解码** | 粘贴 METAR / SYNOP 标准报文，自动解析为结构化数据 |
 | **报告导出** | 处理后数据与 GFS 预报数据导出 CSV；一键生成 Word 分析报告（专业版为表格化排版、通俗版为叙述式），报告内不含图片 |
 | **数值预报 (GFS)** | 接入 Open-Meteo **GFS 数值预报（免注册，最长 16 天）**：气温/体感温度/降水时间序列、空气质量预报（国标 AQI 六级分档）、未来 72 小时高温预报面板（含 35/37/40℃ 国家阈值线）、风玫瑰预报 |
+| **明暗主题** | 浅色 / 暗色一键切换（登录用户偏好云端同步，未登录时本地保存）；全站配色由 `design_tokens` 单一真相源驱动，图表随主题重绘，明暗切换不重载数据 |
 
 ---
 
@@ -76,10 +77,18 @@ weather_app/
     ├── reporter.py             # Word/CSV 报告导出
     ├── ai_narrative.py         # AI 预警叙事（DeepSeek，缺失时降级）
     ├── weather_wall.py         # 封面页天气墙（城市天气卡片）
-    ├── theme_aether.py         # Aether 主题系统（浅色/暗色）
+    ├── theme_aether.py         # 主题注入与明暗切换（会话级，无需重载）
+    ├── design_tokens.py        # 配色 token 单一真相源（浅色/暗色双套，含对比度校验）
+    ├── theme_css.py            # 全站主题样式表（暗色覆盖层按 html[data-dsh-theme] 作用域）
+    ├── chart_theme.py          # Plotly 主题模板（图表配色随明暗同步）
     ├── city_prefs.py           # 天气墙城市列表持久化
     ├── geocode.py              # 城市名 ↔ 经纬度双向解析
     └── geolocate.py            # 浏览器定位组件封装
+├── research/                   # 主题配色审计与迁移工具（不参与线上部署）
+│   ├── darkmode_contrast_probe.py  # WCAG 2.1 AA 对比度审计（双主题）
+│   ├── check_py_vars.py            # CSS 变量引用完整性检查
+│   ├── check_plotly_cssvar.py      # 图表误用 CSS var() 检查
+│   └── check_chart_colors.py       # 图表颜色实值检查（防 token 名泄漏进 Plotly）
 ```
 
 ---
@@ -123,6 +132,17 @@ python -B tests/test_auth_session.py  # 登录会话 7 条
 pip install -r requirements-dev.txt
 pytest tests -q
 ```
+
+改配色或图表样式后，另跑 `research/` 下的四项审计，全部以退出码 0 为通过：
+
+```bash
+python -B research/darkmode_contrast_probe.py   # 双主题 WCAG 对比度，须 0 项不达标
+python -B research/check_py_vars.py             # CSS 变量引用是否有未定义项
+python -B research/check_plotly_cssvar.py       # 图表是否误用了浏览器才认的 var()
+python -B research/check_chart_colors.py        # 图表颜色是否为 Plotly 认可的实值
+```
+
+> 前三项是静态检查，第四项会真实调用图表函数并检查 figure 内的颜色属性，用于拦截「token 名泄漏进 Plotly」这类只在运行时才暴露的问题。
 
 ---
 

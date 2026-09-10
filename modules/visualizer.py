@@ -12,6 +12,7 @@ from config import (
     get_beaufort_level, get_wind_direction_name, get_dominant_wind_direction,
     safe_chart, FIELD_LABELS,
 )
+from modules.design_tokens import color_value, css_var, token_value
 
 
 def _safe_xaxis(df):
@@ -117,7 +118,11 @@ def wind_rose_chart(df):
         (17.2, 999, "大风及以上"),
     ]
 
-    colors = ["#475569" if st.session_state.get("dark_mode", False) else "#e0e0e0", "#b0c4de", "#87ceeb", "#5cacee", "#3b8ed4", "#1e6bb8", "#ffa500", "#ff6347", "#cc0000"]
+    # 蒲福风级配色带改走共享 token：改造前这里是「暗色换成 #475569、其余 8 档
+    # 亮暗共用」的写法，#dceef5 / #b0c4de 这类极浅色在深底上几乎不可见，
+    # 而且与 nwp_forecast 的风玫瑰用了另一套 8 色（两处同图不同色）。
+    # 这里必须取**具体色值**而非 var()：Plotly 画的是 SVG，不解析 CSS 自定义属性。
+    colors = [token_value(f"beaufort-{i}") for i in range(1, 10)]
 
     fig = go.Figure()
     for j, (lo, hi, label) in enumerate(speed_bins):
@@ -148,7 +153,9 @@ def wind_rose_chart(df):
                 tickvals=[i * sector_width for i in range(n_sectors)],
                 ticktext=WIND_DIRECTIONS,
             ),
-            bgcolor="rgba(0,0,0,0.03)",
+            # 原来是 rgba(0,0,0,0.03)，在深色页面上会渲染成一块比页面更亮的灰，
+            # 与卡片底色割裂；改为透明，由卡片自身底色承担
+            bgcolor="rgba(0,0,0,0)",
         ),
         legend=dict(title="风速等级", y=0.5),
         height=500,
@@ -176,7 +183,7 @@ def dashboard_view(df):
     if "temperature" in df.columns:
         fig.add_trace(
             go.Scatter(x=x_data, y=df["temperature"], mode="lines+markers",
-                       line=dict(color=COLORS["temp_color"], width=2), marker=dict(size=3),
+                       line=dict(color=color_value("temp_color"), width=2), marker=dict(size=3),
                        name="气温"),
             row=1, col=1,
         )
@@ -194,7 +201,7 @@ def dashboard_view(df):
     if "pressure" in df.columns:
         fig.add_trace(
             go.Scatter(x=x_data, y=df["pressure"], mode="lines+markers",
-                       line=dict(color=COLORS["pres_color"], width=2), marker=dict(size=3),
+                       line=dict(color=color_value("pres_color"), width=2), marker=dict(size=3),
                        name="气压"),
             row=1, col=2,
         )
@@ -203,7 +210,7 @@ def dashboard_view(df):
     if "humidity" in df.columns:
         fig.add_trace(
             go.Scatter(x=x_data, y=df["humidity"], mode="lines+markers",
-                       line=dict(color=COLORS["humid_color"], width=2), marker=dict(size=3),
+                       line=dict(color=color_value("humid_color"), width=2), marker=dict(size=3),
                        name="湿度"),
             row=2, col=1,
         )
@@ -212,7 +219,7 @@ def dashboard_view(df):
     if "wind_speed" in df.columns:
         fig.add_trace(
             go.Bar(x=x_data, y=df["wind_speed"],
-                   marker_color=COLORS["wind_color"], name="风速", opacity=0.7),
+                   marker_color=color_value("wind_color"), name="风速", opacity=0.7),
             row=2, col=2,
         )
 
@@ -268,7 +275,7 @@ def scatter_matrix(df):
                     go.Scatter(
                         x=sub[fj], y=sub[fi],
                         mode="markers",
-                        marker=dict(size=4, opacity=0.5, color=COLORS["primary"]),
+                        marker=dict(size=4, opacity=0.5, color=color_value("primary")),
                         showlegend=False,
                         hovertemplate=f"{labels.get(fj, fj)}: %{{x:.1f}}<br>{labels.get(fi, fi)}: %{{y:.1f}}<extra></extra>",
                     ),
@@ -279,7 +286,7 @@ def scatter_matrix(df):
                 fig.add_trace(
                     go.Histogram(
                         x=sub[fi],
-                        marker_color=COLORS["primary"],
+                        marker_color=color_value("primary"),
                         showlegend=False,
                         nbinsx=20,
                     ),
@@ -416,18 +423,18 @@ def distribution_histogram(df):
         "pm10": "PM10 (μg/m³)",
     }
     colors = {
-        "precipitation": COLORS["rain_color"],
-        "temperature": COLORS["temp_color"],
-        "humidity": COLORS["humid_color"],
-        "wind_speed": COLORS["wind_color"],
-        "pressure": COLORS["pres_color"],
-        "visibility": COLORS["vis_color"],
-        "cloud_cover": COLORS["purple"],
-        "so2": COLORS["so2_color"],
-        "nox": COLORS["nox_color"],
-        "tsp": COLORS["tsp_color"],
-        "pm25": COLORS["pm25_color"],
-        "pm10": COLORS["pm10_color"],
+        "precipitation": color_value("rain_color"),
+        "temperature": color_value("temp_color"),
+        "humidity": color_value("humid_color"),
+        "wind_speed": color_value("wind_color"),
+        "pressure": color_value("pres_color"),
+        "visibility": color_value("vis_color"),
+        "cloud_cover": color_value("purple"),
+        "so2": color_value("so2_color"),
+        "nox": color_value("nox_color"),
+        "tsp": color_value("tsp_color"),
+        "pm25": color_value("pm25_color"),
+        "pm10": color_value("pm10_color"),
     }
 
     default = ["precipitation"] if "precipitation" in available else [available[0]]
@@ -448,7 +455,7 @@ def distribution_histogram(df):
             name=labels.get(f, f),
             opacity=0.6,
             nbinsx=30,
-            marker_color=colors.get(f, COLORS["primary"]),
+            marker_color=colors.get(f, color_value("primary")),
             hovertemplate=labels.get(f, f) + ": %{x:.2f}<br>频次 %{y}<extra></extra>",
         ))
 
@@ -471,18 +478,18 @@ def precipitation_timeline(df):
 
     # ---- 要素配置 ----
     field_config = {
-        "precipitation": ("降水量 (mm)", COLORS["rain_color"], "mm", "bar", "sum"),
-        "temperature":   ("气温 (℃)",    COLORS["temp_color"], "℃",  "line", "mean"),
-        "pressure":      ("气压 (hPa)",  COLORS["pres_color"], "hPa", "line", "mean"),
-        "humidity":      ("相对湿度 (%)", COLORS["humid_color"], "%",  "line", "mean"),
-        "wind_speed":    ("风速 (m/s)",  COLORS["wind_color"], "m/s", "bar", "mean"),
-        "visibility":    ("能见度 (km)", COLORS["vis_color"],   "km",  "line", "mean"),
-        "cloud_cover":   ("总云量",      COLORS["purple"],     "",    "line", "mean"),
-        "so2":           ("SO₂ (μg/m³)", COLORS["so2_color"],  "μg/m³", "line", "mean"),
-        "nox":           ("NOx (μg/m³)", COLORS["nox_color"],  "μg/m³", "line", "mean"),
-        "tsp":           ("TSP (μg/m³)", COLORS["tsp_color"],  "μg/m³", "line", "mean"),
-        "pm25":          ("PM2.5 (μg/m³)", COLORS["pm25_color"], "μg/m³", "line", "mean"),
-        "pm10":          ("PM10 (μg/m³)", COLORS["pm10_color"], "μg/m³", "line", "mean"),
+        "precipitation": ("降水量 (mm)", color_value("rain_color"), "mm", "bar", "sum"),
+        "temperature":   ("气温 (℃)",    color_value("temp_color"), "℃",  "line", "mean"),
+        "pressure":      ("气压 (hPa)",  color_value("pres_color"), "hPa", "line", "mean"),
+        "humidity":      ("相对湿度 (%)", color_value("humid_color"), "%",  "line", "mean"),
+        "wind_speed":    ("风速 (m/s)",  color_value("wind_color"), "m/s", "bar", "mean"),
+        "visibility":    ("能见度 (km)", color_value("vis_color"),   "km",  "line", "mean"),
+        "cloud_cover":   ("总云量",      color_value("purple"),     "",    "line", "mean"),
+        "so2":           ("SO₂ (μg/m³)", color_value("so2_color"),  "μg/m³", "line", "mean"),
+        "nox":           ("NOx (μg/m³)", color_value("nox_color"),  "μg/m³", "line", "mean"),
+        "tsp":           ("TSP (μg/m³)", color_value("tsp_color"),  "μg/m³", "line", "mean"),
+        "pm25":          ("PM2.5 (μg/m³)", color_value("pm25_color"), "μg/m³", "line", "mean"),
+        "pm10":          ("PM10 (μg/m³)", color_value("pm10_color"), "μg/m³", "line", "mean"),
     }
 
     available_fields = [f for f in field_config if f in df.columns and not df[f].dropna().empty]
@@ -553,7 +560,7 @@ def precipitation_timeline(df):
         # 右轴
         r_name, r_color, r_unit, r_chart, r_agg = field_config[right_field]
         _add_dual_trace(fig, dff, right_field, r_name, r_color, r_unit, r_chart, True)
-        fig.update_yaxes(title_text=f"{l_name} ({l_unit})", secondary_y=False, gridcolor="#334155" if st.session_state.get("dark_mode", False) else "#e0e0e0")
+        fig.update_yaxes(title_text=f"{l_name} ({l_unit})", secondary_y=False, gridcolor=token_value("chart-grid"))
         fig.update_yaxes(title_text=f"{r_name} ({r_unit})", secondary_y=True,
                          title_font_color=r_color, tickfont_color=r_color)
         title = f"{l_name} + {r_name}（双轴）{agg_sel}"
@@ -562,7 +569,7 @@ def precipitation_timeline(df):
         a_name, a_color, a_unit, a_chart, a_agg = field_config[active]
         fig = go.Figure()
         _add_dual_trace(fig, dff, active, a_name, a_color, a_unit, a_chart)
-        fig.update_yaxes(title_text=f"{a_name} ({a_unit})", gridcolor="#334155" if st.session_state.get("dark_mode", False) else "#e0e0e0")
+        fig.update_yaxes(title_text=f"{a_name} ({a_unit})", gridcolor=token_value("chart-grid"))
         title = f"{a_name} 时序{agg_sel}"
 
     fig.update_layout(
@@ -607,10 +614,10 @@ def _render_pollution_panel(df):
     st.caption("基于 GB 3095-2026 标准评估 PM2.5/PM10/SO₂/NOx 浓度趋势与达标率")
 
     pollutants = {
-        "pm25": ("PM2.5", COLORS["pm25_color"], "μg/m³", 50),
-        "pm10": ("PM10",   COLORS["pm10_color"], "μg/m³", 100),
-        "so2":  ("SO₂",    COLORS["so2_color"],  "μg/m³", 100),
-        "nox":  ("NOx",    COLORS["nox_color"],  "μg/m³", 60),
+        "pm25": ("PM2.5", color_value("pm25_color"), "μg/m³", 50),
+        "pm10": ("PM10",   color_value("pm10_color"), "μg/m³", 100),
+        "so2":  ("SO₂",    color_value("so2_color"),  "μg/m³", 100),
+        "nox":  ("NOx",    color_value("nox_color"),  "μg/m³", 60),
     }
     available = [(k, v) for k, v in pollutants.items()
                  if k in df.columns and not df[k].dropna().empty]
@@ -655,7 +662,7 @@ def _render_pollution_panel(df):
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
     )
-    grid_c = "#334155" if st.session_state.get("dark_mode", False) else "#e0e0e0"
+    grid_c = token_value("chart-grid")
     fig.update_xaxes(gridcolor=grid_c, zeroline=False)
     fig.update_yaxes(gridcolor=grid_c, zeroline=False)
     safe_chart(fig, "污染物浓度时序", key="viz_pollution_ts")
@@ -818,7 +825,7 @@ def render_visualization_tab(df):
                 # 风速时间序列
                 ts_wind = time_series_chart(
                     df, "wind_speed", "风速时间序列",
-                    COLORS["wind_color"], "风速", "m/s"
+                    color_value("wind_color"), "风速", "m/s"
                 )
                 if ts_wind:
                     safe_chart(ts_wind, "风速时间序列", key="viz_ts_wind")
@@ -855,17 +862,17 @@ def render_visualization_tab(df):
         if available_ts:
             selected_ts = st.selectbox("选择要素", available_ts, key="ts_select")
             ts_config = {
-                "temperature": ("气温", COLORS["temp_color"], "℃"),
-                "pressure": ("气压", COLORS["pres_color"], "hPa"),
-                "humidity": ("相对湿度", COLORS["humid_color"], "%"),
-                "wind_speed": ("风速", COLORS["wind_color"], "m/s"),
-                "visibility": ("能见度", COLORS["vis_color"], "km"),
-                "precipitation": ("降水量", COLORS["rain_color"], "mm"),
-                "so2": ("SO₂", COLORS["so2_color"], "μg/m³"),
-                "nox": ("NOx", COLORS["nox_color"], "μg/m³"),
-                "tsp": ("TSP", COLORS["tsp_color"], "μg/m³"),
-                "pm25": ("PM2.5", COLORS["pm25_color"], "μg/m³"),
-                "pm10": ("PM10", COLORS["pm10_color"], "μg/m³"),
+                "temperature": ("气温", color_value("temp_color"), "℃"),
+                "pressure": ("气压", color_value("pres_color"), "hPa"),
+                "humidity": ("相对湿度", color_value("humid_color"), "%"),
+                "wind_speed": ("风速", color_value("wind_color"), "m/s"),
+                "visibility": ("能见度", color_value("vis_color"), "km"),
+                "precipitation": ("降水量", color_value("rain_color"), "mm"),
+                "so2": ("SO₂", color_value("so2_color"), "μg/m³"),
+                "nox": ("NOx", color_value("nox_color"), "μg/m³"),
+                "tsp": ("TSP", color_value("tsp_color"), "μg/m³"),
+                "pm25": ("PM2.5", color_value("pm25_color"), "μg/m³"),
+                "pm10": ("PM10", color_value("pm10_color"), "μg/m³"),
             }
             if selected_ts in ts_config:
                 title, color, unit = ts_config[selected_ts]
@@ -923,3 +930,4 @@ def render_visualization_tab(df):
                 st.info("暂无可用要素，请导入包含温度/降水/气压/湿度/风速等字段的数据")
         else:
             st.info("当前数据中缺少时间戳字段")
+

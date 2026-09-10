@@ -1,13 +1,25 @@
 """Aether 主题系统：天空渐变 + 手绘感的双色板视觉语言。
 
-设计要点：
+设计要点
+--------
 - 默认浅色「清透天空」(light)，备选暗色「梦幻夜空」(dark)，侧边栏手动切换。
-- 本模块输出的是「覆盖层 CSS」：注入在 app.py 旧版样式表之后，
-  同名 CSS 变量以后定义者为准，旧组件样式自动跟随新 token，
-  避免重写既有 300+ 行样式，改动风险最小。
+- **token 定义全部搬到 ``modules/design_tokens.py``**，本模块只负责
+  「读偏好 → 生成 CSS → 注入 DOM」。改造前 token、CSS、业务模块三处各写一份
+  配色，是暗色模式无法收敛的根本原因。
 - 主题选择持久化（重启保持）：
-  · 未登录：写本地文件 ~/.aether_theme.json；
-  · 已登录：写 Supabase user_metadata.theme（auth.py 登录时读回）。
+  · 未登录：写本地文件 ``~/.aether_theme.json``；
+  · 已登录：写 Supabase ``user_metadata.theme``（``auth.py`` 登录时读回）。
+
+暗色实现方式说明
+----------------
+``.streamlit/config.toml`` 的 ``[theme]`` 是**进程级配置，无法按会话切换**，
+因此这里采用「config.toml 固定亮色基线 + CSS 层按会话覆盖」：
+
+- 变量块同时包含 ``html[data-dsh-theme="light"]`` 与 ``[data-dsh-theme="dark"]``
+  两套取值，切换时只需改 ``<html>`` 的 ``data-dsh-theme`` 属性，
+  不重建样式文本、不触发重排，因此切换无闪烁；
+- 暗色专属的 Streamlit 原生组件覆盖规则只生成一次（见 ``theme_css.py``），
+  不再每次渲染都往 ``<head>`` 追加重复样式。
 """
 
 import json
@@ -15,89 +27,39 @@ from pathlib import Path
 
 import streamlit as st
 
+from modules import theme_css
+from modules.design_tokens import (
+    DARK_TOKENS,
+    LIGHT_TOKENS,
+    STATIC_TOKENS,
+    THEME_NAMES,
+    tokens_for,
+)
+
+# 向后兼容：历史上 token 定义在本模块，测试与业务代码从 ``theme_aether`` 读取。
+__all__ = [
+    "DARK_TOKENS",
+    "LIGHT_TOKENS",
+    "STATIC_TOKENS",
+    "THEME_NAMES",
+    "init_theme",
+    "set_theme",
+    "apply_cloud_theme",
+    "is_dark",
+    "get_tokens",
+    "inject_theme",
+    "theme_attr_js",
+    "FONTS_URL",
+]
+
 # ---- 本地偏好文件（未登录用户的持久化通道） ----
 _PREF_FILE = Path.home() / ".aether_theme.json"
 
-THEME_NAMES = {"light": "清透天空", "dark": "梦幻夜空"}
-
-
-# ============================================================
-# 一、双色板 token
-# ============================================================
-# 浅色：清透天空，浅蓝 #eaf4ff 过渡奶油 #fdf3ec，正文 #34435e
-LIGHT_TOKENS = {
-    "bg-primary": "#fffdfb",
-    "bg-secondary": "rgba(255,255,255,0.68)",
-    "bg-tertiary": "#f7f2ec",
-    "bg-hover": "#edf3fb",
-    "text-primary": "#34435e",
-    "text-secondary": "#55648a",
-    "text-muted": "#8b97b4",
-    "border-color": "#e7e3ef",
-    "border-hover": "#9db8e0",
-    "accent": "#4a7ec2",
-    "accent-hover": "#3a68ab",
-    "accent-soft": "rgba(142,202,230,0.20)",
-    "success-bg": "#eefaf1",
-    "warning-bg": "#fdf6e3",
-    "error-bg": "#fdeeee",
-    # 页面背景：多层径向光晕叠在天空渐变上，营造梦幻透光感
-    "app-bg": (
-        "radial-gradient(620px 420px at 85% -5%, rgba(255,214,130,0.35), transparent 70%),"
-        "radial-gradient(520px 400px at 8% 110%, rgba(180,200,255,0.30), transparent 70%),"
-        "linear-gradient(168deg, #eaf4ff 0%, #f3edfb 48%, #fdf3ec 100%)"
-    ),
-    "shadow-sm": "0 1px 3px rgba(80,100,150,0.07)",
-    "shadow-md": "0 6px 16px -4px rgba(80,100,150,0.12)",
-    "shadow-lg": "0 16px 32px -8px rgba(80,100,150,0.16)",
-    # 天气墙七场景天空（浅色主题：白天场景为主，晴夜场景保持深蓝）
-    "ww-sunny": "linear-gradient(180deg,#6fb8ee 0%,#b5dcf7 70%,#d9edfb 100%)",
-    "ww-cloudy": "linear-gradient(180deg,#a9bcd4 0%,#ccd9e9 100%)",
-    "ww-rain": "linear-gradient(180deg,#7d94b0 0%,#b3c4d8 100%)",
-    "ww-snow": "linear-gradient(180deg,#a8bdd8 0%,#e6edf7 100%)",
-    "ww-thunder": "linear-gradient(180deg,#4d5c7d 0%,#7c8ba8 100%)",
-    "ww-fog": "linear-gradient(180deg,#b7c1cd 0%,#dde3ea 100%)",
-    "ww-night": "linear-gradient(180deg,#25315b 0%,#4a5a8f 100%)",
-}
-
-# 暗色：梦幻夜空，深蓝紫渐变，月光金点缀，全程避开纯黑与高饱和刺眼色
-DARK_TOKENS = {
-    "bg-primary": "#1a2138",
-    "bg-secondary": "rgba(35,42,61,0.72)",
-    "bg-tertiary": "#2a3350",
-    "bg-hover": "#39425e",
-    "text-primary": "#e6e9f2",
-    "text-secondary": "#b7bfd4",
-    "text-muted": "#8a93ab",
-    "border-color": "#333d5a",
-    "border-hover": "#7f96c9",
-    "accent": "#8ecae6",
-    "accent-hover": "#aedcf2",
-    "accent-soft": "rgba(142,202,230,0.14)",
-    "success-bg": "rgba(46,125,90,0.25)",
-    "warning-bg": "rgba(160,120,40,0.25)",
-    "error-bg": "rgba(160,60,60,0.28)",
-    "app-bg": (
-        "radial-gradient(560px 420px at 82% -5%, rgba(196,210,255,0.14), transparent 70%),"
-        "radial-gradient(700px 500px at 10% 110%, rgba(120,90,180,0.16), transparent 70%),"
-        "linear-gradient(168deg, #131a2e 0%, #1b2340 52%, #2b2a44 100%)"
-    ),
-    "shadow-sm": "0 1px 3px rgba(0,0,0,0.35)",
-    "shadow-md": "0 6px 16px -4px rgba(0,0,0,0.45)",
-    "shadow-lg": "0 16px 32px -8px rgba(0,0,0,0.55)",
-    # 天气墙七场景天空（暗色主题：整体压深一档，避免刺眼）
-    "ww-sunny": "linear-gradient(180deg,#3d6b9e 0%,#6f97c2 100%)",
-    "ww-cloudy": "linear-gradient(180deg,#49566f 0%,#6d7c97 100%)",
-    "ww-rain": "linear-gradient(180deg,#39496a 0%,#57698a 100%)",
-    "ww-snow": "linear-gradient(180deg,#4f5f7d 0%,#8b9bb8 100%)",
-    "ww-thunder": "linear-gradient(180deg,#272f4b 0%,#47537a 100%)",
-    "ww-fog": "linear-gradient(180deg,#4e5966 0%,#75808d 100%)",
-    "ww-night": "linear-gradient(180deg,#0f1430 0%,#2a3560 100%)",
-}
-
+# ---- 标记 DOM 当前主题的属性名。CSS 变量块与所有暗色覆盖规则都挂在它下面。 ----
+THEME_ATTR = "data-dsh-theme"
 
 # ============================================================
-# 二、字体（Google Fonts，Streamlit Cloud 可直连）
+# 一、字体（Google Fonts，Streamlit Cloud 可直连）
 # ============================================================
 FONTS_URL = (
     "https://fonts.googleapis.com/css2?"
@@ -109,99 +71,7 @@ FONTS_URL = (
 
 
 # ============================================================
-# 二·五、暗色专属覆盖 CSS（Streamlit 原生组件 + 硬编码色）
-# ============================================================
-# 暗色模式是 CSS 变量覆盖，但 Streamlit 原生前端组件（selectbox 下拉、
-# 日期选择日历、toast、弹窗等）底色由前端主题决定，默认仍是亮色，须逐一覆盖。
-DARK_EXTRA_CSS = """
-/* ===== 暗色专属：primary 按钮（旧样式硬编码亮米色 #faf6ef） ===== */
-button[kind="primary"] {
-    background: #2a3350 !important;
-    color: #e6e9f2 !important;
-    border-color: #39425e !important;
-    box-shadow: var(--shadow-sm) !important;
-}
-button[kind="primary"]:hover {
-    background: #39425e !important;
-    border-color: #7f96c9 !important;
-}
-
-/* ===== Streamlit 原生弹层/控件暗色覆盖 ===== */
-/* toast 通知 */
-[data-testid="stToast"] {
-    background: #232a3d !important;
-    border: 1px solid #333d5a !important;
-    color: #e6e9f2 !important;
-}
-[data-testid="stToast"] div { color: #e6e9f2 !important; }
-/* selectbox / multiselect 下拉面板 */
-[data-baseweb="popover"], [data-baseweb="menu"], [data-baseweb="listbox"] {
-    background: #232a3d !important;
-}
-[data-baseweb="popover"] li, [data-baseweb="menu"] li,
-[data-baseweb="listbox"] li, [data-baseweb="popover"] div {
-    color: #e6e9f2 !important;
-}
-[data-baseweb="popover"] li:hover, [data-baseweb="menu"] li:hover,
-[data-baseweb="listbox"] li:hover { background: #39425e !important; }
-/* 日期选择日历 */
-[data-baseweb="calendar"], [data-baseweb="calendar"] * {
-    background: #232a3d !important;
-    color: #e6e9f2 !important;
-}
-[data-baseweb="calendar"] button:hover { background: #39425e !important; }
-/* 弹窗 / dialog / modal */
-[data-testid="stDialog"] [data-baseweb="modal"],
-[data-baseweb="modal"] { background: #232a3d !important; }
-[data-testid="stDialog"] [data-baseweb="modal"] * { color: #e6e9f2 !important; }
-/* popover（st.popover） */
-[data-testid="stPopover"] [data-baseweb="popover"] {
-    background: #232a3d !important;
-}
-/* tooltip */
-[data-testid="stTooltip"] {
-    background: #232a3d !important;
-    color: #e6e9f2 !important;
-    border: 1px solid #333d5a !important;
-}
-/* 数据表格编辑器 / 代码块 / 进度条 */
-[data-testid="stDataEditor"] { background: #1a2138 !important; }
-[data-testid="stCode"] { background: #141b2e !important; }
-[data-testid="stProgress"] [role="progressbar"] > div > div {
-    background: var(--accent) !important;
-}
-/* 数据表格（st.dataframe，前端主题白底，暗色必覆盖） */
-[data-testid="stDataFrame"] { background: #1a2138 !important; }
-[data-testid="stDataFrame"] thead th {
-    background: #232a3d !important;
-    color: #cbd5e8 !important;
-    border-bottom-color: #39425e !important;
-}
-[data-testid="stDataFrame"] tbody tr,
-[data-testid="stDataFrame"] tbody td {
-    background: #1a2138 !important;
-    color: #dbe2f0 !important;
-    border-top-color: #2a3350 !important;
-}
-[data-testid="stDataFrame"] tbody tr:hover { background: #2a3350 !important; }
-/* spinner 覆盖层 */
-[data-testid="stSpinner"] { background: #232a3d !important; }
-[data-testid="stSpinner"] div { color: #e6e9f2 !important; }
-/* 文件上传 dropzone 与下载按钮 */
-[data-testid="stFileUploaderDropzone"] {
-    background: #1a2138 !important;
-    border-color: #39425e !important;
-}
-[data-testid="stFileUploaderDropzone"] * { color: #dbe2f0 !important; }
-[data-testid="stFileUploaderDropzone"]:hover { background: #232a3d !important; }
-/* plotly 图表悬停提示（tooltip）默认白底，暗色下覆盖 */
-[data-testid="stPlotlyChart"] .hoverlayer .hovertext rect { fill: #232a3d !important; }
-[data-testid="stPlotlyChart"] .hoverlayer .hovertext text { fill: #e6e9f2 !important; }
-"""
-
-
-# ============================================================
-# 三、持久化：本地文件 + Supabase user_metadata
+# 二、持久化：本地文件 + Supabase user_metadata
 # ============================================================
 def _load_pref_local() -> str | None:
     """读取本地主题偏好，返回 'light' / 'dark' / None。"""
@@ -257,7 +127,7 @@ def _save_pref_cloud(theme: str) -> None:
 
 
 # ============================================================
-# 四、主题状态入口
+# 三、主题状态入口
 # ============================================================
 def init_theme() -> None:
     """会话初始化时确定主题。必须在任何读取 dark_mode 的代码之前调用。
@@ -291,160 +161,85 @@ def is_dark() -> bool:
     return bool(st.session_state.get("dark_mode", False))
 
 
-def get_tokens() -> dict:
-    """当前主题的 token 表，供 weather_wall 等模块取色。"""
-    return DARK_TOKENS if is_dark() else LIGHT_TOKENS
+def get_tokens(dark: bool | None = None) -> dict:
+    """token 表，供 weather_wall 等模块取色。传入 dark 可显式取值。"""
+    if dark is None:
+        dark = is_dark()
+    return tokens_for(dark)
 
 
 # ============================================================
-# 四·五、无边框覆盖层 CSS（纯 CSS，无 f-string 占位符）
+# 四、DOM 主题属性同步脚本
 # ============================================================
-# 同时用于 markdown 初始注入与 JS 强插 <head>，确保单一真相源。
-_BORDERLESS_CSS = """
-/* 卡片容器 */
-[data-testid="stVerticalBlockBorderWrapper"] { border: none !important; box-shadow: var(--shadow-sm) !important; }
-/* 指标卡片 */
-[data-testid="stMetric"] { border: none !important; box-shadow: var(--shadow-sm) !important; }
-[data-testid="stMetric"]:hover { box-shadow: var(--shadow-md) !important; border: none !important; }
-/* 按钮 */
-.stButton > button { border: none !important; box-shadow: var(--shadow-sm) !important; }
-.stButton > button:hover { border: none !important; box-shadow: var(--shadow-md) !important; }
-button[kind="primary"] { border: none !important; box-shadow: var(--shadow-sm) !important; }
-button[kind="primary"]:hover { border: none !important; box-shadow: var(--shadow-md) !important; }
-/* 输入框 */
-.stTextInput input, .stNumberInput input, .stSelectbox [data-baseweb="select"] {
-    border: none !important;
-    box-shadow: 0 0 0 1px var(--border-color) inset !important;
-    transition: box-shadow var(--transition) !important;
-}
-.stTextInput input:focus, .stNumberInput input:focus {
-    border: none !important;
-    box-shadow: 0 0 0 2px var(--accent), 0 0 0 4px rgba(74,126,194,0.15) !important;
-}
-.stNumberInput button { border: none !important; background: transparent !important; }
-/* 展开器 */
-[data-testid="stExpander"] { border: none !important; box-shadow: var(--shadow-sm) !important; }
-/* 提示框 */
-div[data-testid="stAlert"] { border: none !important; box-shadow: var(--shadow-sm) !important; }
-/* 数据表格 */
-[data-testid="stDataFrame"] { border: none !important; box-shadow: var(--shadow-sm) !important; }
-[data-testid="stDataFrame"] thead th { border-bottom: none !important; }
-/* Tab 导航栏 */
-.stTabs [data-baseweb="tab-list"] { border-bottom: none !important; }
-/* 侧边栏 */
-[data-testid="stSidebar"] { border-right: none !important; }
-/* 分割线 */
-hr { border-top: none !important; height: 1px; background: var(--border-color); }
-/* 文件上传 */
-[data-testid="stFileUploader"] section { border: none !important; background: var(--bg-secondary) !important; box-shadow: var(--shadow-sm) !important; }
-[data-testid="stFileUploader"] section:hover { border: none !important; box-shadow: var(--shadow-md) !important; }
-"""
+def theme_attr_js() -> str:
+    """把 ``data-dsh-theme`` 写到 ``<html>`` 上。
 
+    必须用 ``st.html(..., unsafe_allow_javascript=True)`` 注入：
+    **``st.markdown(unsafe_allow_html=True)`` 会把 ``<script>`` 剥掉**
+    （Streamlit 用 DOMPurify 清洗 HTML）。改造前的 ``_inject_borderless_js``
+    正是走 markdown 注入脚本，实际上从未执行过——这类「写了但没生效」的
+    静默失效是暗色模式长期修不干净的重要原因。
 
-def _inject_borderless_js() -> None:
-    """把 _BORDERLESS_CSS 强插 document.head 末尾，并对 head 的 childList 设
-    MutationObserver：Streamlit React 组件 hydration 完成后会追加自身带 !important
-    的 <style>（晚于 markdown 注入），用此法在每次 head 变动后重新抢占末位，
-    消除「刷新 1~2s 后边框重现」的现象。"""
-    js = """
-<script>
-(function() {
-  var CSS = `__BORDERLESS__`;
-  function apply() {
-    var s = document.getElementById("aether-borderless");
-    if (s && s.parentNode) s.parentNode.removeChild(s);
-    s = document.createElement("style");
-    s.id = "aether-borderless";
-    s.textContent = CSS;
-    document.head.appendChild(s);
-  }
+    **这里刻意不使用 MutationObserver**（R-44）。曾经用观察者守 ``<html>`` 的属性
+    以对抗「刷新后样式回弹」，但实测造成渲染进程主线程被占死：切换主题时页面
+    完全无响应（点击后主线程阻塞 >8s，页面探测超时；关掉本脚本后同一操作
+    4ms 内恢复响应）。原因是 Streamlit 的 React 根组件在每次 rerun 时持续改写
+    ``<html>``/``<body>`` 的 class 与 style，观察者被高频触发，而 Streamlit 每次
+    重渲染都会重新执行本脚本、**再挂一个新的观察者**，观察者数量随 rerun 累加，
+    回调频率成倍上升，最终把主线程压死。
+
+    替代方案依赖一个更稳的事实：本脚本随每次 rerun 重新执行，
+    而样式块（含整套变量）是幂等注入的，因此**每次渲染都会重新把属性写正确**，
+    不需要长期的观察者。另外把主题属性同时写到 ``<html>`` 与 ``<body>``：
+    Streamlit 只会重写 ``body`` 上的 class，属性得以保留。
+    """
+    theme = "dark" if is_dark() else "light"
+    # 外层 div 仅用于承载脚本，display:none 保证不影响布局
+    return f"""<div style="display:none" aria-hidden="true"><script>
+(function() {{
+  var ATTR = "{THEME_ATTR}", WANT = "{theme}";
+  function apply() {{
+    var h = document.documentElement;
+    if (h && h.getAttribute(ATTR) !== WANT) h.setAttribute(ATTR, WANT);
+    var b = document.body;
+    if (b && b.getAttribute(ATTR) !== WANT) b.setAttribute(ATTR, WANT);
+  }}
   apply();
-  if (window.addEventListener) window.addEventListener("load", apply);
-  if (window.MutationObserver) {
-    var obs = new MutationObserver(function(muts) {
-      for (var i = 0; i < muts.length; i++) {
-        var nodes = muts[i].addedNodes;
-        for (var j = 0; j < nodes.length; j++) {
-          var n = nodes[j];
-          if (n.nodeType === 1 && n.tagName === "STYLE" && n.id !== "aether-borderless") {
-            apply();
-            return;
-          }
-        }
-      }
-    });
-    obs.observe(document.head, {childList: true});
-  }
-})();
-</script>
-"""
-    st.markdown(js.replace("__BORDERLESS__", _BORDERLESS_CSS), unsafe_allow_html=True)
+  if (document.readyState !== "complete") {{
+    document.addEventListener("DOMContentLoaded", apply);
+    window.addEventListener("load", apply);
+  }}
+}})();
+</script></div>"""
 
 
 # ============================================================
-# 五、覆盖层 CSS 注入
+# 五、样式注入
 # ============================================================
 def inject_theme() -> None:
-    """输出主题覆盖层。调用位置必须在 app.py 旧版样式表之后。
+    """注入主题样式。必须在 ``st.set_page_config`` 之后、任何可见内容之前调用。
 
-    旧亮色 :root 变量块与旧暗色变量块由此函数统一接管：
-    按当前主题输出一套变量，旧组件样式自动跟随。
+    改造前本函数只在**登录成功后**的 ``app.py`` 中被调用，未登录时直接
+    ``st.stop()``，导致登录页完全没有样式、也不跟随用户保存的暗色偏好。
+    现在由 ``app.py`` 在登录门禁之前调用。
+
+    排障开关（仅用于定位渲染进程卡死，正常部署不要设置）：
+    - ``DSH_THEME_NO_DARK_CSS=1``：不输出暗色覆盖层
+    - ``DSH_THEME_NO_BASE_CSS=1``：不输出形状/排版基线
+    - ``DSH_THEME_NO_JS=1``：不注入主题属性脚本
     """
-    t = get_tokens()
-    vars_css = "\n".join(f"    --{k}: {v};" for k, v in t.items() if k != "app-bg")
-    st.markdown(f"""
-<style>
-@import url('{FONTS_URL}');
+    import os
 
-/* ===== Aether 主题变量（覆盖旧版同名变量） ===== */
-:root {{
-{vars_css}
-    /* 功能模块字体还原：恢复 Aether 改造前的系统 UI 字体栈（用户要求）
-       封面/天气墙专属字体走 --font-aether-ui / --font-display / --font-temp */
-    --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
-    --font-aether-ui: 'Quicksand', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
-    --font-display: 'Fraunces', 'ZCOOL KuaiLe', 'Songti SC', serif;
-    --font-temp: 'Baloo 2', 'Quicksand', sans-serif;
-    --radius-sm: 10px;
-    --radius-md: 16px;
-    --radius-lg: 20px;
-    --transition: 200ms cubic-bezier(0.22, 0.8, 0.36, 1);
-}}
+    parts = [f"@import url('{FONTS_URL}');",
+             "/* ===== 主题变量（亮/暗两套同时在场，靠 html[data-dsh-theme] 切换） ===== */",
+             theme_css.root_vars_css(False),
+             theme_css.root_vars_css(True)]
+    if not os.environ.get("DSH_THEME_NO_BASE_CSS"):
+        parts += ["/* ===== 形状与排版基线 ===== */", theme_css.BASE_CSS]
+    if not os.environ.get("DSH_THEME_NO_DARK_CSS"):
+        parts += ["/* ===== Streamlit 原生组件暗色覆盖 ===== */", theme_css.dark_extra_css()]
 
-/* ===== 页面背景：天空渐变 + 光晕（非字体规则，保持不动） ===== */
-.stApp {{
-    background: {t["app-bg"]};
-    background-attachment: fixed;
-}}
-
-/* ===== 按钮：圆角加大 + hover 上浮（指数缓动，非字体规则） ===== */
-.stButton > button {{
-    border-radius: 12px !important;
-}}
-.stButton > button:hover {{
-    transform: translateY(-2px);
-}}
-
-/* ===== 卡片容器：更大圆角 + 柔阴影（非字体规则） ===== */
-[data-testid="stVerticalBlockBorderWrapper"] {{
-    border-radius: var(--radius-md) !important;
-}}
-
-/* ===== 主 Tab 导航：胶囊选中态（非字体规则） ===== */
-[data-testid="stRadio"] [role="radiogroup"] label {{
-    border-radius: 999px;
-}}
-</style>
-""", unsafe_allow_html=True)
-
-    # 第一段：无边框覆盖层（初始渲染即生效）
-    st.markdown(f"<style>{_BORDERLESS_CSS}</style>", unsafe_allow_html=True)
-    # 第二段：JS 强插 <head> 末尾 + MutationObserver，对抗 hydration 后样式重注
-    _inject_borderless_js()
-
-    # 暗色专属覆盖：Streamlit 原生组件（下拉/日历/toast/弹窗）与硬编码色
-    if is_dark():
-        st.markdown(f"<style>{DARK_EXTRA_CSS}</style>", unsafe_allow_html=True)
-        # DARK_EXTRA_CSS 之后再次注入无边框层，消除其硬编码边框；
-        # MutationObserver 会在 head 变动时自动重新抢占末位
-        st.markdown(f"<style>{_BORDERLESS_CSS}</style>", unsafe_allow_html=True)
+    st.markdown(f"<style>{chr(10).join(parts)}</style>", unsafe_allow_html=True)
+    # 脚本必须走 st.html：markdown 的 unsafe_allow_html 会被 DOMPurify 剥掉 <script>
+    if not os.environ.get("DSH_THEME_NO_JS"):
+        st.html(theme_attr_js(), unsafe_allow_javascript=True)
