@@ -338,26 +338,57 @@ button[kind="primaryFormSubmit"] p, button[kind="primaryFormSubmit"] span {
 [data-testid="stMultiSelect"] .react-aria-ComboBox svg { fill: var(--text-muted) !important; color: var(--text-muted) !important; }
 
 /* ===== 复选框 / 单选框 ===== */
-/* Streamlit 1.59 的勾选指示器是一个**兄弟 div**（不是原生 input 的外观），
-   其底色来自前端主题 secondaryBackgroundColor，在深色侧边栏里表现为纯白小方块
-   （本机实测：侧边栏复选框 16x16、主 Tab 导航圆点 14x14 均为纯白）。
-   这里直接给指示器 div 指定底色，并区分选中态。 */
-[data-testid="stCheckbox"] label > div:first-of-type,
-[data-testid="stRadioOption"] div[class*="st-emotion-cache"]:not(:has(*)):not([class*="iqhgxh"]) {
+/* 这里**刻意只做最小干预**，勾选指示器的底色交给主题系统自己画。
+   原因（实测踩过）：Streamlit 1.59 把真实 <input> 放进一个视觉隐藏的 <span> 里
+   （clip-path: inset(50%)），随后另有一个 div 承担外观。因此
+   `input:checked + div` 这种相邻兄弟选择器**永远选不中**真正的指示器。
+   曾经用 `label > div:first-of-type` 强行给指示器上底色并加 !important，
+   结果把「已勾选」的指示器也刷成了未勾选的浅底 + 浅边，
+   而里面的对勾 svg 是浅色描边，压在浅底上直接看不见——
+   表现为「亮色模式下天气墙显示为空勾选」（R-46）。
+   结论：外形与状态色交给主题，只在暗色下处理露白（见 dark_extra_css）。 */
+[data-testid="stCheckbox"] input[type="checkbox"],
+[data-testid="stRadio"] input[type="radio"] {
+    accent-color: var(--accent);
+}
+[data-testid="stCheckbox"] span, [data-testid="stCheckbox"] p,
+[data-testid="stRadioOption"] span, [data-testid="stRadioOption"] p {
+    color: var(--text-secondary) !important;
+}
+/* ===== 暗色下的勾选指示器 ===== */
+/* 为什么只在暗色下、且只接管「未勾选」：
+   Streamlit 1.59 的指示器是 label 内第一个 div，外观由前端主题绘制。
+   浅色主题画出来本来就正确（未勾选=白底细边，已勾选=主色底 + 对勾），
+   曾经在**两种主题下都**用 !important 强刷底色，把浅色下的已勾选态
+   也刷成了未勾选的浅底，而对勾是白色描边，压在浅底上看不见 ——
+   表现为「亮色模式下天气墙显示为空勾选」（R-46）。
+   因此这里只处理暗色下前端主题画成纯白方块的情况，并用
+   :has(input:checked) 把已勾选态排除在外，交给主题自己画。 */
+html[data-dsh-theme="dark"] [data-testid="stCheckbox"] label > div:first-of-type {
     background: var(--bg-primary) !important;
-    border: 1.5px solid var(--border-hover) !important;
+    border: 1.5px solid var(--text-muted) !important;
     border-radius: 4px;
 }
-[data-testid="stRadioOption"] div[class*="st-emotion-cache"]:not(:has(*)):not([class*="iqhgxh"]) {
-    border-radius: 50%;
-}
-[data-testid="stCheckbox"] input:checked + div,
-[data-testid="stRadio"] input:checked + div {
-    background-color: var(--accent) !important;
+html[data-dsh-theme="dark"] [data-testid="stCheckbox"]:has(input:checked) label > div:first-of-type {
+    background: var(--accent) !important;
     border-color: var(--accent) !important;
 }
-[data-testid="stCheckbox"] input[type="checkbox"],
-[data-testid="stRadio"] input[type="radio"] { accent-color: var(--accent); }
+/* 对勾描边改成深色：暗色强调色是浅蓝(#8ecae6)，前端主题画的白色对勾压在上面
+   只有约 1.8:1，几乎看不出勾选。改用 --accent-contrast(#101828) 后约 9.4:1。 */
+html[data-dsh-theme="dark"] [data-testid="stCheckbox"]:has(input:checked) label > div:first-of-type path {
+    stroke: var(--accent-contrast) !important;
+    fill: none !important;
+}
+html[data-dsh-theme="dark"] [data-testid="stCheckbox"]:has(input:checked) label > div:first-of-type svg {
+    color: var(--accent-contrast) !important;
+    stroke: var(--accent-contrast) !important;
+    fill: none !important;
+}
+/* 主 Tab 导航的原生圆点已被隐藏（见「主 Tab 导航」一节），这里只需压掉它的白底 */
+html[data-dsh-theme="dark"] [data-testid="stRadioOption"] div[class*="st-emotion-cache"]:not(:has(*)) {
+    background: transparent !important;
+    border: none !important;
+}
 
 /* ===== 滑块 / 开关 ===== */
 /* Streamlit 1.59 的滑块是 react-aria 的 <input type="range">，其自身背景在
