@@ -107,7 +107,7 @@ _RESET_KEYS_BY_TAB = {
              # 天气墙状态（首页=导入 Tab 顶部）：重置后彻底清理，含一次性提示与定位组件值
              "wall_cities", "wall_query", "wall_geo", "wall_candidate_pick",
              "_resolve_candidates", "_wall_notice", "_geo_consumed", "_relocate"],
-    "数值预报": ["fc_df", "fc_analysis", "fc_grid", "fc_hour", "life_indices",
+    "数值预报": ["fc_df", "fc_analysis", "life_indices",
                  "nwp_forecast_for_analysis", "nwp_combined"],
     "可视化": ["multi_station_selected"],
     "智能分析": ["warnings_list", "quality_score", "_warn_fp"],

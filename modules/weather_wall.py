@@ -477,25 +477,29 @@ def wall_css() -> str:
 @keyframes ww-twinkle { 0%,100% { opacity:.25; transform:scale(.8);}
                         50% { opacity:1; transform:scale(1.15);} }
 
-/* ===== 卡片容器（兼容 stVerticalBlock / stVerticalBlockBorderWrapper 两种容器）
-   Streamlit 1.59 实测：st.container(border=False) 生成 stVerticalBlockBorderWrapper。
-   用逗号并列两个选择器，保证两种容器都被命中。 */
-[data-testid="stVerticalBlock"]:has(.ww-card),
-[data-testid="stVerticalBlockBorderWrapper"]:has(.ww-card) {
+/* ===== 卡片容器 =====
+   踩坑记录（Streamlit 1.59.1 实测 DOM）：
+   ① st.container(border=False) 生成的是 stLayoutWrapper > stVerticalBlock，
+      并不存在 stVerticalBlockBorderWrapper（只有 border=True 才生成），旧选择器已失效；
+   ② 选择器必须锚定「直接子级 stElementContainer 内含 .ww-card」这一层。
+      写成 :has(.ww-card) 属于后代匹配，应用根容器因为「整页包含卡片」同样命中，
+      其 position:relative 会让下面的绝对定位规则落到根容器的顶层按钮上
+      （如 fc_fetch「获取 GFS 预报」被压成 21x21 竖条贴到页面右上角）。
+      这正是「天气墙存在时预报获取按钮漂移」的根因，勿改回非锚定写法。 */
+[data-testid="stVerticalBlock"]:has(> .stElementContainer .ww-card) {
     position:relative; padding:0 !important; overflow:hidden; border:none !important;
     background:transparent !important; box-shadow:none !important;
     transition:transform var(--transition);
 }
-[data-testid="stVerticalBlock"]:has(.ww-card):hover,
-[data-testid="stVerticalBlockBorderWrapper"]:has(.ww-card):hover {
+[data-testid="stVerticalBlock"]:has(> .stElementContainer .ww-card):hover {
     transform:translateY(-4px);
 }
 /* 删除按钮：默认隐藏，hover 卡片（或按钮自身/键盘 focus）时平滑显现。
    opacity+scale 双过渡，绝对定位不占文档流，无布局跳动。 */
-[data-testid="stVerticalBlock"]:has(.ww-card) > .stElementContainer:has(.stButton) {
+[data-testid="stVerticalBlock"]:has(> .stElementContainer .ww-card) > .stElementContainer:has(.stButton) {
     position:absolute; top:6px; right:6px; z-index:6; width:auto;
 }
-[data-testid="stVerticalBlock"]:has(.ww-card) > .stElementContainer:has(.stButton) .stButton button {
+[data-testid="stVerticalBlock"]:has(> .stElementContainer .ww-card) > .stElementContainer:has(.stButton) .stButton button {
     width:26px !important; height:26px; min-height:26px; padding:0 !important;
     border-radius:50% !important; border:none !important; line-height:1;
     background:rgba(16,24,48,.45) !important; color:#fff !important; font-size:.8rem;
@@ -505,22 +509,22 @@ def wall_css() -> str:
                background .22s ease;
 }
 /* 三种显示状态：卡片 hover（兄弟触发）/ 按钮自身 hover / 键盘 focus */
-[data-testid="stVerticalBlock"]:has(.ww-card):hover > .stElementContainer:has(.stButton) .stButton button,
-[data-testid="stVerticalBlock"]:has(.ww-card) > .stElementContainer:has(.stButton) .stButton button:focus-visible,
-[data-testid="stVerticalBlock"]:has(.ww-card) > .stElementContainer:has(.stButton) .stButton:hover > button {
+[data-testid="stVerticalBlock"]:has(> .stElementContainer .ww-card):hover > .stElementContainer:has(.stButton) .stButton button,
+[data-testid="stVerticalBlock"]:has(> .stElementContainer .ww-card) > .stElementContainer:has(.stButton) .stButton button:focus-visible,
+[data-testid="stVerticalBlock"]:has(> .stElementContainer .ww-card) > .stElementContainer:has(.stButton) .stButton:hover > button {
     opacity:1; transform:scale(1);
 }
-[data-testid="stVerticalBlock"]:has(.ww-card) > .stElementContainer:has(.stButton) .stButton button:hover {
+[data-testid="stVerticalBlock"]:has(> .stElementContainer .ww-card) > .stElementContainer:has(.stButton) .stButton button:hover {
     background:rgba(200,60,60,.85) !important;
 }
 /* 移动端 / 无 hover 设备：按钮常显，保证可点（触摸设备没有 hover 态） */
 @media (hover: none) {
-    [data-testid="stVerticalBlock"]:has(.ww-card) > .stElementContainer:has(.stButton) .stButton button {
+    [data-testid="stVerticalBlock"]:has(> .stElementContainer .ww-card) > .stElementContainer:has(.stButton) .stButton button {
         opacity:.85; transform:none;
     }
 }
 /* 卡片容器内 markdown 去掉默认间距 */
-[data-testid="stVerticalBlock"]:has(.ww-card) [data-testid="stMarkdownContainer"] { margin:0; }
+[data-testid="stVerticalBlock"]:has(> .stElementContainer .ww-card) [data-testid="stMarkdownContainer"] { margin:0; }
 
 /* ===== 减弱动态偏好：全部动画静止（无障碍） ===== */
 @media (prefers-reduced-motion: reduce) {
