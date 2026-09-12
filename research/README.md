@@ -1,4 +1,4 @@
-# 主题改造与发布核对：审计与验证工具
+# 主题改造：审计与验证工具
 
 本目录存放配套的**可复算**工具。每个脚本独立可执行，不依赖浏览器插件，可在 CI 或本地直接跑。
 
@@ -10,43 +10,40 @@
 | `check_plotly_cssvar.py` | 检查图表代码是否误用 `var(--token)`——plotly.js 绘制 SVG，**不解析 CSS 自定义属性**，写了会静默失效 | 退出码 0 |
 | `check_chart_colors.py` | 真实调用图表函数，检查 figure 内所有颜色属性是否为 Plotly 认可的实值（拦截「token 名泄漏进 Plotly」这类只在运行时暴露的问题） | 退出码 0 |
 | `darkmode_contrast_probe.py --check` | 对亮/暗两套 token 做 WCAG 2.1 对比度审计（正文 4.5:1），并把带 alpha 的语义底色先合成到卡片底再计算 | 退出码 0 |
-| `check_deploy.py` | 发布核对：比对仓库 `APP_VERSION`、线上页脚版本号、本地提交与远端的关系 | 退出码 0 |
 
 ```bash
 python research/check_py_vars.py
 python research/check_plotly_cssvar.py
 python research/check_chart_colors.py
 python research/darkmode_contrast_probe.py --check
-python research/check_deploy.py
 ```
 
 `darkmode_contrast_probe.py` 不带参数时会输出一段探针 HTML，
 把当前主题下每个 token 的真实取值渲染成色块，便于人工核对。
 
-### check_deploy.py：为什么需要它
+## 发布后核对线上版本（靠肉眼，无脚本）
 
 `git push` 成功、远端 `main` 已更新，**不等于** Streamlit Cloud 已经重建容器。
 2026-09-11 的 v2.3.0 发布就踩过这个坑：合并与推送全部成功，但线上连续十余分钟仍返回旧
-版本号，容器最后一次启动时间停在推送之前。这种「已合并未部署」是**静默**的，会让人误以为
-线上已是新版。本脚本把那次人工排查固化下来。
+版本号，容器最后一次启动时间停在推送之前。这种「已合并未部署」是**静默**的，不主动核对
+就会误以为线上已是新版。
 
-实现上有三个坑，都已在代码里注释：
+侧边栏页脚始终显示 `© 气象数据交互分析平台 <版本号>`，与 `config.py` 的 `APP_VERSION`
+对一眼即可；不一致就去 Streamlit Cloud 面板执行 **Reboot app**。
 
-1. **版本号在鉴权门之后**。`APP_VERSION` 渲染在侧边栏页脚，未登录时页面只有登录卡片，
-   任何位置都读不到版本号。因此脚本需要可选凭据——只从环境变量
-   `DEPLOY_CHECK_EMAIL` / `DEPLOY_CHECK_PASSWORD` 取，**不进仓库、不打印**。
-   未提供凭据时会明确报「无法确认」（退出码 2），不谎报通过。
-2. **应用正文读不到**。Streamlit 把应用渲染在同源 iframe 里，它不是独立 CDP 目标，只是
-   主页面目标下的子 frame；而且同源子 frame 在**默认执行上下文**里求值只返回空串，必须
-   经 `Page.createIsolatedWorld` 建一个隔离上下文才读得到。这一点是靠 `Page.getFrameTree`
-   逐 frame 实测出来的，不是猜的。
-3. **登录卡片没有 `<form>`**。实测 `document.forms.length === 0`，所以不能 `requestSubmit`，
-   只能按可见文案点提交按钮。
+> 曾写过一个自动核对脚本（`check_deploy.py` + 仅标准库的 CDP 客户端），因实用价值不足已
+> 删除。它换来三条实测结论，记录在此以免重走：
 
-`cdp_client.py` 是配套的极简 CDP 客户端（仅标准库：手写 WebSocket 握手与成帧），
-目的是让整个检查**零第三方依赖**——不需要 Python 的 playwright、也不需要 Node 的
-npm install，只要本机有 Chrome / Edge / Chromium。它只实现本项目需要的三件事：
-建目标、挂载会话、求值一段 JS。
+1. **版本号在鉴权门之后**。`APP_VERSION` 渲染在侧边栏页脚，而页脚位于 `is_authenticated()`
+   分支内——未登录时页面正文只有约 146 字符、止步于「管理员入口」，任何位置都读不到版本号。
+   所以自动化核对无法免凭据。
+2. **应用正文在默认上下文里读不到**。应用渲染在同源 iframe 中，因而**不是**独立 CDP 目标，
+   只是主页面目标的子 frame；且同源子 frame 在默认执行上下文求值**只返回空串**，必须经
+   `Page.createIsolatedWorld` 建隔离上下文才读得到。读外层 `document.body.innerText` 则
+   永远为空，容易误判成「页面空白」。
+3. **登录卡片没有 `<form>`**。实测 `document.forms.length === 0`，所以 `requestSubmit()`
+   无从下手；另外 React 受控输入必须用 `HTMLInputElement.prototype` 的原生 value setter
+   写入，否则值会被弹回。
 
 ## 一次性迁移脚本（记录改动来源，已执行完毕）
 
@@ -63,14 +60,8 @@ npm install，只要本机有 Chrome / Edge / Chromium。它只实现本项目�
 
 ## 浏览器侧验证
 
-DOM 级验证有两种做法，都记录在此以便复现。
-
-**一、标准化做法：`check_deploy.py` + `cdp_client.py`**（零第三方依赖，见上文）。
-适用于「线上到底跑的是哪个版本」这类需要登录后才可见的核对。
-
-**二、交互式排查**适用于「为什么这个元素在暗色下是白的」这类探索性问题。
-本次改造用的是 Playwright（本机缓存的 chromium），脚本位于会话临时目录、不在仓库内。
-核心手段：
+用于「为什么这个元素在暗色下是白的」这类探索性问题。本次改造用的是 Playwright
+（本机缓存的 chromium），脚本位于会话临时目录、不在仓库内。核心手段：
 
 - **亮底元素扫描**：暗色主题下遍历所有元素，找出计算背景亮度 > 0.55 且尺寸
   > 10px 的元素，并打印其祖先 `data-testid` 链。这是发现
@@ -85,7 +76,8 @@ DOM 级验证有两种做法，都记录在此以便复现。
 **踩过的坑（省下后来人一次重走）**：
 
 - 应用的 DOM 在 iframe 内，读**外层** `document.body.innerText` 永远是 0，会误判成
-  「页面空白」。必须先定位到应用那个 frame。
+  「页面空白」。必须先定位到应用那个 frame；而它作为同源子 frame，正文只在
+  `Page.createIsolatedWorld` 建的隔离上下文里读得到（见上文第 2 条）。
 - Streamlit 的 `stCheckbox` 把真实 `<input>` 包在 `clip-path: inset(50%)` 的隐藏
   span 里，同级另有承载外观的 div，所以 `input:checked + div` 这种兄弟选择器**永远
   匹配不上**，勾选态只能用 `:has(input:checked)` 挂在容器上。

@@ -84,13 +84,11 @@ weather_app/
     ├── city_prefs.py           # 天气墙城市列表持久化
     ├── geocode.py              # 城市名 ↔ 经纬度双向解析
     └── geolocate.py            # 浏览器定位组件封装
-├── research/                   # 主题配色审计与发布核对工具（不参与线上部署）
+├── research/                   # 主题配色审计工具（不参与线上部署）
 │   ├── darkmode_contrast_probe.py  # WCAG 2.1 AA 对比度审计（双主题）
 │   ├── check_py_vars.py            # CSS 变量引用完整性检查
 │   ├── check_plotly_cssvar.py      # 图表误用 CSS var() 检查
-│   ├── check_chart_colors.py       # 图表颜色实值检查（防 token 名泄漏进 Plotly）
-│   ├── check_deploy.py             # 发布核对：线上版本 vs 仓库版本
-│   └── cdp_client.py               # 极简 CDP 客户端（仅标准库，供上面的核对用）
+│   └── check_chart_colors.py       # 图表颜色实值检查（防 token 名泄漏进 Plotly）
 ```
 
 ---
@@ -146,16 +144,13 @@ python -B research/check_chart_colors.py        # 图表颜色是否为 Plotly �
 
 > 前三项是静态检查，第四项会真实调用图表函数并检查 figure 内的颜色属性，用于拦截「token 名泄漏进 Plotly」这类只在运行时才暴露的问题。
 
-**发布后另跑一次部署核对**，确认线上跑的确实是你刚推的版本（`git push` 成功不等于
-Streamlit Cloud 已重建容器）：
+**发布后请肉眼核对一次线上版本号。** `git push` 成功、远端 `main` 已更新，**不等于**
+Streamlit Cloud 已经重建容器：v2.3.0 发布时就遇到过推送十余分钟后线上仍返回旧版本号、
+容器启动时间停在推送之前的情况，而这一状态是静默的，不主动核对就会误以为线上已是新版。
 
-```bash
-python -B research/check_deploy.py
-```
-
-该脚本会比对仓库 `APP_VERSION`、线上页脚版本号、以及本地提交与远端的关系。读取线上版本
-需要登录，凭据只从环境变量 `DEPLOY_CHECK_EMAIL` / `DEPLOY_CHECK_PASSWORD` 取，不进仓库；
-未提供凭据时会明确报「无法确认」而不是谎报通过。
+做法很简单——侧边栏页脚始终显示 `© 气象数据交互分析平台 <版本号>`，与 `config.py` 的
+`APP_VERSION` 对一眼即可。若不一致，去 Streamlit Cloud 面板对该应用执行 **Reboot app**
+（会重新 clone 分支并重建容器）。
 
 ---
 
