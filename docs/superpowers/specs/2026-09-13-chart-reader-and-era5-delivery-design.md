@@ -366,7 +366,9 @@ def build_manual_html(md_text: str) -> bytes
 
 以下**纯逻辑**函数保留不动，理由：`app.py:900-913` 顶层仍在运行它们并把结果写入 `warnings_list` 供报告导出使用，且 `tests/test_analyzer.py` 全部 91 条用例覆盖它们。
 
-`check_high_temperature` / `check_cold_wave` / `check_gale` / `check_fog` / `check_rainstorm` / `check_frost` / `check_thunderstorm` / `check_haze` / `multi_factor_coupling` / `generate_advice` / `set_custom_thresholds` / `check_air_quality`（改为委托 `modules.aqi`）。
+`check_high_temperature` / `check_cold_wave` / `check_gale` / `check_fog` / `check_rainstorm` / `check_frost` / `check_thunderstorm` / `check_haze` / `multi_factor_coupling` / `generate_advice` / `set_custom_thresholds`。
+
+`check_air_quality` **不在此列**：它在第 5 步（读图解析改造）中随 `_render_air_quality_section` 一并删除。理由是其两个调用点（`_render_air_quality_section`、`analyzer.py:1287`）都在本次删除范围内，Word 报告也不含 AQI 内容（已 grep 确认），保留它等于在删除旧死代码的同时新增一处死代码。删除前先在第 1 批次把它改写为委托 `modules.aqi`，使 `modules/aqi.py` 的测试覆盖不依赖 `analyzer`。
 
 `app.py:37` 的 `multi_factor_coupling` import 在 `app.py` 内无调用点，一并移除（函数本身保留在 `analyzer.py` 供测试与其他模块使用）。
 
@@ -559,14 +561,14 @@ def comprehensive_aqi(concentrations: dict) -> dict
 1. `lo_0 == 0`。
 2. 每档 `lo <= hi`。
 3. 档间连续：`lo_{i+1} == hi_i + 1`（允许 1 的整数间隙）。**现状 `"nox"` 的 60→81 违反此条。**
-4. `iaqi` 节点递增，首档 `iaqi_lo == 0`，末档 `iaqi_hi == 500`。
+4. `iaqi` 节点严格递增，首档 `iaqi_lo == 0`，每一项均取自 `IAQI_NODES = (0, 50, 100, 150, 200, 300, 400, 500)`；末档 `iaqi_hi` 允许为 **200**（气态污染物的 1h 表仅定义到 200）或 **500**（颗粒物与 CO）。
 5. 相邻档的 `iaqi_hi == iaqi_lo_{i+1}`（不允许在 IAQI 轴上出现空洞）。
 6. 污染物的浓度单位在表中以注释标注（`CO` 为 mg/m³，其余为 μg/m³）。
 
 #### 5.5.3 计算规则
 
 - `IAQI = (iaqi_hi - iaqi_lo) / (hi - lo) × (C - lo) + iaqi_lo`，`C` 使用 `max(0, conc)`。
-- 超出末档：按末档斜率线性外推后 `min(500, ...)`。**禁止返回 0**（修掉 `analyzer.py:405`）。
+- 超出末档：按末档斜率线性外推后，**钳制到该污染物自身的最大 IAQI 节点**（颗粒物与 CO 为 500，气态污染物为 200），**禁止返回 0**（修掉 `analyzer.py:405`）。
 - 落在档间间隙或非有限值：返回 `None`，该污染物不参与综合 AQI。
 - 综合 AQI = 各 IAQI 最大值；`AQI <= 50` 时 `primary = None`；并列最大值时列出全部。
 - 等级与颜色按 `config.AQI_LEVELS` 判定，AQI 范围 1–500。
@@ -597,7 +599,24 @@ AQI_STANDARD_LABEL = "HJ 633-2026"   # 或实际所用版本，如 "HJ 633-2012"
 
 页面文案、手册、图表标题一律渲染该常量，**禁止硬编码标准名**。这样即使最终只能核实到旧版断点，页面也不会声称用了新标准。
 
-本次必修的结构缺陷（与数值来源无关）：`"nox"` 的 61–80 空洞、`"so2"` 的非标节点、缺失的 `co` 与 `o3` 两项、超量程 `return 0`。`co` 与 `o3` 的断点数值同样以上述核实结果为准。
+**最终落地决定（2026-09-13 用户确认「按如实标注实际所用标准版本落地」）**
+
+HJ 633-2026 表 1 的数值不可公开核实（标准文本在付费墙后），因此采用 `modules/nwp_forecast.py` 中已在生产运行的 **HJ 633-2012 断点表**作为统一口径，`AQI_STANDARD_LABEL = "HJ 633-2012"`。该表与国标 1h（气态）/ 24h（颗粒物、CO）分指数表一致：
+
+| 污染物 | 时段 | 浓度节点 | IAQI 节点 |
+|---|---|---|---|
+| PM2.5 | 24h | 0, 35, 75, 115, 150, 250, 350, 500 μg/m³ | 0–500 |
+| PM10 | 24h | 0, 50, 150, 250, 350, 420, 500, 600 μg/m³ | 0–500 |
+| SO₂ | 1h | 0, 150, 500, 650, 800 μg/m³ | 0–200 |
+| NO₂ | 1h | 0, 100, 200, 700, 1200 μg/m³ | 0–200 |
+| CO | 1h | 0, 5, 10, 35, 60, 90, 120, 150 mg/m³ | 0–500 |
+| O₃ | 1h | 0, 160, 200, 300, 400 μg/m³ | 0–200 |
+
+选它的三个理由：数值可核验、不属编造；数值预报 Tab 与首页天气墙本就运行在这张表上，统一后**这两处的 AQI 数值不变**，行为变更仅限标准标注文字；它天然覆盖六项污染物，直接补齐了 `config` 表缺失的 CO 与 O₃。
+
+`config.AQI_BREAKPOINTS` 整表替换为该口径。页面、手册、图表标题渲染 `AQI_STANDARD_LABEL`，如实显示为 2012 版。待 HJ 633-2026 表 1 可核实时，只需替换 `config` 中的数值与该常量，其余代码不动。
+
+**已知局限（写入模块文档字符串）**：`fetch_air_quality` 以逐时浓度代入 1h 表，正确；`check_air_quality` 以时段均值代入同一张表，会高估气态污染物的分指数。评价时段口径的重新定义超出本次范围（见 2.2 节），仅记录。
 
 ---
 
