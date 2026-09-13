@@ -156,3 +156,82 @@ def test_app_manual_entry_is_in_sidebar_block():
     # 入口位于侧边栏块内：在侧边栏开始之后、主内容区之前的范围内
     main_start = source.index("# 主内容区")
     assert sidebar_start < entry_idx < main_start
+
+
+# ============================================================
+# 三、手册内容契约（针对真实 docs/用户使用手册.md）
+# ============================================================
+
+EXPECTED_TITLES = ["这份手册怎么用", "平台能力与边界", "安装与启动", "界面总览",
+                   "数据导入与质量控制", "可视化分析怎么读", "数值预报",
+                   "AI 读图解析", "报告导出", "报文解码",
+                   "ERA5 再分析数据获取", "侧边栏与自定义阈值",
+                   "常见问题（FAQ）", "标准引用与术语表"]
+
+
+def _manual_text():
+    from modules.manual import load_manual_markdown
+    return load_manual_markdown()
+
+
+def test_manual_exists_and_is_readable():
+    from modules.manual import MANUAL_PATH
+    assert os.path.exists(MANUAL_PATH), MANUAL_PATH
+    assert len(_manual_text()) > 6000, "手册正文过短，疑似未完成"
+
+
+def test_manual_has_fourteen_contiguous_chapters():
+    from modules.manual import parse_chapters
+    chapters = parse_chapters(_manual_text())
+    assert [c["index"] for c in chapters] == list(range(1, 15))
+    assert [c["title"] for c in chapters] == EXPECTED_TITLES
+
+
+def test_every_chapter_has_substance():
+    from modules.manual import parse_chapters
+    for chapter in parse_chapters(_manual_text()):
+        assert len(chapter["body_md"].strip()) >= 300, \
+            "第 %d 章内容过薄" % chapter["index"]
+
+
+def test_manual_contains_no_placeholders():
+    text = _manual_text()
+    for bad in ("TODO", "TBD", "待补", "XXX", "待定"):
+        assert bad not in text, bad
+
+
+def test_manual_has_no_stale_tab_references():
+    text = _manual_text()
+    for bad in ("再分析数据处理", "气候态"):
+        assert bad not in text, bad
+
+
+def test_manual_states_actual_aqi_standard():
+    """AQI 口径必须如实标注为实际所用版本，不得声称 2026。"""
+    text = _manual_text()
+    assert "HJ 633-2012" in text
+    assert "HJ 633-2026" not in text
+
+
+def test_manual_mentions_current_navigation():
+    text = _manual_text()
+    for need in ("数据导入", "可视化分析", "数值预报", "AI 读图解析",
+                 "报告导出", "报文解码"):
+        assert need in text, need
+
+
+def test_manual_documents_upload_limits_and_terminal_path():
+    """第 8 章需写明图片上限，第 11 章需写明手动打开终端与许可接受。"""
+    text = _manual_text()
+    assert "5 MB" in text
+    assert "终端" in text
+    assert "许可" in text
+
+
+def test_manual_html_export_is_self_contained():
+    from modules.manual import build_manual_html
+    text = build_manual_html(_manual_text()).decode("utf-8")
+    assert text.count('id="ch-') >= 14
+    assert "<table>" in text
+    for title in EXPECTED_TITLES:
+        assert title in text, title
