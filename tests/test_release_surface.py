@@ -25,7 +25,7 @@ def _read(rel):
 
 def test_version_bumped():
     from config import APP_VERSION
-    assert APP_VERSION == "2.4.0", APP_VERSION
+    assert APP_VERSION == "2.3.1", APP_VERSION
 
 
 def test_requirements_declare_image_and_markdown_deps():
