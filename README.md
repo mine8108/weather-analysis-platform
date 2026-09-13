@@ -158,7 +158,7 @@ pip install -r requirements-dev.txt
 pytest tests -q
 ```
 
-改配色或图表样式后，另跑 `research/` 下的四项审计，全部以退出码 0 为通过：
+**每次发布前一律跑一遍下面四项审计**，全部以退出码 0 为通过。不要按「这次改了什么」决定跑不跑：`check_py_vars` 曾因这条旧措辞（「改配色后另跑」）被连续几个版本漏跑，其间它一直报着一个误报，谁也没发现——长期存在的假阳性会训练人忽略检查。
 
 ```bash
 python -B research/darkmode_contrast_probe.py   # 双主题 WCAG 对比度，须 0 项不达标
