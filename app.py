@@ -438,6 +438,13 @@ if not is_authenticated():
     render_auth_page()
     st.stop()
 
+# 用户使用手册：独立页面，不占用 Tab 编号（唯一真相源为 docs/用户使用手册.md）。
+# 拦截必须放在 Tab 导航之前并 st.stop()，否则手册页会与 Tab 内容叠加。
+if st.session_state.get("_manual_open"):
+    from modules.manual import render_manual_page
+    render_manual_page()
+    st.stop()
+
 
 # 头部
 st.markdown('<div class="main-header">[天气] 气象数据交互分析平台</div>', unsafe_allow_html=True)
@@ -532,6 +539,11 @@ with st.sidebar:
                         delete_dataset(_d["id"])
                         st.rerun()
         st.divider()
+
+    # 用户使用手册入口（手册页在登录门禁之后、Tab 导航之前拦截渲染）
+    from modules.manual import render_sidebar_entry
+    render_sidebar_entry()
+    st.divider()
 
     st.header("[设置] 自定义检测阈值")
 
