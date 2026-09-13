@@ -235,3 +235,15 @@ def test_manual_html_export_is_self_contained():
     assert "<table>" in text
     for title in EXPECTED_TITLES:
         assert title in text, title
+
+
+def test_manual_does_not_describe_removed_main_area_expander():
+    """主区「使用手册折叠块」已在读图解析改造中删除，手册不得再描述它。"""
+    assert "使用手册折叠块" not in _manual_text()
+
+
+def test_manual_matches_renamed_summary_card_button():
+    """摘要卡第三个按钮已由「🔔 检测」改为「🖼 读图」，手册须同步。"""
+    text = _manual_text()
+    assert "🔔 检测" not in text
+    assert "🖼 读图" in text

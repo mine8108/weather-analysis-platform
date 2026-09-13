@@ -8,8 +8,8 @@
 ``analyzer._calc_single_aqi`` 与 ``nwp_forecast._compute_cn_aqi`` 的两套实现已删除。
 
 已知局限：气态污染物分指数按 1 小时表计算。``nwp_forecast.fetch_air_quality``
-传入逐时浓度，口径正确；``analyzer.check_air_quality`` 传入时段均值，会高估
-气态污染物的分指数。评价时段口径的重新定义不在本次范围内。
+传入逐时浓度，口径正确；若把时段均值代入同一张表会高估气态污染物的分指数，
+因此调用方须自证其代入值的时段口径。评价时段口径的重新定义不在本次范围内。
 
 本模块不 import streamlit 与 design_tokens：颜色解析是调用方的职责。
 """

@@ -23,7 +23,6 @@ from modules.data_loader import (
 from modules.data_quality import render_quality_report
 from modules.visualizer import render_visualization_tab
 from modules.analyzer import (
-    render_analysis_tab,
     set_custom_thresholds,
     check_high_temperature,
     check_cold_wave,
@@ -33,9 +32,8 @@ from modules.analyzer import (
     check_frost,
     check_thunderstorm,
     check_haze,
-    check_against_extremes,
-    multi_factor_coupling,
 )
+from modules.chart_reader import render_chart_reader_tab
 from modules.codec import render_codec_tab
 from modules.reporter import render_export_tab
 from modules.nwp_forecast import render_forecast_tab
@@ -99,7 +97,7 @@ def _safe_reset():
 
 
 # Tab 名称映射(用于重置按钮显示当前 Tab 名)
-_TAB_NAMES = ["导入", "可视化", "数值预报", "智能分析", "报告导出", "报文解码"]
+_TAB_NAMES = ["导入", "可视化", "数值预报", "读图解析", "报告导出", "报文解码"]
 
 # 每个 Tab 重置时清理的 session_state key(精确匹配 + "_" 前缀动态匹配)
 _RESET_KEYS_BY_TAB = {
@@ -111,7 +109,8 @@ _RESET_KEYS_BY_TAB = {
     "数值预报": ["fc_df", "fc_analysis", "life_indices",
                  "nwp_forecast_for_analysis", "nwp_combined"],
     "可视化": ["multi_station_selected"],
-    "智能分析": ["warnings_list", "quality_score", "_warn_fp"],
+    "读图解析": ["chart_reader_images", "chart_reader_text", "chart_reader_meta",
+                 "chart_reader_last_gen", "chart_reader_gen_count"],
     "报告导出": ["report_data"],
     "报文解码": ["manual_data"],
 }
@@ -237,7 +236,7 @@ def _render_data_summary_card():
                 if cur_tab != 1 and st.button("📊 图表", use_container_width=True, key="jump_viz"):
                     _navigate_to(1)
             with b_col2:
-                if cur_tab != 3 and st.button("🔔 检测", use_container_width=True, key="jump_alert"):
+                if cur_tab != 3 and st.button("🖼 读图", use_container_width=True, key="jump_alert"):
                     _navigate_to(3)
             with b_col3:
                 if cur_tab != 4 and st.button("📤 导出", use_container_width=True, key="jump_export"):
@@ -268,7 +267,7 @@ def _render_progress_bar():
         ("[导入]", "f0"),
         ("[质控]", "f1"),
         ("[图表]", "f2"),
-        ("[检测]", "f3"),
+        ("[读图]", "f3"),
         ("[导出]", "f4"),
     ]
     # 根据当前 session 数据状态判断进度
@@ -321,7 +320,7 @@ def _render_next_step_hint():
     if not has_data:
         hints.append(("&#x1F4C2;", "请先导入数据：上传 CSV/Excel 文件，或使用 API 获取在线数据"))
     elif has_forecast and "fc_analysis" in st.session_state:
-        hints.append(("&#x26A1;", "数值预报已生成，前往 [检测] 查看预报驱动的智能分析建议"))
+        hints.append(("&#x26A1;", "数值预报已生成，可前往 [读图] 上传气象图做 AI 读图解析"))
 
     # 只在有数据时显示
     if has_data and not has_forecast:
@@ -448,29 +447,8 @@ if st.session_state.get("_manual_open"):
 
 # 头部
 st.markdown('<div class="main-header">[天气] 气象数据交互分析平台</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">数据导入 · 可视化分析 · 数值预报 · 事件检测 · 智能建议 · 报告导出</div>',
+st.markdown('<div class="sub-header">数据导入 · 可视化分析 · 数值预报 · AI 读图解析 · 报告导出 · 报文解码</div>',
             unsafe_allow_html=True)
-
-# 使用手册（标题行右侧链接）
-with st.expander("📖 使用手册", expanded=False):
-    st.markdown("""
-### 快速入门
-1. **导入数据**：支持 CSV / Excel 格式，或通过 API 获取在线气象/空气质量数据
-2. **列名自动识别**：系统支持中英文别名，如 `SO2`→`so2`、`二氧化硫`→`so2`、`时间`→`timestamp`
-3. **可视化**：7 个子面板，覆盖时间序列、双轴对比、散点矩阵、相关性热力图、风场分析
-4. **智能分析**：基于国家预警阈值标准（第16号令）及 GB 3095-2026 空气质量标准生成建议
-
-### 数据格式
-- **气象站数据**：无名时间列（HHMMSS 格式）自动识别
-- **污染物数据**：支持 `PM2.5 / pm2.5 / SO2 / so2 / NOx` 等 21 种别名
-- **API 获取**：Open-Meteo 全球免费 API，无需注册
-
-### 标准引用
-- GB 3095-2026《环境空气质量标准》（2026年3月1日实施）
-- HJ 633-2026《AQI 技术规定》
-- 中国气象局第16号令《气象灾害预警信号发布与传播办法》
-""")
-
 
 # 初始化 session_state
 def init_session():
@@ -689,7 +667,7 @@ tab_labels = [
     "[导入] 数据导入",
     "[图表] 可视化分析",
     "[预报] 数值预报",
-    "[检测] 智能分析与建议",
+    "[读图] AI 读图解析",
     "[导出] 报告导出",
     "[雷达] 报文解码",
 ]
@@ -903,7 +881,7 @@ if st.session_state["active_tab"] == 1:
     _viz_df = _safe_render("可视化-数据", _get_filtered_df)
     _safe_render("可视化", render_visualization_tab, _viz_df)
 
-# ---- Tab 3: 智能分析与建议 ----
+# ---- Tab 3: AI 读图解析 ----
 if st.session_state["active_tab"] == 3:
     # 数据指纹缓存：数据未变化时跳过重复检测
     if st.session_state["df"] is not None:
@@ -915,7 +893,6 @@ if st.session_state["active_tab"] == 3:
                 ("大风", check_gale), ("大雾", check_fog),
                 ("暴雨", check_rainstorm), ("霜冻", check_frost),
                 ("雷电", check_thunderstorm), ("霾", check_haze),
-                ("极值", check_against_extremes),
             ]
             for name, fn in checks:
                 try:
@@ -924,7 +901,8 @@ if st.session_state["active_tab"] == 3:
                     st.warning(f"{name}检测因数据问题跳过: {e}")
             st.session_state["warnings_list"] = all_w
             st.session_state["_warn_fp"] = fp
-    warnings_result = _safe_render("智能分析", render_analysis_tab, st.session_state["df"])
+    # 读图解析不依赖已导入数据，无条件渲染（详见 modules/chart_reader）
+    _safe_render("读图解析", render_chart_reader_tab)
 
 # ---- Tab 4: 报告导出 ----
 if st.session_state["active_tab"] == 4:

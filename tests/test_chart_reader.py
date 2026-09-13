@@ -179,3 +179,84 @@ def test_estimate_image_tokens_positive():
 
 def test_estimate_image_tokens_empty():
     assert chart_reader.estimate_image_tokens([]) == 0
+
+
+# ============================================================
+# 五、页面与接线契约
+# ============================================================
+
+def _source(rel):
+    import io
+    with io.open(os.path.join(_APP_DIR, rel), encoding="utf-8") as handle:
+        return handle.read()
+
+
+def test_app_tab_label_renamed_to_chart_reader():
+    source = _source("app.py")
+    assert "[读图] AI 读图解析" in source
+    assert "智能分析与建议" not in source
+
+
+def test_app_tab_names_and_reset_keys_updated():
+    source = _source("app.py")
+    assert '"读图解析"' in source
+    assert '"chart_reader_images"' in source
+
+
+def test_app_renders_chart_tab_without_data():
+    """读图不依赖已导入数据：渲染调用在 Tab 3 块内无条件执行。
+
+    注意不能直接搜 "df is not None"——Tab 3 块内确实有一段检测守卫
+    （数据指纹缓存，用于喂报告导出），它合法地判断 df。判据改为：
+    渲染调用必须出现在该守卫块结束之后。
+    """
+    source = _source("app.py")
+    start = source.index('if st.session_state["active_tab"] == 3:')
+    end = source.index("# ---- Tab 4", start)
+    block = source[start:end]
+    call = block.index("render_chart_reader_tab")
+    guard_end = block.index('st.session_state["_warn_fp"] = fp')
+    assert call > guard_end, "读图渲染必须位于检测守卫块之后，无条件执行"
+
+
+def test_analyzer_dropped_dead_renderers():
+    from modules import analyzer
+    for name in ("render_analysis_tab", "_render_air_quality_section",
+                 "_render_trend_section", "_render_smart_advice",
+                 "_render_nwp_analysis_section", "check_air_quality",
+                 "_aqi_level_name", "check_against_extremes",
+                 "_build_nwp_summary", "_build_aq_summary",
+                 "_build_wind_summary", "_fmt_ts", "_wd_name"):
+        assert not hasattr(analyzer, name), name
+
+
+def test_analyzer_kept_public_logic():
+    from modules import analyzer
+    for name in ("check_high_temperature", "check_cold_wave", "check_gale",
+                 "check_fog", "check_rainstorm", "check_frost",
+                 "check_thunderstorm", "check_haze", "multi_factor_coupling",
+                 "generate_advice", "set_custom_thresholds", "heat_index_celsius"):
+        assert hasattr(analyzer, name), name
+
+
+def test_app_dropped_dead_imports_and_registration():
+    source = _source("app.py")
+    assert "check_against_extremes" not in source
+    assert '"极值"' not in source
+
+
+def test_app_dropped_stale_manual_expander():
+    """主区旧的「使用手册」折叠块与过期的 2026 标准引用必须移除。"""
+    source = _source("app.py")
+    assert "HJ 633-2026" not in source
+    assert "GB 3095-2026" not in source
+
+
+def test_no_module_still_reads_detection_result():
+    for path in ("app.py", "modules/analyzer.py", "modules/ai_narrative.py"):
+        assert "detection_result" not in _source(path), path
+
+
+def test_chart_reader_exposes_renderer():
+    from modules import chart_reader
+    assert callable(chart_reader.render_chart_reader_tab)

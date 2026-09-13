@@ -10,6 +10,9 @@
 
 import base64
 import io
+import time
+
+import streamlit as st
 
 from PIL import Image
 
@@ -158,3 +161,151 @@ def build_chart_prompt(images_meta, user_note):
 def image_to_data_url(jpeg_bytes):
     """压缩后的 JPEG 字节 → OpenAI 兼容的 data URL。"""
     return "data:image/jpeg;base64," + base64.b64encode(jpeg_bytes).decode("ascii")
+
+
+# ============================================================
+# 页面渲染
+# ============================================================
+
+_SETUP_HINT = (
+    "读图解析尚未配置。请在 Streamlit Secrets 中设置：\n\n"
+    "- `LLM_VISION_MODEL`（**必需**，须是具备图像输入能力的模型，例如 `qwen-vl-max`、"
+    "`glm-4v`、`gpt-4o`）\n"
+    "- `LLM_VISION_API_KEY`（留空则回落 `LLM_API_KEY`）\n"
+    "- `LLM_VISION_BASE_URL`（留空则回落 `LLM_BASE_URL`）\n\n"
+    "注意：**不会**回落到 `LLM_MODEL`。默认的 `deepseek-chat` 没有视觉能力，"
+    "回落只会造成「配置了却一直失败」的隐性故障。"
+)
+
+_FAILURE_TABLE = """
+| 现象 | 可能原因 | 处置 |
+|---|---|---|
+| 提示「读图解析尚未配置」 | 未设置 `LLM_VISION_MODEL` | 按上方说明在 Secrets 中配置后重启应用 |
+| 某张图标记为失败 | 超过体积/像素上限、分辨率过低或文件不是有效图片 | 按该图给出的原因处理；伪装扩展名的文件会被拒绝 |
+| 整体拒绝上传 | 张数超过 3 张，或压缩后合计超过 12 MB | 减少张数或先自行压缩 |
+| 生成失败并给出可读错误 | 模型服务超时、密钥无效或额度不足 | 原图已保留，可直接重试；错误文本已截断展示 |
+| 解读里出现「图中未标注」 | 图中确实没有该信息 | 这是刻意的反幻觉约束，不是故障 |
+| 解读与图不符 | 模型判读能力有限，尤其是等值线密集或非中文标注的图 | 在补充说明里指明图种、层次与关注点可显著改善 |
+"""
+
+
+def _render_failure_table():
+    with st.expander("常见失败原因与处理", expanded=False):
+        st.markdown(_FAILURE_TABLE)
+
+
+def _generate(cfg, images, note):
+    """执行一次读图解析。失败即报错并保留原图，不产出任何替代文本。"""
+    from modules.ai_narrative import build_report_meta, call_vision_llm
+
+    now = time.time()
+    last = float(st.session_state.get("chart_reader_last_gen", 0) or 0)
+    if now - last < MIN_INTERVAL_SECONDS:
+        st.warning("生成过于频繁，请 %d 秒后再试。"
+                   % int(MIN_INTERVAL_SECONDS - (now - last)))
+        return
+    count = int(st.session_state.get("chart_reader_gen_count", 0) or 0)
+    if count >= MAX_GENERATIONS_PER_SESSION:
+        st.warning("本会话生成次数已达上限（%d 次），请刷新页面后继续。"
+                   % MAX_GENERATIONS_PER_SESSION)
+        return
+
+    prompt = build_chart_prompt(images, note)
+    data_urls = [image_to_data_url(item["jpeg_bytes"]) for item in images]
+
+    with st.spinner("正在读图解析，通常需要十几秒..."):
+        try:
+            text = call_vision_llm(prompt, data_urls, cfg["api_key"],
+                                   base_url=cfg["base_url"], model=cfg["model"])
+        except Exception as exc:  # noqa: BLE001 - 任何失败都报错，不降级
+            detail = str(exc).strip() or exc.__class__.__name__
+            st.error("读图解析失败：%s" % detail[:200])
+            st.caption("原图已保留，可直接重试。本功能**不提供文本模型降级**——"
+                       "文本模型读不了图，编造的摘要会误导判断。")
+            return
+
+    st.session_state["chart_reader_text"] = text
+    st.session_state["chart_reader_meta"] = build_report_meta(
+        "上传气象图 %d 张（模型：%s）" % (len(images), cfg["model"]))
+    st.session_state["chart_reader_last_gen"] = time.time()
+    st.session_state["chart_reader_gen_count"] = count + 1
+
+
+def render_chart_reader_tab():
+    """渲染 AI 读图解析页。不依赖任何已导入数据。"""
+    from modules.ai_narrative import display_report, resolve_vision_config
+
+    st.subheader("[读图] AI 读图解析")
+    st.caption("上传气象图（天气图 / 卫星云图 / 雷达回波 / 模式形势图），"
+               "由多模态模型输出六段式结构化解读。本页不需要先导入数据。")
+    st.info("隐私提示：上传的图片会发送至所配置的 AI 服务商。"
+            "含涉密或未公开信息的图片请勿上传。")
+
+    cfg = resolve_vision_config()
+    if cfg is None:
+        st.warning(_SETUP_HINT)
+        _render_failure_table()
+        return
+
+    uploads = st.file_uploader(
+        "上传气象图（最多 %d 张，单图 5 MB 以内）" % MAX_IMAGES,
+        type=ALLOWED_UPLOAD_TYPES, accept_multiple_files=True,
+        key="chart_reader_uploader")
+
+    images = []
+    if uploads:
+        if len(uploads) > MAX_IMAGES:
+            st.error("最多上传 %d 张，当前选了 %d 张，请先精简后再上传。"
+                     % (MAX_IMAGES, len(uploads)))
+        else:
+            for item in uploads:
+                images.append(process_image(item.getvalue(),
+                                            item.name or "未命名"))
+    st.session_state["chart_reader_images"] = images
+
+    if images:
+        st.write("**图片处理结果**")
+        rows = []
+        for item in images:
+            rows.append({
+                "文件名": item["name"],
+                "状态": "✓ 已就绪" if item["ok"] else "✗ " + (item["error"] or "失败"),
+                "原始 (KB)": item["orig_kb"],
+                "压缩后 (KB)": item["new_kb"],
+                "尺寸": ("%d × %d" % (item["width"], item["height"]))
+                        if item["width"] else "—",
+            })
+        st.dataframe(rows, use_container_width=True, hide_index=True)
+
+    ok_images = [item for item in images if item.get("ok")]
+    total_error = check_total_size(images)
+    if total_error:
+        st.error(total_error)
+
+    note = st.text_area("补充说明（可选，最多 500 字）",
+                        placeholder="例如：这是 500hPa 高空图，请重点关注槽脊位置与急流",
+                        max_chars=500, key="chart_reader_note")
+
+    count = int(st.session_state.get("chart_reader_gen_count", 0) or 0)
+    tokens = estimate_image_tokens(ok_images)
+    st.caption("本会话已生成 %d/%d 次；本次就绪图片 %d 张，压缩后合计约 %d KB，"
+               "估算图像 token ≈ %d（成本随所选模型单价变化）。"
+               % (count, MAX_GENERATIONS_PER_SESSION, len(ok_images),
+                  sum(item["new_kb"] for item in ok_images), tokens))
+
+    disabled = (not ok_images) or bool(total_error) \
+        or count >= MAX_GENERATIONS_PER_SESSION
+    if st.button("生成读图解析", key="chart_reader_generate", type="primary",
+                 disabled=disabled, use_container_width=True):
+        _generate(cfg, ok_images, note)
+
+    text = st.session_state.get("chart_reader_text")
+    meta = st.session_state.get("chart_reader_meta")
+    if text and meta:
+        display_report(text, meta, ok_images)
+
+    if not ok_images and not uploads:
+        st.caption("上传图片后即可生成解读。支持 PNG / JPEG / WebP，"
+                   "建议长边不低于 200 像素、不超过 1600 像素以获得最佳识别效果。")
+
+    _render_failure_table()
