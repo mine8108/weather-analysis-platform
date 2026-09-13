@@ -220,8 +220,9 @@ def _build_docx(sections, meta, images=None):
     _set_cjk(srun)
 
     # 原图紧随页头，读图报告不带图会失去留档价值
+    # 只可能是 PNG/JPEG：读图管线保证不输出 WebP（python-docx 不支持）
     for item in (images or []):
-        data = item.get("jpeg_bytes")
+        data = item.get("data_bytes")
         if not data:
             continue
         picture = doc.add_paragraph()

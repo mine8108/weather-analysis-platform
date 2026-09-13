@@ -37,16 +37,16 @@ jobs:
       - name: 报文解码回归（R-15）
         run: python -B tests/test_codec.py
 
-      - name: AQI 口径回归（2.3.1）
+      - name: AQI 口径回归（2.3.2）
         run: python -B tests/test_aqi.py
 
-      - name: ERA5 catalogue 与脚本包回归（2.3.1）
+      - name: ERA5 catalogue 与脚本包回归（2.3.2）
         run: python -B tests/test_era5_guide.py
 
-      - name: 用户手册内容契约（2.3.1）
+      - name: 用户手册内容契约（2.3.2）
         run: python -B tests/test_manual.py
 
-      - name: AI 读图解析回归（2.3.1）
+      - name: AI 读图解析回归（2.3.2）
         run: python -B tests/test_chart_reader.py
 
       - name: 发布面契约（版本/依赖/Secrets/CI）

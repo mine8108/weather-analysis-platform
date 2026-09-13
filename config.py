@@ -607,7 +607,10 @@ WARN_STYLES = {
 # 2.3.0：主题系统重构（token 单一真相源 + 统一暗色覆盖层 + 会话级明暗切换）
 # 2.3.1：AQI 口径统一（modules/aqi + 如实标注 HJ 633-2012）、ERA5 变量 catalogue
 #        与脚本包交付、侧边栏 14 章用户手册、智能分析 Tab 转型为 AI 读图解析
-APP_VERSION = "2.3.1"
+# 2.3.2：读图图片编码改为「能不改就不改」——未缩放且为 PNG/JPEG 时原样提交，
+#        需要重编码时在 JPEG 与 PNG 中取更小者（真实天气图实测：PNG 64 KB 原被
+#        转成 JPEG 85 KB，GIF 35 KB 更会变 181 KB）
+APP_VERSION = "2.3.2"
 
 PAGE_CONFIG = {
     "page_title": "气象数据交互分析平台",

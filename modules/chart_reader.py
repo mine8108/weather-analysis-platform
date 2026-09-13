@@ -1,10 +1,13 @@
-"""AI 读图解析：图片校验与压缩、读图 prompt 构造、页面渲染。
+"""AI 读图解析：图片校验与编码、读图 prompt 构造、页面渲染。
 
 设计要点：
-- 图片全程在内存处理，不落盘；三重上限分别是原始字节、压缩后单图、压缩后合计。
+- 图片全程在内存处理，不落盘；三重上限分别是原始字节、提交单图、提交合计。
 - 先按原始字节设闸再解码，避免解压炸弹；随后用 PIL 的 verify() 做魔数校验，
   不信任文件扩展名与 MIME。
-- 只做一次压缩，不做二次降质重试——否则用户无从判断画质损失。
+- 编码策略「能不改就不改」：未触发缩放且输入已是 PNG/JPEG 时原样提交；需要重
+  编码时在 JPEG 与 PNG 中取更小者。天气图是线画类内容，JPEG 对它的效率极差
+  （实测 PNG 64 KB 的图转 JPEG q88 变 85 KB，GIF 35 KB 的更会变 181 KB）。
+- 重编码只做一次，不做二次降质重试——否则用户无从判断画质损失。
 - 视觉调用失败时**不生成任何替代文本**：文本模型读不了图，编造摘要等同幻觉。
 """
 
@@ -19,14 +22,17 @@ from PIL import Image
 # 上传与体积上限
 MAX_IMAGES = 3
 MAX_RAW_BYTES = 20 * 1024 * 1024      # 原始字节硬上限，超过直接拒绝，不解码
-MAX_IMAGE_BYTES = 5 * 1024 * 1024     # 压缩后单图上限
-MAX_TOTAL_BYTES = 12 * 1024 * 1024    # 压缩后合计上限
+MAX_IMAGE_BYTES = 5 * 1024 * 1024     # 提交单图上限
+MAX_TOTAL_BYTES = 12 * 1024 * 1024    # 提交合计上限
 MAX_PIXELS = 50 * 1000 * 1000         # 解码后的像素数上限
 MAX_EDGE_PX = 1600                    # 长边上限（保等值线数值与坐标标注可读）
 MIN_EDGE_PX = 200                     # 长边下限（低于此无解析价值）
 JPEG_QUALITY = 88
 
 ALLOWED_UPLOAD_TYPES = ["png", "jpg", "jpeg", "webp"]
+
+# 可原样提交的输入格式。WebP 不在其中：python-docx 无法把 WebP 嵌进导出的 docx。
+_PASSTHROUGH_MIMES = {"PNG": "image/png", "JPEG": "image/jpeg"}
 
 # 单次生成的会话限制
 MIN_INTERVAL_SECONDS = 60
@@ -39,14 +45,52 @@ _SECTIONS = ("【图像信息】", "【图面要素识别】", "【主要分布�
 def _fail(name, message, orig_bytes=0):
     return {"name": name, "ok": False, "error": message,
             "orig_kb": max(0, orig_bytes // 1024), "new_kb": 0,
-            "width": 0, "height": 0, "jpeg_bytes": None}
+            "width": 0, "height": 0,
+            "data_bytes": None, "mime": None, "kept_original": False}
+
+
+def _flatten_to_rgb(img):
+    """转成 RGB；带透明通道时铺白底。
+
+    透传路径不经过这里，透明度原样保留。只有必须重编码时才铺白底，避免透明区
+    被压成黑色——黑色底会掩盖浅色等值线，而等值线正是要读的内容。
+    """
+    if img.mode in ("RGBA", "LA", "PA") or (
+            img.mode == "P" and "transparency" in img.info):
+        rgba = img.convert("RGBA")
+        canvas = Image.new("RGB", rgba.size, (255, 255, 255))
+        canvas.paste(rgba, mask=rgba.split()[-1])
+        return canvas
+    return img.convert("RGB")
+
+
+def _encode_smallest(img):
+    """在 JPEG 与 PNG 之间取更小者，返回 (bytes, mime)。
+
+    只用这两种格式：导出 docx 的 python-docx 不支持 WebP。
+    线画类图（天气图、等值线图、站点图）PNG 更小，相片类图 JPEG 更小，无法预先
+    判定，故两者都编码后比较。每张图长边最多 1600 px，这点 CPU 开销可忽略。
+    """
+    rgb = _flatten_to_rgb(img)
+    jpeg_buffer = io.BytesIO()
+    rgb.save(jpeg_buffer, format="JPEG", quality=JPEG_QUALITY, optimize=True)
+    png_buffer = io.BytesIO()
+    rgb.save(png_buffer, format="PNG", optimize=True)
+    jpeg = (jpeg_buffer.getvalue(), "image/jpeg")
+    png = (png_buffer.getvalue(), "image/png")
+    return png if len(png[0]) < len(jpeg[0]) else jpeg
 
 
 def process_image(raw, name):
-    """校验并压缩一张上传图片。
+    """校验并处理一张上传图片。
 
-    返回 {"name", "ok", "error", "orig_kb", "new_kb", "width", "height", "jpeg_bytes"}。
-    失败时 ok 为 False 且 error 给出可读原因；成功时 jpeg_bytes 为压缩后的 JPEG 字节。
+    返回 {"name", "ok", "error", "orig_kb", "new_kb", "width", "height",
+    "data_bytes", "mime", "kept_original"}。失败时 ok 为 False 且 error 给出可读
+    原因；成功时 data_bytes 为实际提交给模型的字节，mime 为其真实类型。
+
+    编码策略是「能不改就不改」：未触发缩放且输入已是 PNG/JPEG 时原样提交，
+    零重编码、零画质损失；需要重编码时（触发缩放，或输入为 WebP/GIF）
+    在 JPEG 与 PNG 中取更小者。
     """
     if not raw:
         return _fail(name, "文件为空")
@@ -70,6 +114,7 @@ def process_image(raw, name):
     try:
         with Image.open(io.BytesIO(raw)) as img:
             width, height = img.size
+            source_format = (img.format or "").upper()
             if width * height > MAX_PIXELS:
                 return _fail(name, "图片像素数过大（%.0f 万像素，上限 %.0f 万），请先缩小后上传"
                              % (width * height / 10000.0, MAX_PIXELS / 10000.0), len(raw))
@@ -79,33 +124,38 @@ def process_image(raw, name):
                 return _fail(name, "分辨率过低（长边 %d 像素，至少需要 %d 像素），无法解析"
                              % (long_edge, MIN_EDGE_PX), len(raw))
 
-            if long_edge > MAX_EDGE_PX:
+            resized = long_edge > MAX_EDGE_PX
+            if resized:
                 scale = MAX_EDGE_PX / float(long_edge)
                 width = max(1, int(round(width * scale)))
                 height = max(1, int(round(height * scale)))
                 img = img.resize((width, height), Image.LANCZOS)
 
-            buffer = io.BytesIO()
-            img.convert("RGB").save(buffer, format="JPEG",
-                                    quality=JPEG_QUALITY, optimize=True)
-            data = buffer.getvalue()
+            if not resized and source_format in _PASSTHROUGH_MIMES:
+                data = raw
+                mime = _PASSTHROUGH_MIMES[source_format]
+                kept_original = True
+            else:
+                data, mime = _encode_smallest(img)
+                kept_original = False
     except Exception:  # noqa: BLE001 - 损坏文件在 resize/convert 阶段也可能失败
         return _fail(name, "图片处理失败（文件可能已损坏或不完整）", len(raw))
 
     if len(data) > MAX_IMAGE_BYTES:
-        return _fail(name, "压缩后仍超过单图上限（%.2f MB > %.0f MB），请先自行压缩后上传"
+        return _fail(name, "处理后的字节仍超过单图上限（%.2f MB > %.0f MB），请先自行压缩后上传"
                      % (len(data) / 1048576.0, MAX_IMAGE_BYTES / 1048576.0), len(raw))
 
     return {"name": name, "ok": True, "error": None,
             "orig_kb": orig_kb, "new_kb": max(1, len(data) // 1024),
-            "width": width, "height": height, "jpeg_bytes": data}
+            "width": width, "height": height,
+            "data_bytes": data, "mime": mime, "kept_original": kept_original}
 
 
 def check_total_size(images):
     """合计体积校验：只统计成功的图片；超限返回提示文本，否则 None。"""
     total_kb = sum(item.get("new_kb", 0) for item in images if item.get("ok"))
     if total_kb * 1024 > MAX_TOTAL_BYTES:
-        return ("压缩后合计 %.1f MB，超过上限 %.0f MB，请减少图片张数或先自行压缩"
+        return ("提交合计 %.1f MB，超过上限 %.0f MB，请减少图片张数或先自行压缩"
                 % (total_kb / 1024.0, MAX_TOTAL_BYTES / 1048576.0))
     return None
 
@@ -158,9 +208,9 @@ def build_chart_prompt(images_meta, user_note):
     return "\n".join(lines)
 
 
-def image_to_data_url(jpeg_bytes):
-    """压缩后的 JPEG 字节 → OpenAI 兼容的 data URL。"""
-    return "data:image/jpeg;base64," + base64.b64encode(jpeg_bytes).decode("ascii")
+def image_to_data_url(data, mime):
+    """提交字节 → OpenAI 兼容的 data URL。类型必须与真实字节一致。"""
+    return "data:%s;base64,%s" % (mime, base64.b64encode(data).decode("ascii"))
 
 
 # ============================================================
@@ -182,7 +232,7 @@ _FAILURE_TABLE = """
 |---|---|---|
 | 提示「读图解析尚未配置」 | 未设置 `LLM_VISION_MODEL` | 按上方说明在 Secrets 中配置后重启应用 |
 | 某张图标记为失败 | 超过体积/像素上限、分辨率过低或文件不是有效图片 | 按该图给出的原因处理；伪装扩展名的文件会被拒绝 |
-| 整体拒绝上传 | 张数超过 3 张，或压缩后合计超过 12 MB | 减少张数或先自行压缩 |
+| 整体拒绝上传 | 张数超过 3 张，或提交合计超过 12 MB | 减少张数或先自行压缩 |
 | 生成失败并给出可读错误 | 模型服务超时、密钥无效或额度不足 | 原图已保留，可直接重试；错误文本已截断展示 |
 | 解读里出现「图中未标注」 | 图中确实没有该信息 | 这是刻意的反幻觉约束，不是故障 |
 | 解读与图不符 | 模型判读能力有限，尤其是等值线密集或非中文标注的图 | 在补充说明里指明图种、层次与关注点可显著改善 |
@@ -211,7 +261,8 @@ def _generate(cfg, images, note):
         return
 
     prompt = build_chart_prompt(images, note)
-    data_urls = [image_to_data_url(item["jpeg_bytes"]) for item in images]
+    data_urls = [image_to_data_url(item["data_bytes"], item["mime"])
+                 for item in images]
 
     with st.spinner("正在读图解析，通常需要十几秒..."):
         try:
@@ -271,7 +322,7 @@ def render_chart_reader_tab():
                 "文件名": item["name"],
                 "状态": "✓ 已就绪" if item["ok"] else "✗ " + (item["error"] or "失败"),
                 "原始 (KB)": item["orig_kb"],
-                "压缩后 (KB)": item["new_kb"],
+                "提交 (KB)": item["new_kb"],
                 "尺寸": ("%d × %d" % (item["width"], item["height"]))
                         if item["width"] else "—",
             })
@@ -288,7 +339,7 @@ def render_chart_reader_tab():
 
     count = int(st.session_state.get("chart_reader_gen_count", 0) or 0)
     tokens = estimate_image_tokens(ok_images)
-    st.caption("本会话已生成 %d/%d 次；本次就绪图片 %d 张，压缩后合计约 %d KB，"
+    st.caption("本会话已生成 %d/%d 次；本次就绪图片 %d 张，提交合计约 %d KB，"
                "估算图像 token ≈ %d（成本随所选模型单价变化）。"
                % (count, MAX_GENERATIONS_PER_SESSION, len(ok_images),
                   sum(item["new_kb"] for item in ok_images), tokens))

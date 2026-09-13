@@ -558,3 +558,38 @@ AppTest 读图页（无 secrets）                           → 0 异常；给�
 AppTest 读图页（临时 secrets，跑完即删）                 → 0 异常；出现生成按钮与隐私提示；无残留文件
 残留引用扫描（15 个已删符号 × 全仓 .py）                 → 生产代码零引用，仅存于测试的反向断言
 ```
+
+## 实施记录补记（2026-09-13，v2.3.2）：真实天气图推翻了本计划的编码设计
+
+### 本计划的判断错在哪里
+
+本计划与设计文档都规定「统一转为 RGB，以 JPEG 质量 88 编码一次」，理由是「JPEG 平衡文本锐度与体积」。这条判断从未用真实天气图验证过，而它是错的。
+
+拿到真实图实测（[JMA 天气图](https://www.jma.go.jp/bosai/weather_map/data/list.json) 与 NOAA WPC）：
+
+| 真实图 | 原文件 | 原实现输出 JPEG q88 | 体积变化 |
+|---|---|---|---|
+| JMA 亚洲地面图 600×512 PNG | 64 KB | 85 KB | **+33%** |
+| JMA 日本周边图 600×581 PNG | 56 KB | 85 KB | **+52%** |
+| WPC 大西洋分析图 748×562 GIF | 35 KB | 181 KB | **5.2 倍** |
+| WPC 北美分析图 748×562 GIF | 39 KB | 194 KB | **5.0 倍** |
+
+原因是天气图属于**线画类**内容（等值线、站点数字、少量颜色），JPEG 的 DCT 对这种内容效率极差。而界面把这一列直接标为「压缩后 (KB)」，于是真实用户看到的是「压缩后比原始大 5 倍」。合成测试图是纯色块与几何图形，恰好落在 JPEG 擅长的区间，所以 28 项测试全绿也发现不了。
+
+### 改法
+
+改为「能不改就不改」：未触发缩放且输入已是 PNG/JPEG 时**原样提交**（零重编码、零画质损失），需要重编码时（触发缩放，或输入为 WebP/GIF）同时试算 JPEG q88 与 PNG，**取体积更小者**。只用这两种格式，因为导出 docx 的 python-docx 不支持 WebP。顺带修掉一个同源缺陷：重编码路径原先 `convert("RGB")` 会把透明区压成黑色，改为铺白底，否则浅色等值线会被黑底吞掉。
+
+修复后同一批真实图：两张 PNG 均为 **+0.0%**（原样透传），两张 GIF 降到 +60% / +44%（GIF 不在允许上传类型内，这条路径实际只由 WebP 触发，其膨胀是格式转换的固有代价）。界面列名同步从「压缩后」改为「提交」。
+
+接口相应变化：`process_image` 返回 `data_bytes` / `mime` / `kept_original`（原 `jpeg_bytes` 消失），`image_to_data_url(data, mime)` 增加第二参数。`chart_reader_images` 会话结构的键名随之改变，`_build_docx` 读取 `data_bytes`。
+
+### 新增测试（本文件条数由 28 增至 36）
+
+`test_process_image_passes_through_png_without_reencoding`、`test_process_image_passes_through_jpeg_without_reencoding`、`test_process_image_switches_to_png_for_resized_line_art`、`test_process_image_keeps_jpeg_for_photo_like_content`、`test_process_image_never_emits_webp`、`test_process_image_flattens_transparency_onto_white`、`test_image_to_data_url_uses_actual_mime`、`test_chart_table_labels_submitted_size_honestly`。
+
+其中两条是**对抗性**的：线画图那条先断言「JPEG 确实更大」，否则测试本身无意义；相片那条用随机噪声构造反例，确保新策略没有把 JPEG 路径整个砍掉。
+
+### 教训
+
+「合成测试全绿」不等于「真实数据可用」。测试图是我自己生成的，形状恰好迎合实现的假设；只有真实天气图才暴露了这个假设。凡是涉及**外部真实数据形态**的处理（图像编码、文件解析、编码字符集），都应当拿一到两份真实样本过一遍，而不是只跑合成夹具。

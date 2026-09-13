@@ -13,7 +13,7 @@ _APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _APP_DIR not in sys.path:
     sys.path.insert(0, _APP_DIR)
 
-from PIL import Image  # noqa: E402
+from PIL import Image, ImageDraw  # noqa: E402
 
 from modules import chart_reader  # noqa: E402
 
@@ -45,7 +45,8 @@ def test_process_image_accepts_normal_png():
     result = chart_reader.process_image(_png_bytes(800, 600), "chart.png")
     assert result["ok"] is True, result["error"]
     assert result["width"] == 800 and result["height"] == 600
-    assert result["jpeg_bytes"][:2] == b"\xff\xd8"  # JPEG 魔数
+    assert result["mime"] == "image/png"
+    assert result["data_bytes"][:4] == b"\x89PNG"
     assert result["orig_kb"] > 0 and result["new_kb"] > 0
     assert result["error"] is None
 
@@ -86,14 +87,15 @@ def test_process_image_rejects_low_resolution():
 
 
 def test_process_image_handles_transparency():
-    """PNG 透明通道必须能转成 JPEG 而不报错。"""
+    """PNG 透明通道必须能安全处理：透传时保留，重编码时铺白底。"""
     result = chart_reader.process_image(_png_bytes(600, 400, mode="RGBA"),
                                         "alpha.png")
     assert result["ok"] is True, result["error"]
+    assert result["mime"] == "image/png"
 
 
 def test_process_image_rejects_when_still_too_large_after_compress():
-    """压缩后仍超单图上限时拒绝：临时收紧阈值以覆盖该分支。"""
+    """处理后仍超单图上限时拒绝：临时收紧阈值以覆盖该分支。"""
     def _run():
         return chart_reader.process_image(_png_bytes(1200, 900), "photo.png")
     result = _with_limit("MAX_IMAGE_BYTES", 1024, _run)
@@ -105,6 +107,116 @@ def test_process_image_failure_keeps_name():
     result = chart_reader.process_image(b"nope", "broken.png")
     assert result["name"] == "broken.png"
     assert result["ok"] is False
+
+
+# ============================================================
+# 一之二、编码策略（真实天气图暴露）
+# ============================================================
+
+def _line_art_png(width, height):
+    """合成线画类图：白底 + 密集细线，模拟天气图的等值线与站点数字。"""
+    img = Image.new("RGB", (width, height), (255, 255, 255))
+    draw = ImageDraw.Draw(img)
+    for x in range(0, width, 4):
+        draw.line([(x, 0), (x, height)], fill=(0, 0, 0), width=1)
+    for y in range(0, height, 4):
+        draw.line([(0, y), (width, y)], fill=(200, 0, 0), width=1)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG", optimize=True)
+    return buf.getvalue()
+
+
+def _encode_with(raw, fmt, **kw):
+    with Image.open(io.BytesIO(raw)) as img:
+        buf = io.BytesIO()
+        img.convert("RGB").save(buf, format=fmt, **kw)
+        return buf.getvalue()
+
+
+def test_process_image_passes_through_png_without_reencoding():
+    """未触发缩放时不得重编码。
+
+    真实数据实测：JMA 600×512 线画 PNG 64 KB → JPEG q88 85 KB（+33%），
+    WPC 748×562 GIF 35 KB → JPEG 181 KB（5.2 倍）。线画内容 JPEG 效率极差，
+    而界面此前把该列标为「压缩后」，用户会看到「压缩后比原始大」。
+    """
+    raw = _line_art_png(800, 600)
+    result = chart_reader.process_image(raw, "chart.png")
+    assert result["ok"] is True, result["error"]
+    assert result["kept_original"] is True
+    assert result["data_bytes"] == raw
+    assert result["mime"] == "image/png"
+    assert result["new_kb"] <= result["orig_kb"], "提交体积不得大于原始体积"
+
+
+def test_process_image_passes_through_jpeg_without_reencoding():
+    raw = _encode_with(_line_art_png(800, 600), "JPEG", quality=90)
+    result = chart_reader.process_image(raw, "chart.jpg")
+    assert result["ok"] is True, result["error"]
+    assert result["data_bytes"] == raw
+    assert result["mime"] == "image/jpeg"
+
+
+def test_process_image_switches_to_png_for_resized_line_art():
+    """触发缩放后必须重编码；线画内容应取 PNG 而非 JPEG。"""
+    raw = _line_art_png(2400, 1200)
+    result = chart_reader.process_image(raw, "big.png")
+    assert result["ok"] is True, result["error"]
+    assert max(result["width"], result["height"]) == chart_reader.MAX_EDGE_PX
+    assert result["kept_original"] is False
+
+    with Image.open(io.BytesIO(result["data_bytes"])) as out:
+        resized = out.convert("RGB")
+    jpeg = io.BytesIO()
+    resized.save(jpeg, format="JPEG", quality=chart_reader.JPEG_QUALITY, optimize=True)
+    png = io.BytesIO()
+    resized.save(png, format="PNG", optimize=True)
+    assert len(png.getvalue()) < len(jpeg.getvalue()), "线画内容若 JPEG 更小则本测试无意义"
+    assert result["mime"] == "image/png"
+
+
+def test_process_image_keeps_jpeg_for_photo_like_content():
+    """相片类内容用 PNG 会膨胀，必须仍取 JPEG。"""
+    import random
+    random.seed(7)
+    size = 2000 * 1200
+    noise = bytes(random.getrandbits(8) for _ in range(size * 3))
+    img = Image.frombytes("RGB", (2000, 1200), noise)
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=92)
+    result = chart_reader.process_image(buf.getvalue(), "photo.jpg")
+    assert result["ok"] is True, result["error"]
+    assert result["mime"] == "image/jpeg"
+
+
+def test_process_image_never_emits_webp():
+    """导出 docx 用的 python-docx 不支持 WebP，故输出格式只能是 PNG/JPEG。"""
+    img = Image.new("RGB", (900, 700), (10, 90, 160))
+    buf = io.BytesIO()
+    img.save(buf, format="WEBP", quality=90)
+    result = chart_reader.process_image(buf.getvalue(), "chart.webp")
+    assert result["ok"] is True, result["error"]
+    assert result["kept_original"] is False
+    assert result["mime"] in ("image/png", "image/jpeg")
+
+
+def test_process_image_flattens_transparency_onto_white():
+    """重编码路径必须铺白底，不能把透明区压成黑色（黑色会掩盖浅色等值线）。"""
+    img = Image.new("RGBA", (2000, 500), (0, 0, 0, 0))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    result = chart_reader.process_image(buf.getvalue(), "alpha.png")
+    assert result["ok"] is True, result["error"]
+    with Image.open(io.BytesIO(result["data_bytes"])) as out:
+        pixel = out.convert("RGB").getpixel((10, 10))
+    assert min(pixel) >= 250, pixel
+
+
+def test_image_to_data_url_uses_actual_mime():
+    png = chart_reader.image_to_data_url(b"\x89PNG\r\n\x1a\n", "image/png")
+    jpeg = chart_reader.image_to_data_url(b"\xff\xd8\xff\xe0", "image/jpeg")
+    assert png.startswith("data:image/png;base64,")
+    assert jpeg.startswith("data:image/jpeg;base64,")
 
 
 # ============================================================
@@ -260,6 +372,13 @@ def test_no_module_still_reads_detection_result():
 def test_chart_reader_exposes_renderer():
     from modules import chart_reader
     assert callable(chart_reader.render_chart_reader_tab)
+
+
+def test_chart_table_labels_submitted_size_honestly():
+    """列名不得再写「压缩后」：透传时字节不变，重编码后也可能比原始更大。"""
+    source = _source("modules/chart_reader.py")
+    assert "压缩后 (KB)" not in source
+    assert "提交 (KB)" in source
 
 
 if __name__ == "__main__":

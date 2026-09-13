@@ -241,8 +241,8 @@ def test_build_docx_embeds_uploaded_images():
     """读图报告必须把原图嵌进 docx，便于留档。"""
     from docx import Document
     meta = ai_narrative.build_report_meta("图片读图")
-    images = [{"jpeg_bytes": _jpeg_bytes(), "name": "a.jpg"},
-              {"jpeg_bytes": _jpeg_bytes(80, 60), "name": "b.jpg"}]
+    images = [{"data_bytes": _jpeg_bytes(), "name": "a.jpg"},
+              {"data_bytes": _jpeg_bytes(80, 60), "name": "b.jpg"}]
     data = ai_narrative._build_docx([("图像信息", "A")], meta, images)
     doc = Document(io.BytesIO(data))
     assert len(doc.inline_shapes) == 2
