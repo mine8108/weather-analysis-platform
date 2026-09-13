@@ -34,21 +34,35 @@ _VISION_SYSTEM_PROMPT = (
 # 一、视觉模型配置与调用
 # ============================================================
 
+def _secret(name, default=""):
+    """读取 st.secrets，缺文件时兜底。
+
+    ``st.secrets.get`` 在 secrets 文件完全不存在时会抛
+    ``StreamlitSecretNotFoundError``（而不是返回默认值），必须在唯一入口兜住，
+    否则未配置密钥的环境会整页崩溃而不是给出配置指引。
+    """
+    try:
+        value = st.secrets.get(name, default)
+    except Exception:  # noqa: BLE001 - 缺密钥文件、解析失败等都按未配置处理
+        return default
+    return default if value is None else value
+
+
 def resolve_vision_config():
     """解析视觉模型配置。缺少模型名或密钥时返回 None（视为未配置）。
 
     模型名必须显式配置 ``LLM_VISION_MODEL``；密钥与地址可回落文本模型的值。
     """
-    model = (st.secrets.get("LLM_VISION_MODEL", "") or "").strip()
+    model = str(_secret("LLM_VISION_MODEL") or "").strip()
     if not model:
         return None
-    api_key = (st.secrets.get("LLM_VISION_API_KEY", "")
-               or st.secrets.get("LLM_API_KEY", "") or "").strip()
+    api_key = str(_secret("LLM_VISION_API_KEY")
+                  or _secret("LLM_API_KEY") or "").strip()
     if not api_key:
         return None
-    base_url = (st.secrets.get("LLM_VISION_BASE_URL", "")
-                or st.secrets.get("LLM_BASE_URL", "")
-                or DEFAULT_BASE_URL).strip().rstrip("/")
+    base_url = str(_secret("LLM_VISION_BASE_URL")
+                   or _secret("LLM_BASE_URL")
+                   or DEFAULT_BASE_URL).strip().rstrip("/")
     return {"api_key": api_key, "base_url": base_url, "model": model}
 
 

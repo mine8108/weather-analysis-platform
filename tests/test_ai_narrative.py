@@ -91,6 +91,24 @@ def test_resolve_vision_config_prefers_vision_specific_values():
     assert cfg["model"] == "glm-4v"
 
 
+def test_resolve_vision_config_survives_missing_secrets_file():
+    """secrets 文件完全缺失时 st.secrets.get 会抛异常，必须兜底为「未配置」。
+
+    回归来源：AppTest 实跑读图页时，无 secrets 的环境直接抛
+    StreamlitSecretNotFoundError，页面崩溃而不是给出配置指引。
+    """
+    class _RaisingSecrets:
+        def get(self, key, default=None):
+            raise RuntimeError("No secrets found.")
+
+    original = ai_narrative.st.secrets
+    try:
+        ai_narrative.st.secrets = _RaisingSecrets()
+        assert ai_narrative.resolve_vision_config() is None
+    finally:
+        ai_narrative.st.secrets = original
+
+
 # ============================================================
 # 二、多模态请求体
 # ============================================================
