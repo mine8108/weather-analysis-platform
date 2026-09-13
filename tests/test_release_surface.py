@@ -92,6 +92,15 @@ def test_requirements_declare_image_and_markdown_deps():
     assert "markdown-it-py" in text
 
 
+def test_era5_variable_check_is_documented_and_present():
+    """ERA5 变量表的线上核对脚本必须存在且被 README 记明用法与退出码语义。"""
+    assert os.path.isfile(os.path.join(_APP_DIR, "research",
+                                       "check_era5_variables.py"))
+    readme = _read("README.md")
+    assert "check_era5_variables.py" in readme
+    assert "2 联网失败" in readme or "2 不等于通过" in readme
+
+
 def test_secrets_example_lists_vision_keys():
     text = _read(".streamlit/secrets.toml.example")
     for key in ("LLM_VISION_MODEL", "LLM_VISION_API_KEY", "LLM_VISION_BASE_URL"):

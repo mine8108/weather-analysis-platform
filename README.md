@@ -69,7 +69,7 @@ weather_app/
 │   ├── test_manual.py          # 手册结构与内容契约 24 条
 │   ├── test_chart_reader.py    # 读图管线 / 编码策略 / prompt / 接线契约 36 条
 │   ├── test_ai_narrative.py    # 多模态请求体与报告导出 17 条
-│   ├── test_release_surface.py # 版本 / 依赖 / Secrets / CI 契约 17 条
+│   ├── test_release_surface.py # 版本 / 依赖 / Secrets / CI 契约 18 条
 │   ├── test_weather_wall.py    # 天气墙（依赖 pytest；单跑需登录态）
 │   └── test_smoke.py           # 导入冒烟检查
 ├── 示例数据/
@@ -146,10 +146,10 @@ python -B tests/test_aqi.py              # AQI 断点表 / 分指数 / 综合指
 python -B tests/test_era5_guide.py       # ERA5 catalogue 与 payload 26 条
 python -B tests/test_manual.py           # 手册结构与内容契约 24 条
 python -B tests/test_chart_reader.py     # 读图管线与编码策略 36 条
-python -B tests/test_release_surface.py  # 版本/依赖/Secrets/CI 契约 17 条
+python -B tests/test_release_surface.py  # 版本/依赖/Secrets/CI 契约 18 条
 ```
 
-其余用例用 pytest 运行全部（当前共 **363** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
+其余用例用 pytest 运行全部（当前共 **364** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
 
 ```bash
 pip install -r requirements-dev.txt
@@ -166,6 +166,14 @@ python -B research/check_chart_colors.py        # 图表颜色是否为 Plotly �
 ```
 
 > 前三项是静态检查，第四项会真实调用图表函数并检查 figure 内的颜色属性，用于拦截「token 名泄漏进 Plotly」这类只在运行时才暴露的问题。
+
+上游数据源会变，所以另有一项**联网**核对，建议每季度跑一次（不进 CI，避免上游故障导致流水线变红）：
+
+```bash
+python -B research/check_era5_variables.py --cache .cache-era5   # ERA5 变量名与 CDS 线上枚举
+```
+
+> 它通过 CDS 公开的 process 描述接口核对两件事：本地展示的变量名是否都真实存在（防上游改名）、标注为「不支持」的变量是否确实不在枚举中（防误导用户）。需要 CDS 账号与 API Key 才能下载数据，但这项核对**不需要任何凭据**。退出码 0 一致、1 不一致、2 联网失败（2 不等于通过）。
 
 **发布后请肉眼核对一次线上版本号。** `git push` 成功、远端 `main` 已更新，**不等于**
 Streamlit Cloud 已经重建容器：v2.3.0 发布时就遇到过推送十余分钟后线上仍返回旧版本号、
