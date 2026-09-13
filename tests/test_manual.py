@@ -110,6 +110,23 @@ def test_build_manual_html_is_utf8_bytes():
     assert "手册" in raw.decode("utf-8")
 
 
+def test_manual_html_css_is_self_contained():
+    """导出 HTML 是独立文档：它引用的每个 CSS 变量都必须自带定义。
+
+    这条锁的是「导出的文件拿到别的机器上打开仍然有样式」——所以它不能依赖应用内
+    的 design_tokens。同时这也是 research/check_py_vars.py 曾长期误报 --muted 的
+    原因：那是本文件自带的调色板，不是 token 名写错。
+    审计已修正为把同文件内的 `--x:` 定义计入；这条测试从产品侧独立守住同一性质。
+    """
+    import re
+    from modules.manual import build_manual_html
+    html = build_manual_html(FIXTURE).decode("utf-8")
+    defined = set(re.findall(r"--([A-Za-z0-9_-]+)\s*:", html))
+    used = set(re.findall(r"var\(--([A-Za-z0-9_-]+)\)", html))
+    assert used, "导出 HTML 里没有找到任何 var() 引用，测试可能失效"
+    assert used <= defined, sorted(used - defined)
+
+
 def test_load_manual_markdown_returns_empty_when_missing():
     """文件缺失时返回空串而不是抛异常，由页面负责提示。"""
     from modules import manual

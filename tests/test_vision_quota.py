@@ -231,6 +231,48 @@ def test_daily_quota_exhausted_handles_partial_and_missing_state():
     assert chart_reader.format_daily_quota(None) == ""
 
 
+# ============================================================
+# 四、报告与图片的对应关系（导出不得静默丢图）
+# ============================================================
+
+def test_cached_report_images_keeps_only_export_fields():
+    """生成成功时把当时那批图固化下来，只留导出需要的三个字段。"""
+    cached = chart_reader.cached_report_images([
+        {"name": "a.png", "data_bytes": b"AA", "mime": "image/png",
+         "orig_kb": 64, "width": 600},
+        {"name": "bad.png", "data_bytes": None, "mime": None},
+    ])
+    assert cached == [{"name": "a.png", "data_bytes": b"AA", "mime": "image/png"}]
+
+
+def test_cached_report_images_tolerates_empty():
+    assert chart_reader.cached_report_images(None) == []
+    assert chart_reader.cached_report_images([]) == []
+
+
+def test_report_images_prefers_generation_time_cache():
+    """报告与图片的对应关系在生成那刻就固定了。
+
+    上传区会被任意一次重跑清空（换标签、点别的控件），若导出时读当前上传区，
+    docx 会静默丢掉原图，与手册承诺的「导出 Word（含原图）」不符。
+    """
+    cached = [{"name": "a.png", "data_bytes": b"AA", "mime": "image/png"}]
+    assert chart_reader.report_images_for_export(cached, []) == cached
+    # 没有缓存（刚上传、还没生成）时退回当前上传区
+    assert chart_reader.report_images_for_export(None, cached) == cached
+    assert chart_reader.report_images_for_export([], cached) == cached
+    assert chart_reader.report_images_for_export(None, None) == []
+
+
+def test_report_image_cache_is_wired_into_render_and_reset():
+    """缓存必须被写入（生成时）、被读取（导出时）、被清理（重置时）。"""
+    reader = _read("modules/chart_reader.py")
+    assert reader.count("chart_reader_report_images") >= 2
+    assert "report_images_for_export" in reader
+    app = _read("app.py")
+    assert "chart_reader_report_images" in app, "重置键需覆盖报告图片缓存"
+
+
 if __name__ == "__main__":
     import traceback
 

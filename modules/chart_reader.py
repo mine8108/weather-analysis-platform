@@ -257,6 +257,34 @@ def daily_quota_exhausted(state):
         return False
 
 
+# ============================================================
+# 报告与图片的对应关系
+# 报告说的是「这一次」上传的图，这个对应关系在生成那一刻就固定了。上传区却会被
+# 任意一次重跑清空（用户换标签、点别的控件），若导出时读当前上传区，docx 会静默
+# 丢掉原图，与手册承诺的「导出 Word（含原图）」不符。因此在生成成功时把这批图
+# 固化进会话，导出读缓存；缓存为空（刚上传、还没生成）时才退回当前上传区。
+# ============================================================
+
+def cached_report_images(images):
+    """固化生成时那批图，只保留导出需要的字段，跳过硬失败或无字节的条目。"""
+    kept = []
+    for item in images or []:
+        data = item.get("data_bytes")
+        if not data:
+            continue
+        kept.append({"name": item.get("name", "未命名"),
+                     "data_bytes": data,
+                     "mime": item.get("mime")})
+    return kept
+
+
+def report_images_for_export(cached, current):
+    """导出用哪批图：优先用生成时缓存的那批，没有缓存才用当前上传区。"""
+    if cached:
+        return list(cached)
+    return list(current or [])
+
+
 def build_chart_prompt(images_meta, user_note):
     """构造读图 prompt：六段固定结构 + 反幻觉硬约束。"""
     lines = [
@@ -400,6 +428,8 @@ def _generate(cfg, images, note):
     st.session_state["chart_reader_text"] = text
     st.session_state["chart_reader_meta"] = build_report_meta(
         "上传气象图 %d 张（模型：%s）" % (len(images), cfg["model"]))
+    # 固化当次图片：报告与图片的对应关系在此刻固定，导出不再依赖上传区现状
+    st.session_state["chart_reader_report_images"] = cached_report_images(images)
     st.session_state["chart_reader_last_gen"] = time.time()
     st.session_state["chart_reader_gen_count"] = count + 1
 
@@ -500,7 +530,8 @@ def render_chart_reader_tab():
     text = st.session_state.get("chart_reader_text")
     meta = st.session_state.get("chart_reader_meta")
     if text and meta:
-        display_report(text, meta, ok_images)
+        display_report(text, meta, report_images_for_export(
+            st.session_state.get("chart_reader_report_images"), ok_images))
 
     if not ok_images and not uploads:
         st.caption("上传图片后即可生成解读。支持 PNG / JPEG / WebP，"

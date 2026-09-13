@@ -66,10 +66,10 @@ weather_app/
 │   ├── test_codec.py           # 报文解码回归
 │   ├── test_era5_guide.py      # ERA5 catalogue 与 payload 26 条
 │   ├── test_era5_script_pack.py # ERA5 脚本包 ZIP 与换算函数 29 条
-│   ├── test_manual.py          # 手册结构与内容契约 24 条
+│   ├── test_manual.py          # 手册结构与内容契约 25 条
 │   ├── test_chart_reader.py    # 读图管线 / 编码策略 / 用量记账 / prompt / 接线 41 条
 │   ├── test_ai_narrative.py    # 多模态请求体、空正文诊断、用量回传与报告导出 27 条
-│   ├── test_vision_quota.py    # 读图配额：schema 安全契约 / 数据层 / 纯函数 19 条
+│   ├── test_vision_quota.py    # 读图配额：schema 安全契约 / 数据层 / 纯函数 23 条
 │   ├── test_release_surface.py # 版本 / 依赖 / Secrets / CI 契约 18 条
 │   ├── test_weather_wall.py    # 天气墙（依赖 pytest；单跑需登录态）
 │   └── test_smoke.py           # 导入冒烟检查
@@ -145,13 +145,13 @@ python -B tests/test_auth_session.py     # 登录会话 8 条
 python -B tests/test_codec.py            # 报文解码
 python -B tests/test_aqi.py              # AQI 断点表 / 分指数 / 综合指数 35 条
 python -B tests/test_era5_guide.py       # ERA5 catalogue 与 payload 26 条
-python -B tests/test_manual.py           # 手册结构与内容契约 24 条
+python -B tests/test_manual.py           # 手册结构与内容契约 25 条
 python -B tests/test_chart_reader.py     # 读图管线、编码策略与用量记账 41 条
-python -B tests/test_vision_quota.py     # 读图配额与 schema 安全契约 19 条
+python -B tests/test_vision_quota.py     # 读图配额与 schema 安全契约 23 条
 python -B tests/test_release_surface.py  # 版本/依赖/Secrets/CI 契约 18 条
 ```
 
-其余用例用 pytest 运行全部（当前共 **398** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
+其余用例用 pytest 运行全部（当前共 **403** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
 
 ```bash
 pip install -r requirements-dev.txt
@@ -180,7 +180,7 @@ python -B research/check_era5_variables.py --cache .cache-era5   # ERA5 变量�
 **发布后请肉眼核对一次线上版本号。** `git push` 成功、远端 `main` 已更新，**不等于**
 Streamlit Cloud 已经重建容器：v2.3.0 发布时就遇到过推送十余分钟后线上仍返回旧版本号、
 容器启动时间停在推送之前的情况，而这一状态是静默的，不主动核对就会误以为线上已是新版。
-（当前版本：**2.3.7**。）
+（当前版本：**2.3.8**。）
 
 做法很简单——侧边栏页脚始终显示 `© 气象数据交互分析平台 <版本号>`，与 `config.py` 的
 `APP_VERSION` 对一眼即可。若不一致，去 Streamlit Cloud 面板对该应用执行 **Reboot app**

@@ -8,12 +8,16 @@
 实现要点：
 - 用 ast 收集**代码**区域的行号，只检查代码，跳过注释与文档字符串，
   避免把文档里的示例（如 ``--xxx``）当成真实引用；
-- token 名先经 color_key→token→变量名 的完整链路归一化再校验。
+- token 名先经 color_key→token→变量名 的完整链路归一化再校验；
+- **文件内自带 `--x:` 定义也算已定义**：像 `modules/manual.py` 那样导出独立
+  HTML 的模块自带 `:root` 调色板，它不来自 design_tokens，按原逻辑会长期误报。
+  代价是自成一体的本地拼写错误查不出来——对一个自包含文档来说，内部一致即可。
 """
 
 from __future__ import annotations
 
 import ast
+import re
 import sys
 from pathlib import Path
 
@@ -77,15 +81,22 @@ def main() -> int:
             continue
         code_lines = code_line_numbers(tree)
 
+        # 本文件自带的 CSS 变量定义（自包含 HTML 文档的 :root）
+        local_defined: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) \
+                    and node.lineno in code_lines:
+                for m in re.finditer(r"--([A-Za-z0-9_-]+)\s*:", node.value):
+                    local_defined.add(m.group(1))
+
         for node in ast.walk(tree):
             # 1) 直写变量名：任意字符串常量里的 var(--x)
             if isinstance(node, ast.Constant) and isinstance(node.value, str):
                 if node.lineno not in code_lines:
                     continue
-                import re
                 for m in re.finditer(r"var\(--([a-z0-9-]+)\)", node.value):
                     checked += 1
-                    if m.group(1) not in defined:
+                    if m.group(1) not in defined and m.group(1) not in local_defined:
                         missing.append((str(path.relative_to(ROOT)), node.lineno,
                                         f"--{m.group(1)}"))
             # 2) token 名调用：css_var("x") / color_value("x") …

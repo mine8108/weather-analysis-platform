@@ -110,7 +110,8 @@ _RESET_KEYS_BY_TAB = {
                  "nwp_forecast_for_analysis", "nwp_combined"],
     "可视化": ["multi_station_selected"],
     "读图解析": ["chart_reader_images", "chart_reader_text", "chart_reader_meta",
-                 "chart_reader_last_gen", "chart_reader_gen_count"],
+                 "chart_reader_report_images", "chart_reader_last_gen",
+                 "chart_reader_gen_count"],
     "报告导出": ["report_data"],
     "报文解码": ["manual_data"],
 }
