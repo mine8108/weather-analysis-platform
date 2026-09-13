@@ -640,3 +640,30 @@ if not text:
 ### 未完成
 
 真实模型仍未产出成功结果——需要拿到该响应的原文才能确定属于哪一类原因。诊断信息已就位，下一次调用即可读出 `finish_reason` 与响应片段。
+
+## 实施记录补记三（2026-09-13，v2.3.4）：根因是输出预算，且是自己的缺陷
+
+补记二的诊断信息上线后（v2.3.3），在同一次真实调用中得到原文：
+
+```
+读图解析失败：视觉模型返回空正文（finish_reason=length，model=deepseek-flash；
+响应只有 reasoning_content（2784 字），正文为空）。输出预算被耗尽（推理型模型的
+思考过程也从这里扣额度）。响应片段：{"id":"...","object":"chat.co...
+```
+
+结论明确：所配模型 `deepseek-flash` 是**推理型**模型，它先写了 2784 字思考过程，把 `VISION_MAX_TOKENS = 1600` 的额度吃光，六段正文一个字都没开始。请求本身完全成功（HTTP 200），图片也确实被接受。
+
+这是**实现侧的缺陷**，不是配置问题：
+
+1. **预算过小。** 1600 对「六段式长回答 + 推理过程」本就偏紧，即便非推理模型也接近上限。
+2. **没有调优出口。** 合适的预算取决于所选模型，硬编码一个常量等于把这个判断替用户做死。
+
+修复：默认预算 1600 → 4096；新增可选键 `LLM_VISION_MAX_TOKENS`（合法范围 256–32000，非法或越界一律回落默认，不让一个可选键把功能弄坏），`resolve_vision_config` 一并返回 `max_tokens`，`chart_reader._generate` 透传。手册第 3 章秘钥表与第 8 章秘钥表补记该键。
+
+新增测试：`test_vision_max_tokens_is_enough_for_reasoning_models`、`test_call_vision_llm_accepts_max_tokens_override`、`test_resolve_vision_config_reads_max_tokens_override`、`test_resolve_vision_config_rejects_invalid_max_tokens`。
+
+### 教训
+
+这一次的价值全部来自上一步把现场带进错误信息。**如果 v2.3.3 仍然只报「返回了空内容」，这个根因无法定位**——我能看到的只有一个空字，而真正的原因（推理过程吃光预算）藏在响应体里。先让错误可诊断，再谈修不修得对。
+
+另一个教训是：默认值的量级需要按**最坏情形**估，而不是按典型情形。六段式输出加上推理过程，1600 从来就不够。

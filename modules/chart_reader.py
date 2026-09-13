@@ -233,7 +233,7 @@ _FAILURE_TABLE = """
 | 提示「读图解析尚未配置」 | 未设置 `LLM_VISION_MODEL` | 按上方说明在 Secrets 中配置后重启应用 |
 | 某张图标记为失败 | 超过体积/像素上限、分辨率过低或文件不是有效图片 | 按该图给出的原因处理；伪装扩展名的文件会被拒绝 |
 | 整体拒绝上传 | 张数超过 3 张，或提交合计超过 12 MB | 减少张数或先自行压缩 |
-| 生成失败并给出可读错误 | 模型服务超时、密钥无效或额度不足 | 原图已保留，可直接重试；错误文本已截断展示 |
+| 生成失败并给出可读错误 | 模型服务超时、密钥无效、额度不足，或输出预算被推理过程耗尽 | 原图已保留，可直接重试；错误文本会带出 `finish_reason`、模型名与响应片段，据此处置；预算不足可调大 `LLM_VISION_MAX_TOKENS` |
 | 解读里出现「图中未标注」 | 图中确实没有该信息 | 这是刻意的反幻觉约束，不是故障 |
 | 解读与图不符 | 模型判读能力有限，尤其是等值线密集或非中文标注的图 | 在补充说明里指明图种、层次与关注点可显著改善 |
 """
@@ -267,7 +267,8 @@ def _generate(cfg, images, note):
     with st.spinner("正在读图解析，通常需要十几秒..."):
         try:
             text = call_vision_llm(prompt, data_urls, cfg["api_key"],
-                                   base_url=cfg["base_url"], model=cfg["model"])
+                                   base_url=cfg["base_url"], model=cfg["model"],
+                                   max_tokens=cfg.get("max_tokens"))
         except Exception as exc:  # noqa: BLE001 - 任何失败都报错，不降级
             detail = str(exc).strip() or exc.__class__.__name__
             st.error("读图解析失败：%s" % detail[:200])

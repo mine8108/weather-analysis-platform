@@ -23,7 +23,12 @@ import streamlit as st
 
 DEFAULT_BASE_URL = "https://api.deepseek.com"
 VISION_TIMEOUT_SECONDS = 90
-VISION_MAX_TOKENS = 1600
+# 输出预算。读图要求六段式长回答，且推理型模型的思考过程也从这里扣额度：
+# 线上实测 deepseek-flash 对两张真实天气图先写了 2784 字 reasoning_content，
+# 原 1600 的上限被思考吃光，正文未开始即结束。可用 LLM_VISION_MAX_TOKENS 覆盖。
+VISION_MAX_TOKENS = 4096
+_MAX_TOKENS_FLOOR = 256
+_MAX_TOKENS_CEILING = 32000
 
 _VISION_SYSTEM_PROMPT = (
     "你是严谨的气象分析助手，只依据用户提供的图像与说明进行判读，"
@@ -64,12 +69,31 @@ def resolve_vision_config():
     base_url = str(_secret("LLM_VISION_BASE_URL")
                    or _secret("LLM_BASE_URL")
                    or DEFAULT_BASE_URL).strip().rstrip("/")
-    return {"api_key": api_key, "base_url": base_url, "model": model}
+    return {"api_key": api_key, "base_url": base_url, "model": model,
+            "max_tokens": _resolve_max_tokens()}
+
+
+def _resolve_max_tokens():
+    """输出预算：可选键 LLM_VISION_MAX_TOKENS，非法或越界一律回落默认值。
+
+    一个可选的调优键不该有能力把读图功能整个弄坏，故此处只接受合法整数。
+    """
+    raw = str(_secret("LLM_VISION_MAX_TOKENS") or "").strip()
+    if not raw:
+        return VISION_MAX_TOKENS
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return VISION_MAX_TOKENS
+    if _MAX_TOKENS_FLOOR <= value <= _MAX_TOKENS_CEILING:
+        return value
+    return VISION_MAX_TOKENS
 
 
 # 空正文的处置提示。三种常见原因的处置完全不同，只报「空内容」等于丢掉现场。
 _FINISH_HINTS = {
-    "length": "正文在开始前就撞上 max_tokens 上限，可缩短补充说明或改用非推理型模型。",
+    "length": "输出预算被耗尽（推理型模型的思考过程也从这里扣额度）。"
+              "可精简补充说明，或把 LLM_VISION_MAX_TOKENS 调大。",
     "content_filter": "内容被服务商安全策略拦截，请更换图片或模型。",
     "stop": "模型正常结束却没输出正文，最常见的原因是该模型不支持图像输入。",
 }
@@ -115,10 +139,12 @@ def _empty_content_reason(choice, message, model, data):
             % (detail, _FINISH_HINTS.get(finish, ""), _response_snippet(data)))
 
 
-def call_vision_llm(prompt, images_b64, api_key, base_url=None, model=None):
+def call_vision_llm(prompt, images_b64, api_key, base_url=None, model=None,
+                    max_tokens=None):
     """调用多模态模型生成读图解读。失败抛异常，由调用方处理。
 
     images_b64 为 data URL 列表（``data:image/jpeg;base64,...``）。
+    ``max_tokens`` 省略时用模块默认值（4096）。
     """
     if not model:
         raise ValueError("未指定视觉模型（LLM_VISION_MODEL）")
@@ -141,7 +167,7 @@ def call_vision_llm(prompt, images_b64, api_key, base_url=None, model=None):
                 {"role": "user", "content": content},
             ],
             "temperature": 0.3,
-            "max_tokens": VISION_MAX_TOKENS,
+            "max_tokens": int(max_tokens or VISION_MAX_TOKENS),
         },
         timeout=VISION_TIMEOUT_SECONDS,
     )

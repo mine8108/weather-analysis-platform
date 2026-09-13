@@ -612,7 +612,9 @@ WARN_STYLES = {
 #        转成 JPEG 85 KB，GIF 35 KB 更会变 181 KB）
 # 2.3.3：读图调用失败时给出可诊断现场（finish_reason / 模型名 / 原始响应片段），
 #        并兼容 content 为分片列表的正常响应（线上实测曾误报「返回了空内容」）
-APP_VERSION = "2.3.3"
+# 2.3.4：输出预算 1600 → 4096，并支持 LLM_VISION_MAX_TOKENS 覆盖。线上实测
+#        所配模型先用 2784 字 reasoning_content 吃光预算，正文未开始即结束
+APP_VERSION = "2.3.4"
 
 PAGE_CONFIG = {
     "page_title": "气象数据交互分析平台",

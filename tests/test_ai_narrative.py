@@ -73,9 +73,10 @@ def test_resolve_vision_config_falls_back_for_key_and_url():
         "LLM_API_KEY": "text-key",
         "LLM_BASE_URL": "https://example.invalid/v1",
     }, ai_narrative.resolve_vision_config)
-    assert cfg == {"api_key": "text-key",
-                   "base_url": "https://example.invalid/v1",
-                   "model": "qwen-vl-max"}
+    assert cfg["api_key"] == "text-key"
+    assert cfg["base_url"] == "https://example.invalid/v1"
+    assert cfg["model"] == "qwen-vl-max"
+    assert cfg["max_tokens"] == ai_narrative.VISION_MAX_TOKENS
 
 
 def test_resolve_vision_config_prefers_vision_specific_values():
@@ -139,6 +140,68 @@ def test_call_vision_llm_builds_multimodal_payload():
     assert content[1]["type"] == "image_url"
     assert content[1]["image_url"]["url"].startswith("data:image/jpeg;base64,")
     assert captured["headers"]["Authorization"] == "Bearer key"
+
+
+def test_vision_max_tokens_is_enough_for_reasoning_models():
+    """输出预算必须容得下推理型模型的思考过程。
+
+    线上实测：所配模型对两张真实天气图输出了 2784 字 reasoning_content，
+    原来的 1600 上限被思考过程吃光，正文还没开始就结束（空正文 + 长度截断）。
+    """
+    assert ai_narrative.VISION_MAX_TOKENS >= 4000, ai_narrative.VISION_MAX_TOKENS
+
+
+def test_call_vision_llm_accepts_max_tokens_override():
+    captured = {}
+
+    def _fake_post(url, headers=None, json=None, timeout=None):
+        captured.update(json or {})
+        return _FakeResponse({"choices": [{"message": {"content": "正文"}}]})
+
+    original = ai_narrative.requests.post
+    try:
+        ai_narrative.requests.post = _fake_post
+        ai_narrative.call_vision_llm("p", ["data:a"], "k", model="m",
+                                     max_tokens=8000)
+    finally:
+        ai_narrative.requests.post = original
+    assert captured["max_tokens"] == 8000
+
+
+def test_resolve_vision_config_reads_max_tokens_override():
+    """允许通过 Secrets 覆盖输出预算：合适的值取决于所选模型。"""
+    class _Secrets:
+        data = {"LLM_VISION_MODEL": "m", "LLM_VISION_API_KEY": "k",
+                "LLM_VISION_MAX_TOKENS": "8000"}
+
+        def get(self, key, default=None):
+            return self.data.get(key, default)
+
+    original = ai_narrative.st.secrets
+    try:
+        ai_narrative.st.secrets = _Secrets()
+        cfg = ai_narrative.resolve_vision_config()
+        assert cfg["max_tokens"] == 8000
+    finally:
+        ai_narrative.st.secrets = original
+
+
+def test_resolve_vision_config_rejects_invalid_max_tokens():
+    """非法值回落默认，不得因为一个可选键把读图功能整个弄坏。"""
+    class _Secrets:
+        data = {"LLM_VISION_MODEL": "m", "LLM_VISION_API_KEY": "k",
+                "LLM_VISION_MAX_TOKENS": "很多"}
+
+        def get(self, key, default=None):
+            return self.data.get(key, default)
+
+    original = ai_narrative.st.secrets
+    try:
+        ai_narrative.st.secrets = _Secrets()
+        cfg = ai_narrative.resolve_vision_config()
+        assert cfg["max_tokens"] == ai_narrative.VISION_MAX_TOKENS
+    finally:
+        ai_narrative.st.secrets = original
 
 
 def test_call_vision_llm_supports_multiple_images():
@@ -247,7 +310,7 @@ def test_call_vision_llm_empty_content_reports_diagnostics():
     assert "length" in message
     assert "some-vl-model" in message
     assert "choices" in message, message
-    assert "token" in message
+    assert "LLM_VISION_MAX_TOKENS" in message
 
 
 def test_call_vision_llm_flags_reasoning_only_response():
