@@ -15,6 +15,7 @@
 
 import html
 import io
+import json
 from datetime import datetime
 
 import requests
@@ -66,6 +67,54 @@ def resolve_vision_config():
     return {"api_key": api_key, "base_url": base_url, "model": model}
 
 
+# 空正文的处置提示。三种常见原因的处置完全不同，只报「空内容」等于丢掉现场。
+_FINISH_HINTS = {
+    "length": "正文在开始前就撞上 max_tokens 上限，可缩短补充说明或改用非推理型模型。",
+    "content_filter": "内容被服务商安全策略拦截，请更换图片或模型。",
+    "stop": "模型正常结束却没输出正文，最常见的原因是该模型不支持图像输入。",
+}
+
+
+def _extract_message_text(message):
+    """取正文，兼容 content 为字符串与分片列表两种形态。
+
+    部分 OpenAI 兼容服务商把 content 返回为
+    ``[{"type": "text", "text": ...}, ...]``。只认字符串会把这类正常响应误判为空正文。
+    """
+    content = message.get("content")
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        pieces = []
+        for item in content:
+            if isinstance(item, dict) and isinstance(item.get("text"), str):
+                pieces.append(item["text"])
+            elif isinstance(item, str):
+                pieces.append(item)
+        return "\n".join(piece.strip() for piece in pieces if piece.strip())
+    return ""
+
+
+def _response_snippet(data, limit=300):
+    """原始响应片段，把服务商的实际返回带进错误信息，便于直接判因。"""
+    try:
+        raw = json.dumps(data, ensure_ascii=False)
+    except (TypeError, ValueError):
+        raw = str(data)
+    return raw if len(raw) <= limit else raw[:limit] + "…"
+
+
+def _empty_content_reason(choice, message, model, data):
+    """空正文的错误文本：finish_reason、模型名、响应片段一并带出。"""
+    finish = str(choice.get("finish_reason") or "未提供")
+    detail = "finish_reason=%s，model=%s" % (finish, model)
+    reasoning = str(message.get("reasoning_content") or "").strip()
+    if reasoning:
+        detail += "；响应只有 reasoning_content（%d 字），正文为空" % len(reasoning)
+    return ("视觉模型返回空正文（%s）。%s响应片段：%s"
+            % (detail, _FINISH_HINTS.get(finish, ""), _response_snippet(data)))
+
+
 def call_vision_llm(prompt, images_b64, api_key, base_url=None, model=None):
     """调用多模态模型生成读图解读。失败抛异常，由调用方处理。
 
@@ -99,12 +148,15 @@ def call_vision_llm(prompt, images_b64, api_key, base_url=None, model=None):
     resp.raise_for_status()
     data = resp.json()
     try:
-        text = data["choices"][0]["message"]["content"]
+        choice = data["choices"][0]
+        message = choice["message"]
     except (KeyError, IndexError, TypeError):
-        raise ValueError("视觉模型返回结构异常，未取到内容")
-    text = (text or "").strip()
+        raise ValueError("视觉模型返回结构异常，未取到 choices/message。响应片段：%s"
+                         % _response_snippet(data))
+
+    text = _extract_message_text(message)
     if not text:
-        raise ValueError("视觉模型返回了空内容")
+        raise ValueError(_empty_content_reason(choice, message, model, data))
     return text
 
 

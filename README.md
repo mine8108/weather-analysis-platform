@@ -68,7 +68,7 @@ weather_app/
 │   ├── test_era5_script_pack.py # ERA5 脚本包 ZIP 与换算函数 29 条
 │   ├── test_manual.py          # 手册结构与内容契约 24 条
 │   ├── test_chart_reader.py    # 读图管线 / 编码策略 / prompt / 接线契约 36 条
-│   ├── test_ai_narrative.py    # 多模态请求体与报告导出 17 条
+│   ├── test_ai_narrative.py    # 多模态请求体、空正文诊断与报告导出 20 条
 │   ├── test_release_surface.py # 版本 / 依赖 / Secrets / CI 契约 18 条
 │   ├── test_weather_wall.py    # 天气墙（依赖 pytest；单跑需登录态）
 │   └── test_smoke.py           # 导入冒烟检查
@@ -149,7 +149,7 @@ python -B tests/test_chart_reader.py     # 读图管线与编码策略 36 条
 python -B tests/test_release_surface.py  # 版本/依赖/Secrets/CI 契约 18 条
 ```
 
-其余用例用 pytest 运行全部（当前共 **364** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
+其余用例用 pytest 运行全部（当前共 **367** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
 
 ```bash
 pip install -r requirements-dev.txt
@@ -178,7 +178,7 @@ python -B research/check_era5_variables.py --cache .cache-era5   # ERA5 变量�
 **发布后请肉眼核对一次线上版本号。** `git push` 成功、远端 `main` 已更新，**不等于**
 Streamlit Cloud 已经重建容器：v2.3.0 发布时就遇到过推送十余分钟后线上仍返回旧版本号、
 容器启动时间停在推送之前的情况，而这一状态是静默的，不主动核对就会误以为线上已是新版。
-（当前版本：**2.3.2**。）
+（当前版本：**2.3.3**。）
 
 做法很简单——侧边栏页脚始终显示 `© 气象数据交互分析平台 <版本号>`，与 `config.py` 的
 `APP_VERSION` 对一眼即可。若不一致，去 Streamlit Cloud 面板对该应用执行 **Reboot app**

@@ -610,7 +610,9 @@ WARN_STYLES = {
 # 2.3.2：读图图片编码改为「能不改就不改」——未缩放且为 PNG/JPEG 时原样提交，
 #        需要重编码时在 JPEG 与 PNG 中取更小者（真实天气图实测：PNG 64 KB 原被
 #        转成 JPEG 85 KB，GIF 35 KB 更会变 181 KB）
-APP_VERSION = "2.3.2"
+# 2.3.3：读图调用失败时给出可诊断现场（finish_reason / 模型名 / 原始响应片段），
+#        并兼容 content 为分片列表的正常响应（线上实测曾误报「返回了空内容」）
+APP_VERSION = "2.3.3"
 
 PAGE_CONFIG = {
     "page_title": "气象数据交互分析平台",

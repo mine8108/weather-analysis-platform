@@ -202,6 +202,69 @@ def test_call_vision_llm_requires_model():
         "未指定模型时必须抛异常，不得悄悄用默认文本模型")
 
 
+def _failure_message(fn):
+    """执行并返回异常文本；不抛异常即判定测试不成立。"""
+    try:
+        fn()
+    except Exception as exc:  # noqa: BLE001 - 这里就是要看异常文本
+        return "%s: %s" % (exc.__class__.__name__, exc)
+    raise AssertionError("预期抛异常但没有抛出")
+
+
+def test_call_vision_llm_accepts_content_parts_list():
+    """部分服务商把 content 返回为分片列表。旧实现只认字符串，会把正常响应误判为
+    「空内容」——这正是生产环境实际遇到的失败。"""
+    original = ai_narrative.requests.post
+    try:
+        ai_narrative.requests.post = lambda *a, **k: _FakeResponse(
+            {"choices": [{"message": {"content": [
+                {"type": "text", "text": "【图像信息】\nA"},
+                {"type": "text", "text": "【风险提示与结论】\nB"}]},
+                "finish_reason": "stop"}]})
+        text = ai_narrative.call_vision_llm("p", ["data:a"], "k", model="m")
+    finally:
+        ai_narrative.requests.post = original
+    assert "【图像信息】" in text
+    assert "【风险提示与结论】" in text
+
+
+def test_call_vision_llm_empty_content_reports_diagnostics():
+    """空正文必须报出 finish_reason、模型名与原始响应片段。
+
+    只说「返回了空内容」等于丢掉故障现场：上游是截断、安全拦截、还是不认图，
+    这三种原因的处置完全不同。
+    """
+    original = ai_narrative.requests.post
+    try:
+        ai_narrative.requests.post = lambda *a, **k: _FakeResponse(
+            {"model": "some-vl-model",
+             "choices": [{"message": {"content": ""}, "finish_reason": "length"}]})
+        message = _failure_message(
+            lambda: ai_narrative.call_vision_llm("p", ["data:a"], "k",
+                                                 model="some-vl-model"))
+    finally:
+        ai_narrative.requests.post = original
+    assert "length" in message
+    assert "some-vl-model" in message
+    assert "choices" in message, message
+    assert "token" in message
+
+
+def test_call_vision_llm_flags_reasoning_only_response():
+    """正文为空但带 reasoning_content：多为推理型模型未产出正文，须点名。"""
+    original = ai_narrative.requests.post
+    try:
+        ai_narrative.requests.post = lambda *a, **k: _FakeResponse(
+            {"choices": [{"message": {"content": "",
+                                      "reasoning_content": "先看图……"},
+                          "finish_reason": "stop"}]})
+        message = _failure_message(
+            lambda: ai_narrative.call_vision_llm("p", ["data:a"], "k", model="m"))
+    finally:
+        ai_narrative.requests.post = original
+    assert "reasoning_content" in message
+
+
 # ============================================================
 # 三、报告排版与导出
 # ============================================================
