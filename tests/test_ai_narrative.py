@@ -262,3 +262,21 @@ def test_public_api_present():
     for name in ("resolve_vision_config", "call_vision_llm", "display_report",
                  "build_report_meta", "parse_sections"):
         assert hasattr(ai_narrative, name), name
+
+
+if __name__ == "__main__":
+    import traceback
+
+    failed = 0
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            try:
+                fn()
+            except Exception:
+                failed += 1
+                print(f"[FAIL] {name}")
+                traceback.print_exc()
+            else:
+                print(f"[PASS] {name}")
+    print(f"\n{'FAILED' if failed else 'ALL PASSED'} ({failed} failures)")
+    sys.exit(1 if failed else 0)

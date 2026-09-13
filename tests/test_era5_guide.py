@@ -302,3 +302,21 @@ def test_app_side_never_imports_heavy_cds_stack():
         for name in modules:
             root = name.split(".")[0]
             assert root not in banned, "%s 真正导入了 %s" % (path, name)
+
+
+if __name__ == "__main__":
+    import traceback
+
+    failed = 0
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            try:
+                fn()
+            except Exception:
+                failed += 1
+                print(f"[FAIL] {name}")
+                traceback.print_exc()
+            else:
+                print(f"[PASS] {name}")
+    print(f"\n{'FAILED' if failed else 'ALL PASSED'} ({failed} failures)")
+    sys.exit(1 if failed else 0)

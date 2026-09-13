@@ -247,3 +247,21 @@ def test_manual_matches_renamed_summary_card_button():
     text = _manual_text()
     assert "🔔 检测" not in text
     assert "🖼 读图" in text
+
+
+if __name__ == "__main__":
+    import traceback
+
+    failed = 0
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            try:
+                fn()
+            except Exception:
+                failed += 1
+                print(f"[FAIL] {name}")
+                traceback.print_exc()
+            else:
+                print(f"[PASS] {name}")
+    print(f"\n{'FAILED' if failed else 'ALL PASSED'} ({failed} failures)")
+    sys.exit(1 if failed else 0)

@@ -6,3 +6,9 @@ openpyxl==3.1.5
 python-docx==1.2.0
 requests==2.34.2
 supabase>=2.0.0
+
+# 以下两项此前只是 streamlit 的传递依赖。应用现在直接使用它们
+# （Pillow 做读图图片的校验与压缩，markdown-it-py 做用户手册的 HTML 导出），
+# 因此显式声明，避免上游调整依赖后静默失效。
+Pillow>=10.0
+markdown-it-py>=3.0

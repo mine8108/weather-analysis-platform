@@ -37,6 +37,21 @@ jobs:
       - name: 报文解码回归（R-15）
         run: python -B tests/test_codec.py
 
+      - name: AQI 口径回归（2.4.0）
+        run: python -B tests/test_aqi.py
+
+      - name: ERA5 catalogue 与脚本包回归（2.4.0）
+        run: python -B tests/test_era5_guide.py
+
+      - name: 用户手册内容契约（2.4.0）
+        run: python -B tests/test_manual.py
+
+      - name: AI 读图解析回归（2.4.0）
+        run: python -B tests/test_chart_reader.py
+
+      - name: 发布面契约（版本/依赖/Secrets/CI）
+        run: python -B tests/test_release_surface.py
+
       # 其余 pytest 用例（含天气墙）作为补充信号，失败不阻断门禁
       - name: pytest 全量收集
         continue-on-error: true

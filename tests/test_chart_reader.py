@@ -260,3 +260,21 @@ def test_no_module_still_reads_detection_result():
 def test_chart_reader_exposes_renderer():
     from modules import chart_reader
     assert callable(chart_reader.render_chart_reader_tab)
+
+
+if __name__ == "__main__":
+    import traceback
+
+    failed = 0
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            try:
+                fn()
+            except Exception:
+                failed += 1
+                print(f"[FAIL] {name}")
+                traceback.print_exc()
+            else:
+                print(f"[PASS] {name}")
+    print(f"\n{'FAILED' if failed else 'ALL PASSED'} ({failed} failures)")
+    sys.exit(1 if failed else 0)
