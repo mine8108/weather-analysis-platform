@@ -421,6 +421,23 @@ def test_no_module_still_reads_detection_result():
 - 删除 `check_against_extremes` 的 import 与 `("极值", ...)` 注册项；删除 `multi_factor_coupling` 的无用 import。
 - 删除主区顶部那段过期的「📖 使用手册」折叠块（其文案引用旧的智能分析与 GB 3095-2026/HJ 633-2026 口径，且已被侧边栏手册取代）。
 
+- [ ] **Step 5b: 同步手册与防回流断言（删掉折叠块后必做）**
+
+`docs/用户使用手册.md` 第 4 章现存一条对主区折叠块的描述（约第 129 行）：
+
+> 3. **使用手册折叠块**：标题行下方的「📖 使用手册」折叠区给出一段快速入门、数据格式与标准引用摘要；完整说明在本手册（侧边栏入口）。
+
+删掉折叠块后这句即成失效描述。处置：**删除该条**（其信息已由同章侧边栏「📖 用户使用手册」条目覆盖），并在 `tests/test_manual.py` 增加一条防回流断言：
+
+```python
+def test_manual_does_not_describe_removed_main_area_expander():
+    """主区使用手册折叠块已在读图解析改造中删除，手册不得再描述它。"""
+    text = _manual_text()
+    assert "使用手册折叠块" not in text
+```
+
+这一步是本次跨批次核查的产物：手册与 App 的一致性无法靠内容契约测试全覆盖，删除 UI 元素时必须回查手册是否描述了它。
+
 - [ ] **Step 6: 同步 `tests/test_aqi.py`**
 
 - 删除 `test_analyzer_check_air_quality_delegates_to_unified` 与 `test_analyzer_check_air_quality_no_pollutants_returns_none`（被测函数已删除）。
