@@ -10,14 +10,15 @@
 
 | 模块 | 功能 |
 |------|------|
-| **数据导入** | 支持 CSV / Excel 上传、网页手动逐条录入、Open-Meteo API 按经纬度+时间自动拉取；智能列名识别；标准模板下载；API 区含 ERA5（CDS）下载引导 |
+| **数据导入** | 支持 CSV / Excel 上传、网页手动逐条录入、Open-Meteo API 按经纬度+时间自动拉取；智能列名识别；标准模板下载；API 区含 **ERA5（CDS）变量 catalogue 与脚本包下载**（4 个产品 / 8 个变量分组 / 5 组常用预设 / 提交前字段数预警） |
 | **数据质控** | 内置于「数据导入」向导第 2 步，导入后默认展示质量报告：物理量范围校验（温度/气压/湿度/风速等）、相邻时次突跳检测、缺失率统计、百分制数据质量评分 |
 | **可视化分析** | 温/压/湿/风多要素综合看板、风向风速玫瑰图、要素关系散点矩阵、统计摘要；**要素分布直方图（默认含降水量，可叠加多要素对比）** |
-| **智能分析与建议** | 覆盖高温、寒潮、大风、大雾、暴雨、霜冻、雷电、霾共 **8 类国家预警标准**；热应激、降水可能性、风寒效应等耦合风险；自动生成公众出行与农业生产建议 |
+| **AI 读图解析** | 上传气象图（天气图 / 卫星云图 / 雷达回波 / 模式形势图），由多模态模型输出**六段式结构化解读**（图面要素 → 分布特征 → 关键数值 → 趋势演变 → 风险结论）；图片四重上限（3 张 / 原始 20MB / 压缩后 5MB / 合计 12MB）；**不依赖已导入数据**；可导出 Word（含原图）与 Markdown。调用失败不做文本降级 |
 | **报文解码** | 粘贴 METAR / SYNOP 标准报文，自动解析为结构化数据 |
 | **报告导出** | 处理后数据与 GFS 预报数据导出 CSV；一键生成 Word 分析报告（专业版为表格化排版、通俗版为叙述式），报告内不含图片 |
-| **数值预报 (GFS)** | 接入 Open-Meteo **GFS 数值预报（免注册，最长 16 天）**：气温/体感温度/降水时间序列、空气质量预报（国标 AQI 六级分档）、未来 72 小时高温预报面板（含 35/37/40℃ 国家阈值线）、风玫瑰预报 |
+| **数值预报 (GFS)** | 接入 Open-Meteo **GFS 数值预报（免注册，最长 16 天）**：气温/体感温度/降水时间序列、空气质量预报（AQI 六级分档，口径见 `AQI_STANDARD_LABEL`）、未来 72 小时高温预报面板（含 35/37/40℃ 国家阈值线）、风玫瑰预报、预报验证（GFS vs 实况） |
 | **明暗主题** | 浅色 / 暗色一键切换（登录用户偏好云端同步，未登录时本地保存）；全站配色由 `design_tokens` 单一真相源驱动，图表随主题重绘，明暗切换不重载数据 |
+| **用户手册** | 侧边栏「📖 用户使用手册」入口，**14 章**详细说明，不占用 Tab 编号；正文唯一真相源为 `docs/用户使用手册.md`，应用内阅读并可现场导出独立 HTML |
 
 ---
 
@@ -54,28 +55,42 @@ weather_app/
 │   └── secrets.toml.example    # 密钥模板（复制为 secrets.toml 后填写）
 ├── templates/
 │   └── data_template.csv       # 标准数据模板（下载显示名仍为「气象数据模板.csv」）
+├── docs/
+│   └── 用户使用手册.md          # 手册唯一真相源（应用内阅读 + 现场导出 HTML）
 ├── tests/                      # 自测脚本（无 pytest 亦可直接运行）
 │   ├── conftest.py
-│   ├── test_analyzer.py        # 预警检测 91 条
+│   ├── test_analyzer.py        # 预警检测与耦合分析 92 条
+│   ├── test_aqi.py             # AQI 断点表结构 / 分指数 / 综合指数 35 条
 │   ├── test_data_quality.py    # 数据质控 9 条
 │   ├── test_auth_session.py    # 登录会话 7 条
-│   ├── test_weather_wall.py    # 天气墙 41 条（依赖 pytest）
+│   ├── test_codec.py           # 报文解码回归
+│   ├── test_era5_guide.py      # ERA5 catalogue 与 payload 26 条
+│   ├── test_era5_script_pack.py # ERA5 脚本包 ZIP 与换算函数 29 条
+│   ├── test_manual.py          # 手册结构与内容契约 24 条
+│   ├── test_chart_reader.py    # 读图管线 / prompt / 接线契约 28 条
+│   ├── test_ai_narrative.py    # 多模态请求体与报告导出 17 条
+│   ├── test_release_surface.py # 版本 / 依赖 / Secrets / CI 契约 12 条
+│   ├── test_weather_wall.py    # 天气墙（依赖 pytest；单跑需登录态）
 │   └── test_smoke.py           # 导入冒烟检查
 ├── 示例数据/
 │   ├── 示例气象数据.csv          # 可直接测试的演示数据
 │   └── generate_demo.py        # 演示数据生成脚本
-├── 用户使用手册.html            # 图文操作手册
 └── modules/
     ├── __init__.py
     ├── data_loader.py          # CSV/Excel/手动/API 导入
     ├── data_quality.py         # 数据质量控制与评分
-    ├── visualizer.py           # 可视化引擎
-    ├── analyzer.py             # 预警检测 + 建议生成
+    ├── visualizer.py           # 可视化引擎（7 个子面板）
+    ├── analyzer.py             # 国标事件检测 + 耦合分析 + 建议生成（纯逻辑，不渲染页面）
+    ├── aqi.py                  # AQI 分指数与综合指数唯一实现
     ├── codec.py                # SYNOP/METAR 解码
-    ├── nwp_forecast.py         # GFS 数值预报接入 + 时间图/空气质量/风玫瑰渲染
+    ├── nwp_forecast.py         # GFS 数值预报接入 + 时间图/空气质量/风玫瑰/预报验证
     ├── verify.py               # GFS 预报 vs 实况 的定量验证
     ├── reporter.py             # Word/CSV 报告导出
-    ├── ai_narrative.py         # AI 预警叙事（DeepSeek，缺失时降级）
+    ├── chart_reader.py         # AI 读图解析（图片校验压缩 + 读图 prompt + 页面）
+    ├── ai_narrative.py         # 多模态调用 + 报告排版与 docx/md 导出
+    ├── era5_guide.py           # ERA5 变量 catalogue / payload 构建 / 规模预警 / 引导页
+    ├── era5_script_pack.py     # ERA5 脚本包六个文件与 ZIP 打包
+    ├── manual.py               # 用户手册加载 / 章节解析 / 应用内渲染 / HTML 导出
     ├── weather_wall.py         # 封面页天气墙（城市天气卡片）
     ├── theme_aether.py         # 主题注入与明暗切换（会话级，无需重载）
     ├── design_tokens.py        # 配色 token 单一真相源（浅色/暗色双套，含对比度校验）
@@ -84,11 +99,13 @@ weather_app/
     ├── city_prefs.py           # 天气墙城市列表持久化
     ├── geocode.py              # 城市名 ↔ 经纬度双向解析
     └── geolocate.py            # 浏览器定位组件封装
-├── research/                   # 主题配色审计工具（不参与线上部署）
+├── research/                   # 审计工具与核查记录（不参与线上部署）
 │   ├── darkmode_contrast_probe.py  # WCAG 2.1 AA 对比度审计（双主题）
 │   ├── check_py_vars.py            # CSS 变量引用完整性检查
 │   ├── check_plotly_cssvar.py      # 图表误用 CSS var() 检查
-│   └── check_chart_colors.py       # 图表颜色实值检查（防 token 名泄漏进 Plotly）
+│   ├── check_chart_colors.py       # 图表颜色实值检查（防 token 名泄漏进 Plotly）
+│   ├── era5_variable_enums_2026-09-13.json  # CDS constraints 接口实测的变量枚举快照
+│   └── 内部不一致清单-2026-09-13.md          # 跨文件不一致审计与处置归属
 ```
 
 ---
@@ -112,21 +129,27 @@ streamlit run app.py
 
 > ⚠️ 注意：`pip install` 与 `streamlit run` 是**终端命令**，请在系统命令行 / Anaconda Prompt 中执行，不要写进 `.py` 文件用 IDE 运行。
 
-**最短上手路径**：Tab1 数据导入（上传 `示例数据/示例气象数据.csv`，在第 2 步查看质量报告）→ Tab4 查看预警与建议 → Tab5 导出 Word 报告。更详细的操作见 `用户使用手册.html`。
+**最短上手路径**：Tab1 数据导入（上传 `示例数据/示例气象数据.csv`，在第 2 步查看质量报告）→ Tab2 可视化分析 → **Tab4 报告导出**生成 Word 报告。Tab3 的「AI 读图解析」**不依赖已导入数据**，可随时上传一张天气图体验。完整操作见侧边栏「📖 用户使用手册」或 `docs/用户使用手册.md`。
 
 ---
 
 ## 🧪 测试
 
-`tests/` 下为自测脚本。其中三个可直接运行，无需安装 pytest：
+`tests/` 下为自测脚本。其中八个可直接运行，无需安装 pytest（CI 的门禁就是用这种方式跑的）：
 
 ```bash
-python -B tests/test_analyzer.py      # 预警检测 91 条
-python -B tests/test_data_quality.py  # 数据质控 9 条
-python -B tests/test_auth_session.py  # 登录会话 7 条
+python -B tests/test_analyzer.py         # 预警检测与耦合分析 92 条
+python -B tests/test_data_quality.py     # 数据质控 9 条
+python -B tests/test_auth_session.py     # 登录会话 7 条
+python -B tests/test_codec.py            # 报文解码
+python -B tests/test_aqi.py              # AQI 断点表 / 分指数 / 综合指数 35 条
+python -B tests/test_era5_guide.py       # ERA5 catalogue 与 payload 26 条
+python -B tests/test_manual.py           # 手册结构与内容契约 24 条
+python -B tests/test_chart_reader.py     # 读图管线与接线契约 28 条
+python -B tests/test_release_surface.py  # 版本/依赖/Secrets/CI 契约 12 条
 ```
 
-也可用 pytest 运行全部（`tests/test_weather_wall.py` 依赖 pytest 的 `parametrize`）：
+其余用例用 pytest 运行全部（当前共 **350** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
 
 ```bash
 pip install -r requirements-dev.txt
@@ -147,6 +170,7 @@ python -B research/check_chart_colors.py        # 图表颜色是否为 Plotly �
 **发布后请肉眼核对一次线上版本号。** `git push` 成功、远端 `main` 已更新，**不等于**
 Streamlit Cloud 已经重建容器：v2.3.0 发布时就遇到过推送十余分钟后线上仍返回旧版本号、
 容器启动时间停在推送之前的情况，而这一状态是静默的，不主动核对就会误以为线上已是新版。
+（当前版本：**2.4.0**。）
 
 做法很简单——侧边栏页脚始终显示 `© 气象数据交互分析平台 <版本号>`，与 `config.py` 的
 `APP_VERSION` 对一眼即可。若不一致，去 Streamlit Cloud 面板对该应用执行 **Reboot app**
@@ -185,13 +209,17 @@ Streamlit Cloud 已经重建容器：v2.3.0 发布时就遇到过推送十余分
 3. 点击 **New app** → 选择本仓库 → 分支 `main` → 主文件填写 `app.py`。
 4. 点击 **Deploy**，约 1–2 分钟后获得公开访问链接。
 
-所有依赖联网的功能（Open-Meteo 气象 / 空气质量 / GFS 预报拉取）在云端均可正常使用。**但登录已是进入主程序的前置条件**：未配置 Supabase 密钥时，`app.py` 会停在登录页并提示如何写入 `.streamlit/secrets.toml`（不会崩溃），因此线上部署必须配置 4 项密钥——`SUPABASE_URL`、`SUPABASE_ANON_KEY`、`SUPABASE_SERVICE_ROLE_KEY`、`ADMIN_PASSWORD`（见下方章节）。另有 `LLM_API_KEY` 等 3 项为可选项，用于「AI 预警叙事」，缺失时自动降级为结构化摘要。
+所有依赖联网的功能（Open-Meteo 气象 / 空气质量 / GFS 预报拉取）在云端均可正常使用。**但登录已是进入主程序的前置条件**：未配置 Supabase 密钥时，`app.py` 会停在登录页并提示如何写入 `.streamlit/secrets.toml`（不会崩溃），因此线上部署必须配置 4 项密钥——`SUPABASE_URL`、`SUPABASE_ANON_KEY`、`SUPABASE_SERVICE_ROLE_KEY`、`ADMIN_PASSWORD`（见下方章节）。
+
+可选的 AI 配置分两组：**读图解析**需要 `LLM_VISION_MODEL`（必需，须为具备图像输入能力的模型）与可选的 `LLM_VISION_API_KEY` / `LLM_VISION_BASE_URL`，缺失时读图页给出配置指引且不显示生成按钮；`LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` 为保留的文本模型配置，当前没有生产调用者，缺失不影响任何功能。
 
 ---
 
 ## 🔔 预警标准
 
-预警阈值体系依据**中国气象局《气象灾害预警信号发布与传播办法》（第 16 号令）**的国家标准实现，覆盖高温、寒潮、大风、大雾、暴雨、霜冻、雷电、霾八类灾害的蓝/黄/橙/红四级。侧边栏「自定义检测阈值」面板当前提供**高温、大风、大雾**三类阈值输入框；其余预警类型的阈值（含高温黄色、暴雨、霜冻、雷电、霾）读取 `config.py` 中的常量，并支持代码侧 `analyzer.set_custom_thresholds()` 覆盖，界面暂未提供对应输入框。
+预警阈值体系依据**中国气象局《气象灾害预警信号发布与传播办法》（第 16 号令）**的国家标准实现，覆盖高温、寒潮、大风、大雾、暴雨、霜冻、雷电、霾八类灾害的蓝/黄/橙/红四级。侧边栏「自定义检测阈值」面板提供**七组**输入：高温、大风、大雾、暴雨、霜冻、霾、雷电（雷电为时间窗口而非数值阈值）。默认值即国家标准值，修改后点「[OK] 应用自定义阈值」生效，仅影响当前会话；`analyzer.set_custom_thresholds()` 亦可在代码侧覆盖。
+
+空气质量相关有两套口径，页面上分别标注：**AQI 分指数**用 `config.AQI_STANDARD_LABEL`（当前为 HJ 633-2012，因 2026 版表 1 的断点数值无法公开核实），**浓度达标限值**用 `config.LIMIT_STANDARD_LABEL`。两者不是同一张表，不要把 AQI 等级与浓度达标混读。
 
 ---
 
@@ -226,7 +254,7 @@ Streamlit Cloud 已经重建容器：v2.3.0 发布时就遇到过推送十余分
   SUPABASE_SERVICE_ROLE_KEY = "eyJ..."     # service_role 密钥（仅服务端，严禁泄露）
   ADMIN_PASSWORD = "你的管理员密码"          # 管理员面板解锁密码
   ```
-  可选项（用于「AI 预警叙事」，缺失时自动降级）：`LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL`。完整清单见 `.streamlit/secrets.toml.example`。
+  可选项见 `.streamlit/secrets.toml.example`。AI 相关分两组：读图解析用 `LLM_VISION_MODEL`（必需）/ `LLM_VISION_API_KEY` / `LLM_VISION_BASE_URL`；文本模型 `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` 为保留项，当前无生产调用者。**读图解析的模型名不会回落到 `LLM_MODEL`**——默认文本模型没有视觉能力，回落只会造成「配置了却一直失败」。
 
 ### 4. 部署
 - `requirements.txt` 已加入 `supabase`，推送至 GitHub 后 Streamlit Cloud 自动安装。
