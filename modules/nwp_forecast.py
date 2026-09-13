@@ -316,7 +316,7 @@ def _compute_cn_aqi(conc):
 def fetch_air_quality(lat, lon, days=7):
     """获取空气质量预报 (Open-Meteo Air Quality API, 数据源 CAMS)。
     返回 (DataFrame, current_dict, error_msg)，成功时 error_msg 为 None。
-    - DataFrame: timestamp + 6 项浓度 + aqi/level/primary/color（国标 HJ 633-2012）。
+    - DataFrame: timestamp + 6 项浓度 + aqi/level/primary/color（口径见 config.AQI_STANDARD_LABEL）。
     - current_dict: 实时浓度 dict（用于实况卡片），失败为 None。
     会话内缓存 1 小时，避免重复请求（CAMS 更新频率约每日数次）。
     """
@@ -1370,7 +1370,7 @@ def _render_current_conditions(fdf):
         precip_prob = float(now_row.get("precipitation_probability", 0))
         source = "预报"
 
-    # 实时空气质量（国标 HJ 633-2012）
+    # 实时空气质量（AQI 分指数口径见 config.AQI_STANDARD_LABEL）
     aq_aqi, aq_level, aq_primary, aq_color = None, "—", "—", "#94a3b8"
     if lat is not None and lon is not None:
         try:
@@ -1841,7 +1841,7 @@ def render_forecast_tab():
         st.session_state["nwp_air_quality_for_analysis"] = aq_df
     st.caption(
         "数据来源：CAMS 全球大气成分预报（Open-Meteo Air Quality API，最长 7 天）。"
-        "国标等级按 HJ 633-2012 计算，PM2.5/PM10 采用逐时近似。"
+        f"国标等级按 {AQI_STANDARD_LABEL} 计算，PM2.5/PM10 采用逐时近似。"
     )
 
     st.write("### 72 小时高温预报面板")

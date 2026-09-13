@@ -280,3 +280,59 @@ def test_nwp_level_table_kept_for_charts():
 
     assert hasattr(nwp_forecast, "_AQ_LEVELS")
     assert len(nwp_forecast._AQ_LEVELS) == 6
+
+
+# ============================================================
+# 五、analyzer 收敛与标准版本接线
+# ============================================================
+
+def test_analyzer_check_air_quality_delegates_to_unified():
+    """analyzer.check_air_quality 结果与统一实现一致，且保留原返回结构。"""
+    import pandas as pd
+    from modules.analyzer import check_air_quality
+
+    df = pd.DataFrame({
+        "pm25": [115.0] * 24,
+        "pm10": [60.0] * 24,
+        "so2": [200.0] * 24,
+        "nox": [300.0] * 24,
+    })
+    result = check_air_quality(df)
+    unified = aqi.comprehensive_aqi({"pm25": 115.0, "pm10": 60.0,
+                                     "so2": 200.0, "nox": 300.0})
+    assert result["aqi"] == unified["aqi"] == 150
+    assert result["level"] == unified["level"] == "轻度污染"
+    assert result["primary"] == unified["primary"] == "PM2.5"
+    assert set(result) == {"aqi", "primary", "level", "color", "advice", "details"}
+    assert {d["field"] for d in result["details"]} == {"pm25", "pm10", "so2", "nox"}
+    detail = [d for d in result["details"] if d["field"] == "pm25"][0]
+    assert set(detail) == {"field", "label", "avg", "max", "iaqi", "level",
+                           "color", "limit", "exceed_daily", "exceed_hourly"}
+    assert detail["iaqi"] == 150
+    assert detail["label"] == "PM2.5"
+
+
+def test_analyzer_check_air_quality_no_pollutants_returns_none():
+    """无污染物字段时返回 None。"""
+    import pandas as pd
+    from modules.analyzer import check_air_quality
+
+    assert check_air_quality(pd.DataFrame({"temperature": [20.0]})) is None
+
+
+def test_calc_single_aqi_removed():
+    """旧的私有分指数函数必须已删除。"""
+    from modules import analyzer
+
+    assert not hasattr(analyzer, "_calc_single_aqi")
+
+
+def test_standard_label_is_wired_into_ui_sources():
+    """UI 文本所在的模块必须引用 AQI_STANDARD_LABEL，而不是硬编码版本号。"""
+    import io
+
+    for path in ("modules/analyzer.py", "modules/nwp_forecast.py"):
+        full = os.path.join(_APP_DIR, path)
+        with io.open(full, encoding="utf-8") as handle:
+            source = handle.read()
+        assert "AQI_STANDARD_LABEL" in source, "%s 未引用 AQI_STANDARD_LABEL" % path

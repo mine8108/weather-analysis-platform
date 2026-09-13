@@ -11,7 +11,7 @@ from config import (
     FOG_WARNING, RAINSTORM_WARNING, FROST_WARNING,
     THUNDER_WARNING, HAZE_WARNING,
     PUBLIC_ADVICE, AGRI_ADVICE, WARN_STYLES,
-    AQI_BREAKPOINTS, AQI_LEVELS, AQI_ADVICE, AIR_POLLUTANT_LIMITS,
+    AQI_ADVICE, AQI_LEVELS, AQI_STANDARD_LABEL, AIR_POLLUTANT_LIMITS,
     get_beaufort_level, FIELD_LABELS, WARN_LEVEL_ORDER,
 )
 from modules.design_tokens import (
@@ -19,6 +19,7 @@ from modules.design_tokens import (
     css_var,
     warn_token,
 )
+from modules.aqi import POLLUTANT_ALIASES, comprehensive_aqi
 
 # 可配置的事件检测规则（用户可在侧边栏自定义覆盖）
 CUSTOM_THRESHOLDS = {}
@@ -391,19 +392,8 @@ def check_haze(df):
 
 
 # ============================================================
-# 大气环境质量评估 (GB 3095-2026 + HJ 633-2026)
+# 大气环境质量评估（AQI 分指数口径见 config.AQI_STANDARD_LABEL）
 # ============================================================
-
-def _calc_single_aqi(conc, pollutant):
-    """计算单个污染物的AQI分指数 (IAQI)"""
-    if pollutant not in AQI_BREAKPOINTS or np.isnan(conc):
-        return 0
-    bp = AQI_BREAKPOINTS[pollutant]
-    for (clo, chi, ilo, ihi) in bp:
-        if clo <= conc <= chi:
-            return (ihi - ilo) / (chi - clo) * (conc - clo) + ilo
-    return 0
-
 
 def _aqi_level_name(aqi):
     """AQI → (等级标签, 主题 token 名)。
@@ -421,8 +411,13 @@ def _aqi_level_name(aqi):
 
 def check_air_quality(df):
     """
-    基于 HJ 633-2012 计算综合 AQI + 逐污染物分析 + 健康建议
-    返回: (综合AQI, 首要污染物, 等级标签, 逐项检测结果列表)
+    综合 AQI + 逐污染物分析 + 健康建议。
+
+    分指数与综合指数由 modules.aqi 统一计算（单一实现），本函数只负责
+    从 DataFrame 取时段均值、做达标判断、组装 UI 所需的返回结构。
+    实际所用标准版本见 config.AQI_STANDARD_LABEL。
+
+    返回: dict | None（无污染物字段时为 None）
     """
     pollutant_fields = [
         ("so2",  "SO₂"),
@@ -436,40 +431,35 @@ def check_air_quality(df):
     if not available:
         return None
 
+    means = {field: float(df[field].dropna().mean()) for field, _label in available}
+    unified = comprehensive_aqi(means)
+    by_key = {d["key"]: d for d in unified["details"]}
+
     results = []
-    max_iaqi = 0
-    primary_pollutant = None
-
     for field, label in available:
-        vals = df[field].dropna()
-        if len(vals) == 0:
+        key = POLLUTANT_ALIASES.get(field, field)
+        detail = by_key.get(key)
+        if detail is None:
             continue
+        vals = df[field].dropna()
+        mean_conc = float(vals.mean())
+        max_conc = float(vals.max())
 
-        avg_conc = vals.mean()
-        max_conc = vals.max()
-
-        # 计算日均值的AQI分指数
-        iaqi = round(_calc_single_aqi(avg_conc, field))
-        if iaqi > max_iaqi:
-            max_iaqi = iaqi
-            primary_pollutant = label
-
-        # 达标判断 (GB 3095-2026 二级标准)
+        # 达标判断（GB 3095 二级标准限值；与 AQI 断点表是两张不同的表）
         limits = AIR_POLLUTANT_LIMITS.get(field, {})
         daily_limit = limits.get("daily")
-
         hourly_limit = limits.get("hourly")
-        exceed_daily = avg_conc > daily_limit if daily_limit else False
-        exceed_hourly = max_conc > hourly_limit if hourly_limit and hourly_limit else False
+        exceed_daily = mean_conc > daily_limit if daily_limit else False
+        exceed_hourly = bool(max_conc > hourly_limit) if hourly_limit else False
 
-        label_name, color = _aqi_level_name(iaqi)
+        label_name, color = _aqi_level_name(detail["iaqi"])
 
         results.append({
             "field": field,
             "label": label,
-            "avg": round(avg_conc, 1),
+            "avg": round(mean_conc, 1),
             "max": round(max_conc, 1),
-            "iaqi": iaqi,
+            "iaqi": detail["iaqi"],
             "level": label_name,
             "color": color,
             "limit": daily_limit,
@@ -477,11 +467,13 @@ def check_air_quality(df):
             "exceed_hourly": exceed_hourly,
         })
 
-    overall_level, overall_color = _aqi_level_name(max_iaqi)
+    if not results:
+        return None
 
+    overall_level, overall_color = _aqi_level_name(unified["aqi"])
     return {
-        "aqi": max_iaqi,
-        "primary": primary_pollutant,
+        "aqi": unified["aqi"],
+        "primary": unified["primary"],
         "level": overall_level,
         "color": overall_color,
         "advice": AQI_ADVICE.get(overall_level, ""),
@@ -1206,7 +1198,7 @@ def render_analysis_tab(df):
     has_pollution = any(f in df.columns for f in ["so2", "nox", "pm10", "pm25"])
     if has_pollution:
         st.write("---")
-        st.write("### [大气] 空气质量评估 (GB 3095-2026)")
+        st.write(f"### [大气] 空气质量评估（{AQI_STANDARD_LABEL}）")
         _render_air_quality_section(df)
 
     # ----- 建议 -----
