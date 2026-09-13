@@ -614,7 +614,9 @@ WARN_STYLES = {
 #        并兼容 content 为分片列表的正常响应（线上实测曾误报「返回了空内容」）
 # 2.3.4：输出预算 1600 → 4096，并支持 LLM_VISION_MAX_TOKENS 覆盖。线上实测
 #        所配模型先用 2784 字 reasoning_content 吃光预算，正文未开始即结束
-APP_VERSION = "2.3.4"
+# 2.3.5：本地真机实测把预算定到 16000——双图 reasoning 用掉 10437 tokens，
+#        4096 仍不够；确认所配模型确实能读图，六段正文约 1100 tokens
+APP_VERSION = "2.3.5"
 
 PAGE_CONFIG = {
     "page_title": "气象数据交互分析平台",

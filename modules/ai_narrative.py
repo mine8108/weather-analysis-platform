@@ -23,10 +23,12 @@ import streamlit as st
 
 DEFAULT_BASE_URL = "https://api.deepseek.com"
 VISION_TIMEOUT_SECONDS = 90
-# 输出预算。读图要求六段式长回答，且推理型模型的思考过程也从这里扣额度：
-# 线上实测 deepseek-flash 对两张真实天气图先写了 2784 字 reasoning_content，
-# 原 1600 的上限被思考吃光，正文未开始即结束。可用 LLM_VISION_MAX_TOKENS 覆盖。
-VISION_MAX_TOKENS = 4096
+# 输出预算。读图要求六段式长回答，且推理型模型的思考过程也从这里扣额度。
+# 实测 deepseek-flash：单图 reasoning 2065 tokens，双图 reasoning 10437 tokens，
+# 而六段正文只有约 1100 tokens。原 1600 与 4096 都被思考过程吃光，正文未开始即
+# 结束（finish_reason=length、content 空）。需按最坏情形给量，可用
+# LLM_VISION_MAX_TOKENS 覆盖。
+VISION_MAX_TOKENS = 16000
 _MAX_TOKENS_FLOOR = 256
 _MAX_TOKENS_CEILING = 32000
 

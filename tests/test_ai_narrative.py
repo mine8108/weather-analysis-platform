@@ -145,10 +145,11 @@ def test_call_vision_llm_builds_multimodal_payload():
 def test_vision_max_tokens_is_enough_for_reasoning_models():
     """输出预算必须容得下推理型模型的思考过程。
 
-    线上实测：所配模型对两张真实天气图输出了 2784 字 reasoning_content，
-    原来的 1600 上限被思考过程吃光，正文还没开始就结束（空正文 + 长度截断）。
+    实测 deepseek-flash：单图 reasoning 2065 tokens，双图 10437 tokens，而六段
+    正文只有约 1100 tokens。1600 与 4096 两个上限都被思考吃光，正文未开始即结束
+    （finish_reason=length + content 空）。这里锁一个下界，防止再把预算改小。
     """
-    assert ai_narrative.VISION_MAX_TOKENS >= 4000, ai_narrative.VISION_MAX_TOKENS
+    assert ai_narrative.VISION_MAX_TOKENS >= 12000, ai_narrative.VISION_MAX_TOKENS
 
 
 def test_call_vision_llm_accepts_max_tokens_override():

@@ -178,7 +178,7 @@ python -B research/check_era5_variables.py --cache .cache-era5   # ERA5 变量�
 **发布后请肉眼核对一次线上版本号。** `git push` 成功、远端 `main` 已更新，**不等于**
 Streamlit Cloud 已经重建容器：v2.3.0 发布时就遇到过推送十余分钟后线上仍返回旧版本号、
 容器启动时间停在推送之前的情况，而这一状态是静默的，不主动核对就会误以为线上已是新版。
-（当前版本：**2.3.4**。）
+（当前版本：**2.3.5**。）
 
 做法很简单——侧边栏页脚始终显示 `© 气象数据交互分析平台 <版本号>`，与 `config.py` 的
 `APP_VERSION` 对一眼即可。若不一致，去 Streamlit Cloud 面板对该应用执行 **Reboot app**
