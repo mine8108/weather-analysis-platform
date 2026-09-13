@@ -5,8 +5,11 @@
 
 无 pytest 时可直接运行（`python -B tests/test_release_surface.py`）。
 """
+import importlib.util
 import io
 import os
+import re
+import subprocess
 import sys
 
 _APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -26,6 +29,60 @@ def _read(rel):
 def test_version_bumped():
     from config import APP_VERSION
     assert APP_VERSION == "2.3.1", APP_VERSION
+
+
+def test_live_artifacts_carry_current_version():
+    """CI 步骤名与 Secrets 模板里曾写着旧发布号 2.4.0。
+
+    这类漂移此前逃过了全仓扫描，因为 ripgrep 默认跳过 `.github/`、`.streamlit/`
+    这类隐藏目录。规则收窄为：这两个「活」文件里出现的任何 x.y.z 版本串都必须
+    等于 APP_VERSION。README 的 v2.3.0 属历史案例叙述，不在此列，故不纳入。
+    """
+    import re
+    from config import APP_VERSION
+    pattern = re.compile(r"\b\d+\.\d+\.\d+\b")
+    for rel in (".github/workflows/tests.yml", ".streamlit/secrets.toml.example"):
+        found = set(pattern.findall(_read(rel)))
+        assert found <= {APP_VERSION}, (rel, sorted(found), APP_VERSION)
+
+
+def test_readme_state_counts_match_repo():
+    """README 逐文件声明了用例条数，曾把本文件写成 12 条（实为 14）。
+
+    只锁「README 里带 `N 条` 的文件级计数」，不锁 pytest 总数——总数受参数化
+    影响，与 `def test_*` 个数不等，硬锁会变成误报源。
+    """
+    import re
+    readme = _read("README.md")
+    hits = re.findall(r"(test_\w+\.py)\s*#[^\n]*?(\d+)\s*条", readme)
+    assert hits, "README 未找到任何逐文件用例条数声明"
+    for name, claimed in hits:
+        path = os.path.join(_APP_DIR, "tests", name)
+        assert os.path.isfile(path), name
+        with io.open(path, encoding="utf-8") as handle:
+            actual = len(re.findall(r"^def test_\w+", handle.read(), re.M))
+        assert int(claimed) == actual, (name, claimed, actual)
+
+
+def test_readme_pytest_total_matches_collection():
+    """README 声称了 pytest 总数（曾写 350，实际 352，现已 355）。
+
+    总数受参数化展开影响，无法由 `def test_*` 个数推出，只能真实收集一次。
+    无 pytest 的环境直接跳过——本文件设计上要能脱离 pytest 直跑。
+    """
+    if importlib.util.find_spec("pytest") is None:
+        return
+    proc = subprocess.run(
+        [sys.executable, "-B", "-m", "pytest", "tests", "-q", "--collect-only"],
+        cwd=_APP_DIR, capture_output=True,
+    )
+    text = (proc.stdout or b"").decode("utf-8", "replace")
+    match = re.search(r"(\d+) tests? collected", text)
+    assert match, text[-800:]
+    claimed = re.search(r"当前共 \*\*(\d+)\*\* 项", _read("README.md"))
+    assert claimed, "README 未声明 pytest 总数"
+    assert int(claimed.group(1)) == int(match.group(1)), \
+        "README 声称 %s 项，实际收集 %s 项" % (claimed.group(1), match.group(1))
 
 
 def test_requirements_declare_image_and_markdown_deps():

@@ -355,3 +355,19 @@ git status                           → 干净
 本批次按计划把 `APP_VERSION` 从 `2.3.0` 升到 `2.4.0` 并已提交（`9a1d30a`）。全部批次完成后用户决议最终发布号取 **`2.3.1`**，遂改 `config.APP_VERSION`、`tests/test_release_surface.py` 的目标断言与 `README.md` 的「当前版本」注记共三处。
 
 本计划正文中的 `2.4.0`（完成标准、Task 1 与提交信息示例）作为当时的计划目标保留不改，不回溯改写决策轨迹；理由与取舍见设计文档附录 C。
+
+### 改版本号时暴露的一类扫描盲区（2026-09-13 补记）
+
+改 `APP_VERSION` 后我做了一次全仓版本串扫描，结论是「除历史文档外无残留」。**这个结论是错的**：ripgrep 默认跳过隐藏目录，`.github/workflows/tests.yml` 的四处步骤名 `（2.4.0）` 与 `.streamlit/secrets.toml.example` 的「自 2.4.0 起」都没被扫到。补扫后共 5 处旧号。
+
+同一轮还发现 README 的**用例条数声明**已经陈旧：`test_release_surface.py` 写「12 条」（实为 14）、`test_auth_session.py` 写「7 条」（实为 8）、pytest 总数写 **350**（实为 352）、门禁脚本数写「八个」（实为九个）。这些数字正是完成标准第 8 条要求「与仓库一致」的对象，说明**当时的验收只核对了模块名与 Tab 名，没有核对数字**。
+
+补三条守卫测试堵住该类漂移，本文件条数随之由 14 增至 17：
+
+| 新增测试 | 锁定的漂移 |
+|---|---|
+| `test_live_artifacts_carry_current_version` | CI 步骤名与 Secrets 模板里出现非当前 `APP_VERSION` 的 x.y.z 串 |
+| `test_readme_state_counts_match_repo` | README 逐文件声明的 `N 条` 与 `def test_*` 实际个数不符 |
+| `test_readme_pytest_total_matches_collection` | README 声称的 pytest 总数与真实收集数不符（无 pytest 时跳过） |
+
+第三条只锁总数、不锁实现：总数受参数化展开影响，无法由 `def` 计数推出，只能真实收集一次。

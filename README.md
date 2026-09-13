@@ -62,14 +62,14 @@ weather_app/
 │   ├── test_analyzer.py        # 预警检测与耦合分析 92 条
 │   ├── test_aqi.py             # AQI 断点表结构 / 分指数 / 综合指数 35 条
 │   ├── test_data_quality.py    # 数据质控 9 条
-│   ├── test_auth_session.py    # 登录会话 7 条
+│   ├── test_auth_session.py    # 登录会话 8 条
 │   ├── test_codec.py           # 报文解码回归
 │   ├── test_era5_guide.py      # ERA5 catalogue 与 payload 26 条
 │   ├── test_era5_script_pack.py # ERA5 脚本包 ZIP 与换算函数 29 条
 │   ├── test_manual.py          # 手册结构与内容契约 24 条
 │   ├── test_chart_reader.py    # 读图管线 / prompt / 接线契约 28 条
 │   ├── test_ai_narrative.py    # 多模态请求体与报告导出 17 条
-│   ├── test_release_surface.py # 版本 / 依赖 / Secrets / CI 契约 12 条
+│   ├── test_release_surface.py # 版本 / 依赖 / Secrets / CI 契约 17 条
 │   ├── test_weather_wall.py    # 天气墙（依赖 pytest；单跑需登录态）
 │   └── test_smoke.py           # 导入冒烟检查
 ├── 示例数据/
@@ -135,21 +135,21 @@ streamlit run app.py
 
 ## 🧪 测试
 
-`tests/` 下为自测脚本。其中八个可直接运行，无需安装 pytest（CI 的门禁就是用这种方式跑的）：
+`tests/` 下为自测脚本。其中九个可直接运行，无需安装 pytest（CI 的门禁就是用这种方式跑的）：
 
 ```bash
 python -B tests/test_analyzer.py         # 预警检测与耦合分析 92 条
 python -B tests/test_data_quality.py     # 数据质控 9 条
-python -B tests/test_auth_session.py     # 登录会话 7 条
+python -B tests/test_auth_session.py     # 登录会话 8 条
 python -B tests/test_codec.py            # 报文解码
 python -B tests/test_aqi.py              # AQI 断点表 / 分指数 / 综合指数 35 条
 python -B tests/test_era5_guide.py       # ERA5 catalogue 与 payload 26 条
 python -B tests/test_manual.py           # 手册结构与内容契约 24 条
 python -B tests/test_chart_reader.py     # 读图管线与接线契约 28 条
-python -B tests/test_release_surface.py  # 版本/依赖/Secrets/CI 契约 12 条
+python -B tests/test_release_surface.py  # 版本/依赖/Secrets/CI 契约 17 条
 ```
 
-其余用例用 pytest 运行全部（当前共 **350** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
+其余用例用 pytest 运行全部（当前共 **355** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
 
 ```bash
 pip install -r requirements-dev.txt

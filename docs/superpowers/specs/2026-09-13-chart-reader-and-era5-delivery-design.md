@@ -884,7 +884,7 @@ ERA5-Land 小时数据（共 60 个变量）：
 
 本设计从立项到落地一直按「2.3.0 → 2.4.0」推进，正文、第 1–5 批计划与 `test_release_surface` 的目标断言都写作 2.4.0。全部批次实施完毕后，用户决议**最终发布号取 `2.3.1`**。
 
-已落地的三处改动：`config.APP_VERSION = "2.3.1"`、`tests/test_release_surface.py::test_version_bumped` 的断言、`README.md` 的「当前版本」注记。
+已落地的改动：`config.APP_VERSION = "2.3.1"`、`tests/test_release_surface.py::test_version_bumped` 的断言、`README.md` 的「当前版本」注记；另由版本号补扫查出并修掉 `.github/workflows/tests.yml` 中四处步骤名（`（2.4.0）`）与 `.streamlit/secrets.toml.example` 中一处说明（「自 2.4.0 起」）。新增 `test_live_artifacts_carry_current_version` 锁住这两类「活」文件，防止再次漂移。
 
 保留未改的：正文与第 1–5 批计划中的 2.4.0 字样作为当时的决策轨迹留档，不回溯改写。凡涉及当前版本的事实判断一律以 `config.APP_VERSION` 为准，任何文档与正文都不硬编码版本号。
 
