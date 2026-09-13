@@ -149,7 +149,7 @@
 | 8 | AI 读图解析 | 支持哪些图、图片要求与体积上限、如何提问、结果如何解读、导出报告、隐私提示 |
 | 9 | 报告导出 | 两种报告版本的差别与适用场景 |
 | 10 | 报文解码 | METAR/SYNOP 用法与已知限制 |
-| 11 | ERA5 再分析数据获取 | 完整流程：注册 → 接受许可 → 选参数 → 下载脚本包 → 本地运行 → CSV 回导；常见错误对照 |
+| 11 | ERA5 再分析数据获取 | 完整流程：注册 → 接受许可 → 选参数 → 下载脚本包 → **手动打开终端**并执行命令 → CSV 回导；含 Windows 与 macOS/Linux 打开终端的具体步骤；常见错误对照 |
 | 12 | 侧边栏与自定义阈值 | 各阈值输入项含义、与国家标准的关系、重置按钮行为 |
 | 13 | 常见问题 | 分类：安装启动 / 数据导入 / 读图解析 / ERA5 / 报告导出 |
 | 14 | 标准引用与术语表 | 引用标准全称与实施日期；术语中英对照 |
@@ -484,10 +484,10 @@ ERA5_PRODUCTS: dict[str, dict] = {
 |---|---|
 | `era5_download.py` | 见 5.4.3 |
 | `.cdsapirc.example` | `url: https://cds.climate.copernicus.eu/api` + `key: <你的 API Key>`，注释说明无 UID、放置位置为 `~/.cdsapirc` |
-| `README.txt` | 三步命令、许可接受链接、常见错误对照表（许可证未接受 / 422 / 403 成本限额 / 队列受限 / 返回 ZIP） |
+| `README.txt` | **主路径为手动打开终端执行命令**：如何打开终端（Windows：`Win + R` 输入 `cmd`，或开始菜单搜索 PowerShell；macOS：应用程序 → 实用工具 → 终端）、三步命令、许可接受链接、常见错误对照表（许可证未接受 / 422 / 403 成本限额 / 队列受限 / 返回 ZIP） |
 | `requirements.txt` | `cdsapi>=0.7.7`、`xarray`、`netCDF4`、`pandas` |
-| `一键运行.bat` | Windows：`pip install -r requirements.txt` → `python era5_download.py` → `pause` |
-| `运行.sh` | macOS / Linux：同上，带 `set -e` |
+| `一键运行.bat` | **可选加速器，非主路径**。Windows 用户若不想敲命令可双击运行：`pip install -r requirements.txt` → `python era5_download.py` → `pause`。README 中标注为「也可双击本文件」 |
+| `运行.sh` | macOS / Linux 的可选加速器，内容同 `.bat`，带 `set -e` |
 
 #### 5.4.3 生成脚本的能力契约
 
@@ -769,7 +769,7 @@ CI 的四个门禁脚本（`test_auth_session.py`、`test_data_quality.py`、`te
 1. 侧边栏可单独打开用户使用手册；应用内 14 章均可读；导出的 HTML 在浏览器中打开时目录锚点可用、样式完整；手册内容与 2.4.0 实际功能一致。
 2. 智能分析 Tab 已更名为读图解析；未导入任何数据时可正常上传图片并生成解读；上传图片超过体积或张数上限时给出明确原因而非静默失败；未配置视觉模型时给出可操作的配置指引且不报错。
 3. ERA5 变量选择器按组展示且标注单位与换算；不支持的变量以禁用态显示并说明原因；请求规模超限时在生成前预警。
-4. 生成的 ZIP 在干净环境（仅安装包内 `requirements.txt`）中运行不出现 `format` 关键字 422 错误；脚本导出的 CSV 可直接被「数据导入」Tab 识别出 `timestamp`/`temperature` 等标准字段。
+4. 生成的 ZIP 在干净环境（仅安装包内 `requirements.txt`）中运行不出现 `format` 关键字 422 错误；脚本导出的 CSV 可直接被「数据导入」Tab 识别出 `timestamp`/`temperature` 等标准字段；`README.txt` 含 Windows 与 macOS/Linux 手动打开终端的具体步骤，**不依赖 `.bat`/`.sh` 即可完成全流程**；手册第 11 章与之一致。
 5. AQI 全应用走同一实现；构造的 NOx 空洞表能被校验函数检出；PM2.5 = 500 μg/m³ 时返回 500 而非 0；页面与手册显示的标准版本与实际断点表一致。
 6. `python -B` 运行四个 CI 门禁脚本全部通过；`pytest tests -q` 无新增失败。
 7. 应用可正常启动，冷启动无异常；`git status` 中不再存在 `用户使用手册.html`。
