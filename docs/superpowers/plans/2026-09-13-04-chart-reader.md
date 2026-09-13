@@ -691,3 +691,26 @@ if not text:
 ### 教训
 
 修一个数值型缺陷时，「改大一点」是最容易骗过自己的做法。正确的顺序是：先量出真实用量，再定值。我这次先改了 4096（未测量），又改到 16000（已测量），多花了一轮部署与一次真机验证。
+
+## 实施记录补记五（2026-09-13，v2.3.6）：用量记账与配额（用户设定 2 万 token / 5 次）
+
+用户要求给读图加使用次数或 token 限制。先对齐现状：原实现已有「每会话 10 次」与「60 秒最小间隔」，但它有两个真缺口。
+
+**缺口一：刷新即绕过。** 会话级计数存放在 `st.session_state`，刷新页面即归零。它是防误操作，不是成本控制——真正的硬配额需要服务端状态（Supabase 里已有 `profiles.storage_quota_bytes` 与 `get_storage_quota` RPC 这套现成范式，要做每日硬配额可沿用）。本次按用户选择只做会话级。
+
+**缺口二：实际消耗从未被记录。** `call_vision_llm` 拿到响应后把 `usage` 字段整个丢掉了。没有累计量就无从谈配额，也无从知道钱花在哪。这是本次的主要工作：
+
+- `_normalize_usage` 把 `usage` 归一化为 `{prompt, completion, reasoning, total}`，屏蔽服务商字段差异（reasoning 藏在 `completion_tokens_details` 里）；
+- **记账先于解析**：`usage_out` 在 `resp.json()` 之后立刻写入，后面任何分支抛异常都已经落账。失败调用同样被计费——实测那次被截断的调用照样扣满 4096 completion tokens。若只记成功路径，一次失败风暴在账面上完全隐形；
+- `merge_usage` / `format_usage` 是纯函数，脱离 Streamlit 可测；`merge_usage` 对缺失字段一律按 0，避免部分返回把整页弄崩；
+- 展示以 `total` 为准而非 `completion`：prompt 那部分同样计费，只用输出量会低报成本。
+
+配额按用户设定：`VISION_MAX_TOKENS = 20000`（原 16000）、`MAX_GENERATIONS_PER_SESSION = 5`（原 10）。次数按**尝试**计数而非成功，理由同上。界面上把「已生成 N/10」改为「已尝试 N/5（剩余 M）」，并在有消耗后显示「本会话累计消耗 X token（输出 Y，其中思考 Z，占 N%）」。
+
+`format_usage` 第一版只显示输出量，被 `test_format_usage_without_reasoning_is_plain` 当场拦下——该用例断言总量出现，而我把它藏了。这条测试是对的：成本要如实显示。
+
+新增测试 8 项：`test_call_vision_llm_reports_normalized_usage`、`test_call_vision_llm_reports_usage_even_when_content_empty`、`test_call_vision_llm_tolerates_missing_usage`、`test_generation_cap_and_budget_match_configured_quota`、`test_merge_usage_sums_all_fields`、`test_merge_usage_treats_missing_as_zero`、`test_format_usage_mentions_reasoning_share`、`test_format_usage_without_reasoning_is_plain`。
+
+### 未做（有意）
+
+服务端每日配额未实现（用户选择 A 方案）。若日后要做，落点是 `supabase/schema.sql` 新增 `vision_usage(user_id, day, calls, tokens)` 表 + RLS + 扣减 RPC，并沿用管理员面板改额度的既有范式。

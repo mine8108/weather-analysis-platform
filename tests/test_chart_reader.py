@@ -220,6 +220,48 @@ def test_image_to_data_url_uses_actual_mime():
 
 
 # ============================================================
+# 一之三、用量记账与配额
+# ============================================================
+
+def test_generation_cap_and_budget_match_configured_quota():
+    """每会话 5 次、单次 2 万 token 是用户设定的额度，锁住防止被改回去。"""
+    assert chart_reader.MAX_GENERATIONS_PER_SESSION == 5
+    from modules.ai_narrative import VISION_MAX_TOKENS
+    assert VISION_MAX_TOKENS == 20000
+
+
+def test_merge_usage_sums_all_fields():
+    merged = chart_reader.merge_usage(
+        {"prompt": 100, "completion": 200, "reasoning": 150, "total": 300},
+        {"prompt": 10, "completion": 20, "reasoning": 5, "total": 30})
+    assert merged == {"prompt": 110, "completion": 220,
+                      "reasoning": 155, "total": 330}
+
+
+def test_merge_usage_treats_missing_as_zero():
+    """失败调用可能只拿到部分字段，缺失一律按 0 计，不能让记账抛异常。"""
+    assert chart_reader.merge_usage(None, {"total": 7})["total"] == 7
+    assert chart_reader.merge_usage({}, None)["total"] == 0
+    assert chart_reader.merge_usage({"prompt": 5}, {"completion": 3}) == {
+        "prompt": 5, "completion": 3, "reasoning": 0, "total": 0}
+
+
+def test_format_usage_mentions_reasoning_share():
+    """推理型模型的思考占大头，展示时必须点明，否则用户无法理解成本。"""
+    text = chart_reader.format_usage(
+        {"prompt": 911, "completion": 11475, "reasoning": 10437, "total": 12386})
+    assert "11,475" in text
+    assert "思考" in text and "10,437" in text
+
+
+def test_format_usage_without_reasoning_is_plain():
+    text = chart_reader.format_usage(
+        {"prompt": 10, "completion": 20, "reasoning": 0, "total": 30})
+    assert "30" in text
+    assert "思考" not in text
+
+
+# ============================================================
 # 二、合计体积
 # ============================================================
 

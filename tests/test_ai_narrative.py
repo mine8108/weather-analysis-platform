@@ -205,6 +205,61 @@ def test_resolve_vision_config_rejects_invalid_max_tokens():
         ai_narrative.st.secrets = original
 
 
+def test_call_vision_llm_reports_normalized_usage():
+    """用量必须回传：没有累计量就无从谈配额，也无从知道钱花在哪。"""
+    original = ai_narrative.requests.post
+    usage = {}
+    try:
+        ai_narrative.requests.post = lambda *a, **k: _FakeResponse(
+            {"choices": [{"message": {"content": "正文"}, "finish_reason": "stop"}],
+             "usage": {"prompt_tokens": 911, "completion_tokens": 11475,
+                       "total_tokens": 12386,
+                       "completion_tokens_details": {"reasoning_tokens": 10437}}})
+        ai_narrative.call_vision_llm("p", ["data:a"], "k", model="m",
+                                     usage_out=usage)
+    finally:
+        ai_narrative.requests.post = original
+    assert usage == {"prompt": 911, "completion": 11475,
+                     "reasoning": 10437, "total": 12386}
+
+
+def test_call_vision_llm_reports_usage_even_when_content_empty():
+    """空正文也要记账：服务商对这次调用已经计费了（实测被截断的调用照样扣满预算）。
+
+    若只在成功路径记用量，一次失败风暴会在账面上完全隐形。
+    """
+    original = ai_narrative.requests.post
+    usage = {}
+    try:
+        ai_narrative.requests.post = lambda *a, **k: _FakeResponse(
+            {"choices": [{"message": {"content": "",
+                                      "reasoning_content": "思考"},
+                          "finish_reason": "length"}],
+             "usage": {"prompt_tokens": 665, "completion_tokens": 4096,
+                       "total_tokens": 4761,
+                       "completion_tokens_details": {"reasoning_tokens": 4096}}})
+        _failure_message(lambda: ai_narrative.call_vision_llm(
+            "p", ["data:a"], "k", model="m", usage_out=usage))
+    finally:
+        ai_narrative.requests.post = original
+    assert usage["completion"] == 4096
+    assert usage["reasoning"] == 4096
+
+
+def test_call_vision_llm_tolerates_missing_usage():
+    """服务商不返回 usage 时按 0 计，不得让记账把正常调用弄挂。"""
+    original = ai_narrative.requests.post
+    usage = {}
+    try:
+        ai_narrative.requests.post = lambda *a, **k: _FakeResponse(
+            {"choices": [{"message": {"content": "正文"}}]})
+        ai_narrative.call_vision_llm("p", ["data:a"], "k", model="m",
+                                     usage_out=usage)
+    finally:
+        ai_narrative.requests.post = original
+    assert usage == {"prompt": 0, "completion": 0, "reasoning": 0, "total": 0}
+
+
 def test_call_vision_llm_supports_multiple_images():
     captured = {}
 

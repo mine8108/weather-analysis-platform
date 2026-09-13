@@ -25,10 +25,10 @@ DEFAULT_BASE_URL = "https://api.deepseek.com"
 VISION_TIMEOUT_SECONDS = 90
 # 输出预算。读图要求六段式长回答，且推理型模型的思考过程也从这里扣额度。
 # 实测 deepseek-flash：单图 reasoning 2065 tokens，双图 reasoning 10437 tokens，
-# 而六段正文只有约 1100 tokens。原 1600 与 4096 都被思考过程吃光，正文未开始即
-# 结束（finish_reason=length、content 空）。需按最坏情形给量，可用
+# 而六段正文只有约 1100 tokens。1600 与 4096 都被思考过程吃光，正文未开始即
+# 结束（finish_reason=length、content 空）。用户设定的单次额度为 2 万，可用
 # LLM_VISION_MAX_TOKENS 覆盖。
-VISION_MAX_TOKENS = 16000
+VISION_MAX_TOKENS = 20000
 _MAX_TOKENS_FLOOR = 256
 _MAX_TOKENS_CEILING = 32000
 
@@ -141,12 +141,40 @@ def _empty_content_reason(choice, message, model, data):
             % (detail, _FINISH_HINTS.get(finish, ""), _response_snippet(data)))
 
 
+def _as_int(value):
+    """把服务商返回的计数安全转成 int；缺失、字符串、None 一律按 0。"""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _normalize_usage(usage):
+    """把 usage 归一化为 {prompt, completion, reasoning, total}。
+
+    不同服务商字段名不一致，reasoning 还藏在 completion_tokens_details 里。
+    归一化后调用方不需要知道服务商差异。
+    """
+    usage = usage if isinstance(usage, dict) else {}
+    details = usage.get("completion_tokens_details")
+    details = details if isinstance(details, dict) else {}
+    return {
+        "prompt": _as_int(usage.get("prompt_tokens")),
+        "completion": _as_int(usage.get("completion_tokens")),
+        "reasoning": _as_int(details.get("reasoning_tokens")),
+        "total": _as_int(usage.get("total_tokens")),
+    }
+
+
 def call_vision_llm(prompt, images_b64, api_key, base_url=None, model=None,
-                    max_tokens=None):
+                    max_tokens=None, usage_out=None):
     """调用多模态模型生成读图解读。失败抛异常，由调用方处理。
 
     images_b64 为 data URL 列表（``data:image/jpeg;base64,...``）。
-    ``max_tokens`` 省略时用模块默认值（4096）。
+    ``max_tokens`` 省略时用模块默认值（见 VISION_MAX_TOKENS）。
+    ``usage_out`` 传入 dict 时会写入归一化后的用量；**失败路径也会写**，因为
+    服务商对这次调用已经计费了（实测被截断的调用照样扣满预算）。只记成功路径
+    会让失败风暴在账面上完全隐形。
     """
     if not model:
         raise ValueError("未指定视觉模型（LLM_VISION_MODEL）")
@@ -175,6 +203,9 @@ def call_vision_llm(prompt, images_b64, api_key, base_url=None, model=None,
     )
     resp.raise_for_status()
     data = resp.json()
+    # 记账先于解析：后面任何分支抛异常，用量都已经落账
+    if usage_out is not None:
+        usage_out.update(_normalize_usage(data.get("usage")))
     try:
         choice = data["choices"][0]
         message = choice["message"]

@@ -36,7 +36,13 @@ _PASSTHROUGH_MIMES = {"PNG": "image/png", "JPEG": "image/jpeg"}
 
 # 单次生成的会话限制
 MIN_INTERVAL_SECONDS = 60
-MAX_GENERATIONS_PER_SESSION = 10
+# 每会话最多尝试 5 次。计的是「尝试」而非「成功」：失败调用同样被服务商计费，
+# 只数成功就会让反复失败不计入额度。会话级限制刷新页面即重置，属防误操作级别，
+# 不是成本控制——真正的硬配额需要服务端状态（见计划文档的配额设计讨论）。
+MAX_GENERATIONS_PER_SESSION = 5
+
+# 用量记账字段。与 ai_narrative._normalize_usage 的键保持一致。
+USAGE_KEYS = ("prompt", "completion", "reasoning", "total")
 
 _SECTIONS = ("【图像信息】", "【图面要素识别】", "【主要分布特征】",
              "【关键数值与极值】", "【趋势与演变】", "【风险提示与结论】")
@@ -171,6 +177,36 @@ def estimate_image_tokens(images):
     return int(round(total / 100.0) * 100)
 
 
+def merge_usage(previous, current):
+    """累加两次用量，缺失字段按 0 计。
+
+    失败调用可能只拿到部分字段（甚至完全没有 usage），因此这里不能用
+    ``previous["total"] += ...`` 这类写法——一个 KeyError 就会把整页弄崩。
+    """
+    merged = {}
+    for key in USAGE_KEYS:
+        merged[key] = int((previous or {}).get(key) or 0) \
+            + int((current or {}).get(key) or 0)
+    return merged
+
+
+def format_usage(usage):
+    """把用量说成人话：总量为准，推理型模型的思考占比必须点明。
+
+    以 total 为准而非 completion：prompt 那部分同样计费，只用输出量会低报成本。
+    """
+    usage = usage or {}
+    total = int(usage.get("total") or 0)
+    completion = int(usage.get("completion") or 0)
+    reasoning = int(usage.get("reasoning") or 0)
+    text = "%s token" % format(total or completion, ",")
+    if reasoning and completion:
+        text += "（输出 %s，其中思考 %s，占 %.0f%%）" % (
+            format(completion, ","), format(reasoning, ","),
+            100.0 * reasoning / completion)
+    return text
+
+
 def build_chart_prompt(images_meta, user_note):
     """构造读图 prompt：六段固定结构 + 反幻觉硬约束。"""
     lines = [
@@ -244,9 +280,22 @@ def _render_failure_table():
         st.markdown(_FAILURE_TABLE)
 
 
+def _record_usage(usage):
+    """把一次调用的用量并入会话累计，并记下最近一次。
+
+    必须在成功与失败两条路径上都调用：服务商对失败的调用同样计费。
+    """
+    last = merge_usage(None, usage)
+    total = merge_usage(st.session_state.get("chart_reader_usage_total"), usage)
+    st.session_state["chart_reader_usage_last"] = last
+    st.session_state["chart_reader_usage_total"] = total
+    return last, total
+
+
 def _generate(cfg, images, note):
     """执行一次读图解析。失败即报错并保留原图，不产出任何替代文本。"""
-    from modules.ai_narrative import build_report_meta, call_vision_llm
+    from modules.ai_narrative import (VISION_MAX_TOKENS, build_report_meta,
+                                      call_vision_llm)
 
     now = time.time()
     last = float(st.session_state.get("chart_reader_last_gen", 0) or 0)
@@ -256,7 +305,7 @@ def _generate(cfg, images, note):
         return
     count = int(st.session_state.get("chart_reader_gen_count", 0) or 0)
     if count >= MAX_GENERATIONS_PER_SESSION:
-        st.warning("本会话生成次数已达上限（%d 次），请刷新页面后继续。"
+        st.warning("本会话尝试次数已达上限（%d 次），请刷新页面后继续。"
                    % MAX_GENERATIONS_PER_SESSION)
         return
 
@@ -264,18 +313,26 @@ def _generate(cfg, images, note):
     data_urls = [image_to_data_url(item["data_bytes"], item["mime"])
                  for item in images]
 
+    usage = {}
     with st.spinner("正在读图解析，通常需要十几秒..."):
         try:
             text = call_vision_llm(prompt, data_urls, cfg["api_key"],
                                    base_url=cfg["base_url"], model=cfg["model"],
-                                   max_tokens=cfg.get("max_tokens"))
+                                   max_tokens=cfg.get("max_tokens"),
+                                   usage_out=usage)
         except Exception as exc:  # noqa: BLE001 - 任何失败都报错，不降级
+            _record_usage(usage)
+            st.session_state["chart_reader_gen_count"] = count + 1
             detail = str(exc).strip() or exc.__class__.__name__
             st.error("读图解析失败：%s" % detail[:200])
-            st.caption("原图已保留，可直接重试。本功能**不提供文本模型降级**——"
-                       "文本模型读不了图，编造的摘要会误导判断。")
+            spent = int(usage.get("completion") or 0)
+            st.caption("本次尝试仍会被服务商计费%s。原图已保留，可直接重试。"
+                       "本功能**不提供文本模型降级**——文本模型读不了图，"
+                       "编造的摘要会误导判断。"
+                       % ("（消耗 %s）" % format_usage(usage) if spent else ""))
             return
 
+    _record_usage(usage)
     st.session_state["chart_reader_text"] = text
     st.session_state["chart_reader_meta"] = build_report_meta(
         "上传气象图 %d 张（模型：%s）" % (len(images), cfg["model"]))
@@ -285,7 +342,8 @@ def _generate(cfg, images, note):
 
 def render_chart_reader_tab():
     """渲染 AI 读图解析页。不依赖任何已导入数据。"""
-    from modules.ai_narrative import display_report, resolve_vision_config
+    from modules.ai_narrative import (VISION_MAX_TOKENS, display_report,
+                                      resolve_vision_config)
 
     st.subheader("[读图] AI 读图解析")
     st.caption("上传气象图（天气图 / 卫星云图 / 雷达回波 / 模式形势图），"
@@ -340,13 +398,27 @@ def render_chart_reader_tab():
 
     count = int(st.session_state.get("chart_reader_gen_count", 0) or 0)
     tokens = estimate_image_tokens(ok_images)
-    st.caption("本会话已生成 %d/%d 次；本次就绪图片 %d 张，提交合计约 %d KB，"
-               "估算图像 token ≈ %d（成本随所选模型单价变化）。"
-               % (count, MAX_GENERATIONS_PER_SESSION, len(ok_images),
-                  sum(item["new_kb"] for item in ok_images), tokens))
+    total_usage = st.session_state.get("chart_reader_usage_total") or {}
+    remaining = max(0, MAX_GENERATIONS_PER_SESSION - count)
+    st.caption("本会话已尝试 %d/%d 次（剩余 %d 次）；本次就绪图片 %d 张，"
+               "提交合计约 %d KB，估算图像 token ≈ %d。"
+               % (count, MAX_GENERATIONS_PER_SESSION, remaining,
+                  len(ok_images), sum(item["new_kb"] for item in ok_images), tokens))
+    if total_usage.get("completion"):
+        cap_note = "单次输出上限 %s token" % format(
+            VISION_MAX_TOKENS, ",") if VISION_MAX_TOKENS else ""
+        st.caption("本会话累计消耗 %s。%s"
+                   % (format_usage(total_usage), cap_note))
+    else:
+        st.caption("单次输出上限 %s token；失败调用同样计费，故按尝试次数计数。"
+                   % format(VISION_MAX_TOKENS, ","))
 
     disabled = (not ok_images) or bool(total_error) \
         or count >= MAX_GENERATIONS_PER_SESSION
+    if remaining <= 0:
+        st.warning("本会话尝试次数已用完（%d 次）。刷新页面可重置，"
+                   "但每次调用都会真实计费，请留意用量。"
+                   % MAX_GENERATIONS_PER_SESSION)
     if st.button("生成读图解析", key="chart_reader_generate", type="primary",
                  disabled=disabled, use_container_width=True):
         _generate(cfg, ok_images, note)
