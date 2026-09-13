@@ -417,17 +417,19 @@ def _build_professional_report(doc, df, fc_df, fc_analysis, life_indices,
     doc.add_paragraph(
         "采用国家预警四级体系：蓝色（IV级，一般）→ 黄色（III级，较重）"
         "→ 橙色（II级，严重）→ 红色（I级，特别严重）。"
-        "具体阈值参见 config.py 中 WARN_RULES 定义。"
+        "具体阈值见 config.py 中的各类预警阈值常量"
+        "（HIGH_TEMP_WARNING / COLD_WAVE_WARNING / GALE_WARNING / FOG_WARNING / "
+        "RAINSTORM_WARNING / FROST_WARNING / THUNDER_WARNING / HAZE_WARNING）。"
     )
     doc.add_heading("生活指数计算方法", level=2)
     doc.add_paragraph(
-        "穿衣指数：基于气温分 5 级（0-5）\n"
-        "带伞建议：基于 24h 降水概率分 3 级（0-3）\n"
+        "穿衣指数：按气温分 6 档（0 酷热 / 1 夏装 / 2 轻便 / 3 春秋装 / 4 初冬装 / 5 厚冬装）\n"
+        "带伞建议：按未来 72 小时累计降水与天气码分 3 档（0 无需带伞 / 2 建议备伞 / 3 必带伞）\n"
         "体感舒适度：Thom 不适指数（SSD = T - 0.55·(1-RH)·(T-14) - V^(1/3)·(T-10)/20）\n"
-        "运动指数：基于温湿度组合分 0-100\n"
-        "紫外线：基于 UV 指数分 4 级（弱/中/强/很强）\n"
-        "洗车指数：基于降水预报分 3 级\n"
-        "晾晒指数：基于降水+湿度组合分 0-100"
+        "运动指数：按温湿度组合折算 0-100 分后分级\n"
+        "紫外线：由天气码近似分 4 档（弱/中/强/很强）\n"
+        "洗车指数：按未来 72 小时累计降水分 3 档（适宜/较适宜/不适宜）\n"
+        "晾晒指数：按降水与湿度组合折算 0-100 分后分级"
     )
 
     # ---- 七、防御建议 ----

@@ -51,6 +51,64 @@ def test_ci_runs_all_gate_scripts():
         assert script in text, script
 
 
+def test_gate_scripts_have_standalone_runners():
+    """CI 用 `python -B <file>` 直跑；缺 __main__ 运行器会退出 0 却什么都不跑。"""
+    for rel in ("tests/test_aqi.py", "tests/test_era5_guide.py",
+                "tests/test_manual.py", "tests/test_chart_reader.py",
+                "tests/test_release_surface.py", "tests/test_analyzer.py",
+                "tests/test_data_quality.py", "tests/test_codec.py",
+                "tests/test_auth_session.py"):
+        assert "__main__" in _read(rel), rel
+
+
+# ============================================================
+# 二、标准标注与报告技术说明的一致性
+# ============================================================
+
+def test_no_unverifiable_standard_years_in_user_facing_text():
+    """用户可见文案不得声称无法核实的标准年份。"""
+    for rel in ("app.py", "modules/visualizer.py", "modules/analyzer.py",
+                "modules/nwp_forecast.py", "modules/reporter.py"):
+        text = _read(rel)
+        for bad in ("GB 3095-2026", "HJ 633-2026"):
+            assert bad not in text, "%s 含 %s" % (rel, bad)
+
+
+def test_concentration_limit_label_is_honest():
+    """浓度达标限值的标准名不得声称无法核实的年份。"""
+    from config import LIMIT_STANDARD_LABEL
+    assert "2026" not in LIMIT_STANDARD_LABEL
+    assert "GB 3095" in LIMIT_STANDARD_LABEL
+
+
+def test_visualizer_renders_config_labels():
+    assert "LIMIT_STANDARD_LABEL" in _read("modules/visualizer.py")
+
+
+def test_visualizer_wind_rose_states_radius_meaning():
+    """两处风玫瑰口径不同（频次 vs 频率%），观测页须显式标注半径含义。"""
+    assert "频次" in _read("modules/visualizer.py")
+
+
+def test_reporter_does_not_reference_missing_constants():
+    """报告技术说明不得指向不存在的 config 常量。"""
+    assert "WARN_RULES" not in _read("modules/reporter.py")
+
+
+def test_reporter_algorithm_notes_match_implementation():
+    """技术说明里的算法描述必须与实现一致。"""
+    text = _read("modules/reporter.py")
+    assert "分 5 级" not in text          # 穿衣指数实现为 6 档
+    assert "24h 降水概率" not in text      # 带伞依据 72h 累计降水 + 天气码
+
+
+def test_no_stale_tab_reference_in_docs():
+    for rel in ("docs/同类项目核心介绍.md", "README.md"):
+        text = _read(rel)
+        for bad in ("气候态", "再分析数据处理"):
+            assert bad not in text, "%s 含 %s" % (rel, bad)
+
+
 if __name__ == "__main__":
     import traceback
 

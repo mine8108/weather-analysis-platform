@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 from config import (
-    COLORS, WIND_DIRECTIONS,
+    COLORS, WIND_DIRECTIONS, LIMIT_STANDARD_LABEL,
     get_beaufort_level, get_wind_direction_name, get_dominant_wind_direction,
     safe_chart, FIELD_LABELS,
 )
@@ -611,7 +611,8 @@ def _add_dual_trace(fig, dff, field, name, color, unit, chart_type, secondary_y=
 def _render_pollution_panel(df):
     """空气质量专用可视化面板"""
     st.write("### [大气] 空气质量分析")
-    st.caption("基于 GB 3095-2026 标准评估 PM2.5/PM10/SO₂/NOx 浓度趋势与达标率")
+    st.caption(f"基于 {LIMIT_STANDARD_LABEL} 评估 PM2.5/PM10/SO₂/NOx 浓度趋势与达标率"
+               "（此处为浓度达标判定，与 AQI 分指数不是同一张表）")
 
     pollutants = {
         "pm25": ("PM2.5", color_value("pm25_color"), "μg/m³", 50),
@@ -648,12 +649,12 @@ def _render_pollution_panel(df):
             go.Scatter(x=[x_data.min(), x_data.max()], y=[limit, limit],
                        mode="lines", line=dict(color=color, width=1.5, dash="dash"),
                        name=f"{label} 标准限值", showlegend=False,
-                       hovertemplate=f"GB 3095-2026 限值: {limit} {unit}"),
+                       hovertemplate=f"{LIMIT_STANDARD_LABEL}: {limit} {unit}"),
             row=i, col=1,
         )
 
     fig.update_layout(
-        title=dict(text="污染物浓度时间序列（虚线 = GB 3095-2026 二级日均限值）",
+        title=dict(text=f"污染物浓度时间序列（虚线 = {LIMIT_STANDARD_LABEL}）",
                    font=dict(size=14), x=0),
         height=220 * len(available) + 80,
         showlegend=False,
@@ -817,6 +818,8 @@ def render_visualization_tab(df):
             wind_rose = wind_rose_chart(df)
             if wind_rose:
                 safe_chart(wind_rose, "风向玫瑰图", key="viz_wind_rose")
+                st.caption("雷达半径为该风向出现的**样本频次**（观测页口径）；"
+                           "数值预报页的玫瑰图半径为**出现频率百分比**，两者读法不同。")
             else:
                 st.info("缺少风向风速数据，无法绘制玫瑰图")
 
