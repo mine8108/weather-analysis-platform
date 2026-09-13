@@ -513,3 +513,48 @@ git commit -m "test(chart): 读图页集成验证与手册第 8 章对齐"
 - `multi_factor_coupling` 与 `generate_advice` 在删除后**没有生产调用者**（只剩测试）：这是 spec 明确要求保留的公开逻辑，本批次不动它们，但应在批次 5 的 README 说明中如实反映其当前定位。
 - 视觉模型的图片判读质量依赖所配模型；prompt 只能约束输出格式与禁止编造，无法保证识别准确度。手册第 8 章需写明适用与不适用场景。
 - `tests/test_analyzer.py` 的 92 条用例是本批次的安全网，**任何一条变红都意味着删多了**。
+
+## 实施记录（2026-09-13）
+
+### 引用确认的实际结论
+
+对 18 个符号做了全仓引用清点（`*.py`，50 个文件），13 个待删符号的调用者**全部落在将被删除的渲染器内部或彼此之间**，删除安全。三处与原计划的出入：
+
+1. **`check_air_quality` 的调用点比计划多一处**：除 `_render_air_quality_section` 与 `render_analysis_tab` 外，`tests/test_aqi.py` 有两个用例直接断言它存在。已按计划在同批次内删除这两个用例，并把「标准标注接线」用例的检查范围从 `analyzer.py` 收敛为 `nwp_forecast.py`；同时新增 `test_analyzer_no_longer_computes_aqi`，把「analyzer 不得再持有任何 AQI 入口」固化成断言。
+2. **`generate_advice` 既无生产调用者也无任何测试**——计划里「92 条用例覆盖它们」的说法对它不成立，spec 保留它的理由（「app.py 顶层仍在运行它们」）也不成立。处置：**按 spec 保留**，并补两条测试（事件→公众/农业双路产出、未知类别不产出），把它从「无覆盖的死代码」变为「有覆盖的公开逻辑」。
+3. `_fmt_ts` / `_wd_name` / `_build_*` 的唯一调用链确实起自 `render_analysis_tab`，与预判一致。
+
+删除规模：`analyzer.py` 1297 → 465 行；本批次提交净减 **576 行**（706 增 / 1282 删）。`analyzer.py` 的模块 docstring 已重写为职责边界声明，并顺带修掉了第 2 行一个既有的乱码字符。
+
+### 任务边界跨过了破损状态，故合并提交
+
+Task 2 删掉 `ai_narrative.render_ai_block`，而 `analyzer.render_analysis_tab` 仍在函数内导入它——若按计划分两次提交，中间那个提交的 Tab 3 一渲染就崩。**处置：Task 2 与 Task 3 合并为一次提交**（`9719542`），保证主干每个提交都可运行。这是对计划任务边界的修正，不是省略步骤。
+
+### 集成测试抓到一个真 bug（已修）
+
+AppTest 实跑读图页（无 secrets 环境）时抛 `StreamlitSecretNotFoundError`：`st.secrets.get(key, default)` 在**完全没有 secrets 文件**时抛异常，而不是返回默认值。后果是未配置密钥的环境整页崩溃，而不是给出配置指引。
+
+修复：`modules/ai_narrative.py` 新增 `_secret(name, default)` 统一兜底，`resolve_vision_config` 改为经它读取。已补回归用例 `test_resolve_vision_config_survives_missing_secrets_file`（先看它红再修）。注意该缺陷在改造前的旧代码里同样存在（原 `render_ai_block` 也是裸调 `st.secrets.get`），只是当时没有整页路径触发它。
+
+### 我自己写错的三处测试，均已修正
+
+1. **`test_app_renders_chart_tab_without_data` 查错了位置**：它取 `source.index("render_chart_reader_tab")`，而第一处出现在 **import 行**，于是检查的 300 字符窗口与 Tab 3 无关，断言永远为真。改为定位 `active_tab == 3` 块、并要求渲染调用出现在检测守卫块（`_warn_fp` 赋值）之后。
+2. **两条用例空洞通过**：用 `except Exception` 捕获，函数不存在时抛的 `AttributeError` 也被当成「预期的失败」。改为 `_expect_failure` 助手，显式把 `AttributeError` 判为测试不成立。
+3. **一处档位断言写反**：`test_process_image_downscales_long_edge_to_limit` 原写 `width * 2 == height`，3200×1600 缩放后是 1600×800，应为 `(width, height) == (1600, 800)`。
+
+### 手册漂移发现两处（已同步）
+
+删掉主区「使用手册折叠块」后，手册第 4 章仍描述它；摘要卡按钮由「🔔 检测」改为「🖼 读图」后，手册第 4 章末尾与第 155 行表格仍写旧名。两处均已修正，并新增 `test_manual_does_not_describe_removed_main_area_expander` 与 `test_manual_matches_renamed_summary_card_button` 两条防回流断言。
+
+第 8 章（读图解析）逐条对照实现：20 项实质声明全部命中；仅一处按「以实现为准」修正——手册写「未上传图片即点击生成 → 提示先上传」，实际是生成按钮禁用，点击不会发生。
+
+### 验收证据（2026-09-13）
+
+```
+python -B -m pytest tests -q                          → 338 passed
+四个 CI 门禁脚本                                       → 全部 exit=0
+app.py AST 解析 + 7 个模块导入                          → OK
+AppTest 读图页（无 secrets）                           → 0 异常；给出配置指引，不显示生成按钮
+AppTest 读图页（临时 secrets，跑完即删）                 → 0 异常；出现生成按钮与隐私提示；无残留文件
+残留引用扫描（15 个已删符号 × 全仓 .py）                 → 生产代码零引用，仅存于测试的反向断言
+```
