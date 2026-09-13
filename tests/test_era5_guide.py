@@ -228,3 +228,77 @@ def test_available_years_starts_at_1950_and_excludes_current_year():
     years = available_years()
     assert years[0] == 1950
     assert years[-1] == datetime.now().year - 1
+
+
+# ============================================================
+# 三、data_loader 接线与引导文案
+# ============================================================
+
+def test_data_loader_no_longer_holds_era5_tables():
+    """旧的扁平变量字典与旧引导函数必须已从 data_loader 移除。"""
+    from modules import data_loader
+    assert not hasattr(data_loader, "_ERA5_PRODUCTS")
+    assert not hasattr(data_loader, "_render_era5_guide")
+
+
+def test_data_loader_exposes_era5_entry_point():
+    """data_loader 必须能从新模块取到引导入口。"""
+    from modules import data_loader
+    assert callable(data_loader.render_era5_guide)
+
+
+def test_era5_guide_exposes_renderer():
+    from modules import era5_guide
+    assert callable(era5_guide.render_era5_guide)
+
+
+def test_stale_tab_reference_removed():
+    """引导文案不得再引用不存在的「再分析数据处理」Tab。"""
+    for path in ("modules/data_loader.py", "modules/era5_guide.py"):
+        with io.open(os.path.join(_APP_DIR, path), encoding="utf-8") as f:
+            assert "再分析数据处理" not in f.read(), path
+
+
+def test_no_deprecated_cds_endpoints_are_used():
+    """不得把已停用的端点当作可用地址（文案中的提醒不算，实际地址才算）。"""
+    for path in ("modules/era5_guide.py", "modules/data_loader.py"):
+        with io.open(os.path.join(_APP_DIR, path), encoding="utf-8") as f:
+            source = f.read()
+        assert "climate.copernicus.eu/api/v2" not in source, path
+        assert "cds-beta.climate.copernicus.eu" not in source, path
+
+
+def test_era5_help_mentions_licence_and_terminal():
+    """引导文案必须写明许可证需网页手工接受，以及终端运行路径。"""
+    from modules.era5_guide import _HELP_GET_DATA
+    assert "terms and conditions" in _HELP_GET_DATA
+    assert "手工接受" in _HELP_GET_DATA
+    assert "终端" in _HELP_GET_DATA
+    assert "cdsapi>=0.7.7" in _HELP_GET_DATA
+    assert "data_format" in _HELP_GET_DATA
+
+
+def test_app_side_never_imports_heavy_cds_stack():
+    """应用侧不得真正 import cdsapi / xarray / netCDF4。
+
+    只检查真实 import 节点（AST），不做文本匹配：脚本包模块的模板字符串里
+    必然含有 ``import cdsapi`` 这段生成脚本正文，那不是应用侧的导入。
+    """
+    import ast
+    banned = ("cdsapi", "xarray", "netCDF4")
+    for path in ("modules/era5_guide.py", "modules/data_loader.py",
+                 "modules/era5_script_pack.py"):
+        full = os.path.join(_APP_DIR, path)
+        if not os.path.exists(full):
+            continue
+        with io.open(full, encoding="utf-8") as f:
+            tree = ast.parse(f.read(), filename=path)
+        modules = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                modules.extend(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                modules.append(node.module or "")
+        for name in modules:
+            root = name.split(".")[0]
+            assert root not in banned, "%s 真正导入了 %s" % (path, name)

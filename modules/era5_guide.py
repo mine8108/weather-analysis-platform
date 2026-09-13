@@ -10,6 +10,8 @@ catalogue 是选择器与脚本生成的唯一真相源。所有变量标识符�
 
 from datetime import datetime
 
+import streamlit as st
+
 # 需要换算的量：key → 人类可读说明（同时用于生成的脚本与 UI 提示）
 SCALES = {
     "K2C": "K → ℃（减 273.15）",
@@ -410,3 +412,246 @@ def estimate_field_count(product, years, months, variables,
 def fields_over_limit(product, count):
     """字段数是否超出该数据集上限。"""
     return count > ERA5_PRODUCTS[product]["field_limit"]
+
+
+# ============================================================
+# 三、UI 渲染
+# ============================================================
+
+_HELP_GET_DATA = """
+### 获取 ERA5 数据的完整流程
+
+1. 访问 [Copernicus CDS](https://cds.climate.copernicus.eu/) 注册免费账号并登录。
+2. **在目标数据集的下载页手工接受数据集许可**（页面底部 Terms of use 区块）。
+   这一步无法用 API 代办，也是下载失败最常见的原因：未接受时请求会在提交阶段
+   被拒，报 `Client has not agreed to the required terms and conditions`。
+   已接受的许可列表可在个人资料页底部查看。
+3. 在个人资料页生成 API Key，本地安装客户端：`pip install "cdsapi>=0.7.7"`。
+4. 创建 `~/.cdsapirc`（内容见下载包中的 `.cdsapirc.example`）：
+
+   ```
+   url: https://cds.climate.copernicus.eu/api
+   key: 你的API-Key
+   ```
+
+   **没有 UID 字段**。旧式 `uid:key` 凭证会让客户端走到已废弃的 LegacyClient
+   分支而失败；地址也不要再用 `/api/v2` 或 `cds-beta`（均已停用）。
+5. 在本页选好参数，下载 ZIP 脚本包，解压后**手动打开终端**执行脚本。
+6. 脚本会排队等待 CDS 处理，完成后自动解包 NetCDF 并导出可直接导入本平台的 CSV。
+
+### 需要预知的限制
+
+- **队列**：请求提交后进入 CDS 队列，状态从 queued 变为 running 可能需要数十分钟到数小时。
+- **字段数上限**（单请求，超限是排队而非报错）：ERA5-Land 小时 12000、
+  ERA5-Land 月均值 100000、ERA5 单层与气压层各 120000。本页会在提交前估算并预警。
+- **成本限额**：2025 年 4 月起 netCDF 请求另有成本限额，超限直接返回 403
+  `cost limits exceeded`。
+- **返回格式**：多变量或多文件请求**仍可能返回 ZIP**，脚本会自动解包。
+- **时间维名**：新版 netCDF 的时间维可能是 `valid_time` 而非 `time`，脚本已兼容两者。
+- **数据格式关键字**：`format` 已废弃，须用 `data_format` + `download_format`；
+  缺省 `data_format` 会静默返回 GRIB 而不是 netCDF。
+- **时效**：ERA5 约滞后 2–3 个月；近实时 ERA5T 数据可能被后续修订，相同请求也可能命中缓存。
+"""
+
+
+def label_for(product, name):
+    """变量选择器显示文案：中文名（api_name，单位）。"""
+    info = ERA5_PRODUCTS[product]["variables"][name]
+    scale = SCALES.get(info.get("scale") or "", "")
+    tail = "，%s" % scale if scale else ""
+    return "%s（%s，%s%s）" % (info["label"], name, info["unit"], tail)
+
+
+def _payload_preview(payload):
+    """把请求体渲染为可照抄到 CDS 官网表单的纯文本。"""
+    lines = []
+    for key in ("variable", "product_type", "year", "month", "day", "time",
+                "pressure_level", "area", "data_format", "download_format"):
+        if key in payload:
+            value = payload[key]
+            if isinstance(value, list) and len(value) > 8:
+                shown = "%s …（共 %d 项）" % (", ".join(str(v) for v in value[:8]),
+                                             len(value))
+            else:
+                shown = ", ".join(str(v) for v in value) if isinstance(value, list) \
+                    else str(value)
+            lines.append("%-16s %s" % (key, shown))
+    return "\n".join(lines)
+
+
+def _reset_preset_marker():
+    """预设切换时清掉「已应用」标记，避免与手动改动互相覆盖。"""
+    st.session_state["_era5_preset_applied"] = None
+
+
+def _apply_preset():
+    """预设下拉的 on_change 回调：在本次 rerun 之前写入产品与各分组变量。"""
+    name = st.session_state.get("era5_preset_pick")
+    spec = PRESETS.get(name)
+    if not spec:
+        return
+    product = spec["product"]
+    st.session_state["era5_product"] = product
+    wanted = set(spec["variables"])
+    meta = ERA5_PRODUCTS[product]
+    for group in GROUP_ORDER:
+        names = [n for n, info in meta["variables"].items() if info["group"] == group]
+        if not names:
+            continue
+        st.session_state["era5_pick_%s_%s" % (product, group)] = \
+            [n for n in names if n in wanted]
+    st.session_state["_era5_preset_applied"] = name
+
+
+def _switch_product(target):
+    """「切换到支持该变量的产品」按钮的回调。"""
+    st.session_state["era5_product"] = target
+    st.session_state["_era5_preset_applied"] = None
+
+
+def render_era5_guide():
+    """ERA5 CDS 数据获取引导（变量 catalogue + 参数配置 + 脚本包下载）。"""
+    try:
+        from modules.era5_script_pack import build_era5_zip
+    except ImportError:  # 部署缺文件时降级，不影响页面其他功能区
+        build_era5_zip = None
+
+    st.caption("ERA5 数据由 Copernicus Climate Data Store (CDS) 提供。"
+               "推荐在本页选好参数后下载脚本包，在自己电脑上运行（平台不接触你的 CDS 凭证）。")
+
+    with st.expander("[说明] 如何获取 ERA5 数据", expanded=False):
+        st.markdown(_HELP_GET_DATA)
+
+    # ---- 常用组合预设 ----
+    preset_names = ["不使用预设"] + list(PRESETS)
+    st.selectbox("常用组合预设", preset_names, key="era5_preset_pick",
+                 on_change=_apply_preset,
+                 help="选择后自动切换产品并勾选该组合包含的变量；仍可手动增减")
+
+    product = st.selectbox("数据产品", list(ERA5_PRODUCTS), key="era5_product",
+                           on_change=_reset_preset_marker)
+    meta = ERA5_PRODUCTS[product]
+
+    # ---- 产品说明卡 ----
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("分辨率", meta["resolution"])
+    c2.metric("字段数上限", "{:,}".format(meta["field_limit"]))
+    c3.metric("时间范围", meta["coverage"])
+    c4.metric("product_type",
+              "、".join(meta.get("product_type") or ["不适用"]))
+    st.caption(meta["notes"])
+    st.link_button("[打开] 该数据集 CDS 页面", meta["url"])
+
+    # ---- 时间范围 ----
+    c5, c6 = st.columns(2)
+    with c5:
+        years = st.multiselect("年份", available_years(), default=[2024],
+                               key="era5_years",
+                               help="ERA5 约滞后 2–3 个月，当年数据不完整故不列出")
+    with c6:
+        months = st.multiselect("月份", list(range(1, 13)), default=[1],
+                                format_func=lambda m: "%d 月" % m,
+                                key="era5_months")
+
+    # ---- 气压层（仅气压层产品）----
+    pressure_levels = []
+    if meta["type"] == "pressure":
+        pressure_levels = st.multiselect(
+            "气压层 (hPa)", list(PRESSURE_LEVELS), default=["500", "850"],
+            key="era5_pressure_levels",
+            help="共 37 个有效层次；位势高度需用位势换算（÷9.80665）")
+
+    # ---- 变量选择（按分组）----
+    # 分组多选是变量的唯一真相源：预设直接写入各分组键，用户取消勾选即刻生效。
+    # 不设产品级汇总键，避免「汇总只增不减」导致取消勾选无效。
+    st.write("**变量选择**")
+    group_cols = st.columns(2)
+    variables = []
+    for idx, group in enumerate(GROUP_ORDER):
+        names = [n for n, info in meta["variables"].items() if info["group"] == group]
+        if not names:
+            continue
+        gkey = "era5_pick_%s_%s" % (product, group)
+        if gkey not in st.session_state:
+            # 首次进入该产品：每组默认勾选第一个变量，避免空选择
+            st.session_state[gkey] = names[:1]
+        else:
+            # 防御：产品/预设变更后旧值可能不属于当前分组
+            st.session_state[gkey] = [v for v in st.session_state[gkey] if v in names]
+        with group_cols[idx % 2]:
+            picked = st.multiselect(
+                group, names, key=gkey,
+                format_func=lambda n, p=product: label_for(p, n),
+                help="显示格式：中文名（API 变量名，单位，换算）")
+        variables.extend(picked)
+    variables = list(dict.fromkeys(variables))
+
+    # ---- 不支持变量（可见但不可选，并给出替代路径）----
+    unsupported = meta.get("unsupported") or {}
+    if unsupported:
+        st.write("**本产品不提供的变量**")
+        for name, info in unsupported.items():
+            cols = st.columns([4, 1])
+            with cols[0]:
+                st.caption("`%s`（%s）：%s" % (name, info["label"], info["reason"]))
+            with cols[1]:
+                target = info.get("switch_to")
+                if target and target in ERA5_PRODUCTS:
+                    st.button("切换到该产品", key="era5_switch_%s_%s" % (product, name),
+                              on_click=_switch_product, args=(target,))
+
+    # ---- 区域 ----
+    st.write("**区域范围**")
+    a1, a2, a3, a4 = st.columns(4)
+    with a1:
+        north = st.number_input("北界 (N)", value=41.0, min_value=-90.0,
+                                max_value=90.0, step=0.1, key="era5_n")
+    with a2:
+        west = st.number_input("西界 (W)", value=115.0, min_value=-180.0,
+                               max_value=180.0, step=0.1, key="era5_w")
+    with a3:
+        south = st.number_input("南界 (S)", value=39.0, min_value=-90.0,
+                                max_value=90.0, step=0.1, key="era5_s")
+    with a4:
+        east = st.number_input("东界 (E)", value=118.0, min_value=-180.0,
+                               max_value=180.0, step=0.1, key="era5_e")
+
+    # ---- 组包与规模预警 ----
+    if not years or not months or not variables:
+        st.info("请至少选择年份、月份与一个变量。")
+        return
+    if meta["type"] == "pressure" and not pressure_levels:
+        st.warning("气压层产品需要至少选择一个气压层。")
+        return
+
+    payload = build_payload(product, years, months, variables, pressure_levels,
+                            [north, west, south, east])
+    problems = validate_payload(product, payload)
+    if problems:
+        st.error("参数校验未通过：" + "；".join(problems))
+        return
+
+    count = estimate_field_count(product, years, months, variables, pressure_levels)
+    limit = meta["field_limit"]
+    if fields_over_limit(product, count):
+        st.error("请求规模约 {:,} 个字段，超过该数据集上限 {:,}。"
+                 "请缩小区域、减少变量或缩短时段后再生成脚本包。".format(count, limit))
+    else:
+        st.caption("请求规模约 {:,} 个字段（上限 {:,}）。".format(count, limit))
+
+    st.write("---")
+    if build_era5_zip is None:
+        st.warning("脚本包模块不可用，请改用下方「在 CDS 官网手动填表」的参数清单。")
+    elif not fields_over_limit(product, count):
+        st.download_button(
+            "[下载] ERA5 下载脚本包 (.zip)",
+            data=build_era5_zip(payload, meta["dataset"], product),
+            file_name="era5_download_pack.zip",
+            mime="application/zip",
+            use_container_width=True,
+            help="包含 era5_download.py、.cdsapirc.example、README.txt、依赖清单与一键运行脚本",
+        )
+
+    with st.expander("在 CDS 官网手动填表（不使用脚本包时）", expanded=False):
+        st.caption("以下为本次选择的参数，可逐项照抄到 CDS 数据集下载页的表单中。")
+        st.code(_payload_preview(payload), language="text")
