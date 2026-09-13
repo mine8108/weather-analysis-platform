@@ -25,8 +25,17 @@ from plotly.subplots import make_subplots
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import retry_with_backoff
-from config import COLORS, safe_chart, _is_dark, WARN_LEVEL_ORDER, LIFE_INDEX_META as _LIFE_INDEX_META, WIND_DIRECTIONS
-from modules.design_tokens import color_value, css_var, token_value, warn_token
+from config import (AQI_STANDARD_LABEL, COLORS, safe_chart, _is_dark,
+                    WARN_LEVEL_ORDER, LIFE_INDEX_META as _LIFE_INDEX_META,
+                    WIND_DIRECTIONS)
+from modules.design_tokens import (
+    aqi_token,
+    color_value,
+    css_var,
+    token_value,
+    warn_token,
+)
+from modules.aqi import comprehensive_aqi
 
 
 def _sev(token: str) -> str:
@@ -263,32 +272,8 @@ def _fetch_gfs_current(lat, lon, model="gfs_seamless"):
 # 二-2、空气质量预报 (Open-Meteo Air Quality API / CAMS)
 # ============================================================
 
-# 国标 HJ 633-2012：每种污染物自带「浓度限值表 + 对应 IAQI 节点」，
-# 节点必须与限值位置一一对应（PM2.5/PM10/CO 共 8 档对应 IAQI 0–500；
-# SO2/NO2/O3 仅 5 档对应 IAQI 0–200）。先前共用一份 8 节点数组导致
-# SO2/NO2/O3 外推时把 IAQI 端点错位到 150/500，斜率爆炸、AQI 飙到 500+。
-_PM25_BP = [0, 35, 75, 115, 150, 250, 350, 500]      # μg/m³
-_PM25_I  = [0, 50, 100, 150, 200, 300, 400, 500]
-_PM10_BP = [0, 50, 150, 250, 350, 420, 500, 600]     # μg/m³
-_PM10_I  = [0, 50, 100, 150, 200, 300, 400, 500]
-_SO2_BP  = [0, 150, 500, 650, 800]                    # μg/m³, 1h
-_SO2_I   = [0, 50, 100, 150, 200]
-_NO2_BP  = [0, 100, 200, 700, 1200]                   # μg/m³, 1h
-_NO2_I   = [0, 50, 100, 150, 200]
-_CO_BP   = [0, 5, 10, 35, 60, 90, 120, 150]           # mg/m³, 1h
-_CO_I    = [0, 50, 100, 150, 200, 300, 400, 500]
-_O3_BP   = [0, 160, 200, 300, 400]                    # μg/m³, 1h
-_O3_I    = [0, 50, 100, 150, 200]
-
-# (df 列名, 中文标签, 限值表, IAQI 节点)
-_AQ_POLLUTANTS = [
-    ("pm2_5", "PM2.5", _PM25_BP, _PM25_I),
-    ("pm10",  "PM10",  _PM10_BP, _PM10_I),
-    ("so2",   "SO₂",   _SO2_BP,  _SO2_I),
-    ("no2",   "NO₂",   _NO2_BP,  _NO2_I),
-    ("co",    "CO",    _CO_BP,   _CO_I),
-    ("o3",    "O₃",    _O3_BP,   _O3_I),
-]
+# 国标 AQI 分指数表的单一真相源是 config.AQI_BREAKPOINTS，计算由 modules.aqi 统一实现。
+# 本模块不再持有断点表，仅保留下方的等级→色 token 映射供图表使用。
 
 # 国标六级 (AQI 区间, 等级, token 名)
 # 色值统一由 design_tokens 提供：改造前本表与 config.AQI_LEVELS 各存一份 hex，
@@ -312,56 +297,20 @@ def _aq_color(token: str, dark: bool | None = None) -> str:
     return token_value(token, dark)
 
 
-def _iaqi(c, bp, iaqi_nodes):
-    """单污染物分指数 IAQI。
-    c 为浓度（与 bp 单位一致），bp 为限值表，iaqi_nodes 为本污染物对应的 IAQI 节点。
-    """
-    if c is None:
-        return None
-    try:
-        c = float(c)
-    except (TypeError, ValueError):
-        return None
-    if np.isnan(c):
-        return None
-    if c <= 0:
-        return 0.0
-    if c >= bp[-1]:
-        # 超出末档：按最后两段线性外推，端点用本污染物自身的 IAQI 节点。
-        # 同时钳制在本污染物最大 IAQI 节点，防止极端数据/单位错位导致数字爆炸。
-        c_lo, c_hi = bp[-2], bp[-1]
-        i_lo, i_hi = iaqi_nodes[-2], iaqi_nodes[-1]
-        extrapolated = (i_hi - i_lo) / (c_hi - c_lo) * (c - c_lo) + i_lo
-        return min(extrapolated, iaqi_nodes[-1])
-    for i in range(len(bp) - 1):
-        if c <= bp[i + 1]:
-            c_lo, c_hi = bp[i], bp[i + 1]
-            i_lo, i_hi = iaqi_nodes[i], iaqi_nodes[i + 1]
-            return (i_hi - i_lo) / (c_hi - c_lo) * (c - c_lo) + i_lo
-    return None
-
-
 def _compute_cn_aqi(conc):
-    """按 HJ 633-2012 由六项浓度计算国标 AQI。
-    返回 (aqi:int|None, level:str, primary:str, color:str)。
+    """按国标由六项浓度计算 AQI，返回 (aqi:int|None, level:str, primary:str, color:str)。
+
+    计算委托 modules.aqi.comprehensive_aqi（单一实现），本函数只做
+    「四元组 + 具体色值」的适配：图表侧需要 hex 而非 var()。
     说明（A 方案）：PM2.5/PM10 国标用 24h 均值，此处以逐时浓度近似代入 24h 限值表，
     牺牲部分严谨度换取与 GFS 逐时曲线对齐；气态污染物用 1h 表，正确。
+    标准版本见 config.AQI_STANDARD_LABEL。
     """
-    iaqis = []
-    for key, label, bp, iaqi_nodes in _AQ_POLLUTANTS:
-        ia = _iaqi(conc.get(key), bp, iaqi_nodes)
-        if ia is not None:
-            iaqis.append((ia, label))
-    if not iaqis:
+    result = comprehensive_aqi(conc or {})
+    if result["aqi"] is None:
         return None, "无数据", "—", token_value("text-muted")
-    aqi = int(round(max(i for i, _ in iaqis)))
-    level, token = "严重污染", "aqi-6"
-    for lo, hi, name, tok in _AQ_LEVELS:
-        if lo <= aqi <= hi:
-            level, token = name, tok
-            break
-    primary = "无" if aqi <= 50 else max(iaqis, key=lambda x: x[0])[1]
-    return aqi, level, primary, _aq_color(token)
+    return (result["aqi"], result["level"], result["primary"] or "无",
+            _aq_color(aqi_token(result["level"])))
 
 
 def fetch_air_quality(lat, lon, days=7):

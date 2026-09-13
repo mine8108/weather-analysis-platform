@@ -233,3 +233,50 @@ def test_level_tables_do_not_drift():
     nwp_pairs.append((_AQ_LEVELS[5][0], 500, _AQ_LEVELS[5][2]))
 
     assert config_pairs == nwp_pairs, (config_pairs, nwp_pairs)
+
+
+# ============================================================
+# 四、nwp_forecast 收敛
+# ============================================================
+
+def test_nwp_wrapper_matches_unified_implementation():
+    """nwp 四元组包装必须与统一实现同源。"""
+    from modules.nwp_forecast import _compute_cn_aqi
+
+    conc = {"pm2_5": 115, "pm10": 60, "so2": 200, "no2": 300,
+            "co": 12.0, "o3": 250}
+    number, level, primary, color = _compute_cn_aqi(conc)
+    unified = aqi.comprehensive_aqi(conc)
+    assert number == unified["aqi"] == 150
+    assert level == unified["level"] == "轻度污染"
+    assert primary == unified["primary"] == "PM2.5"
+    assert isinstance(color, str) and color.startswith("#")
+
+
+def test_nwp_wrapper_no_data():
+    """全空输入返回无数据四元组且不抛异常。"""
+    from modules.nwp_forecast import _compute_cn_aqi
+
+    number, level, primary, color = _compute_cn_aqi({})
+    assert number is None
+    assert level == "无数据"
+    assert primary == "—"
+    assert isinstance(color, str)
+
+
+def test_nwp_private_breakpoint_tables_are_gone():
+    """私有断点表必须已删除，避免与 config 双份维护。"""
+    from modules import nwp_forecast
+
+    for name in ("_PM25_BP", "_PM25_I", "_PM10_BP", "_PM10_I", "_SO2_BP",
+                 "_SO2_I", "_NO2_BP", "_NO2_I", "_CO_BP", "_CO_I",
+                 "_O3_BP", "_O3_I", "_AQ_POLLUTANTS", "_iaqi"):
+        assert not hasattr(nwp_forecast, name), name
+
+
+def test_nwp_level_table_kept_for_charts():
+    """_AQ_LEVELS 是图表色带的数据源，必须保留。"""
+    from modules import nwp_forecast
+
+    assert hasattr(nwp_forecast, "_AQ_LEVELS")
+    assert len(nwp_forecast._AQ_LEVELS) == 6
