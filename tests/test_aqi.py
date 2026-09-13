@@ -68,3 +68,64 @@ def test_validation_detects_illegal_cap():
                     (201, 300, 101, 150), (301, 400, 151, 400)]
     problems = aqi.validate_breakpoints(broken)
     assert any("o3" in p and "末档" in p for p in problems), problems
+
+
+# ============================================================
+# 二、单污染物分指数 iaqi
+# ============================================================
+
+def test_iaqi_band_edges_pm25():
+    """PM2.5 各档浓度上限必须精确落在标准 IAQI 节点上。"""
+    assert aqi.iaqi(0, "pm25") == 0.0
+    assert aqi.iaqi(35, "pm25") == 50.0
+    assert aqi.iaqi(75, "pm25") == 100.0
+    assert aqi.iaqi(115, "pm25") == 150.0
+    assert aqi.iaqi(250, "pm25") == 300.0
+    assert aqi.iaqi(500, "pm25") == 500.0
+
+
+def test_iaqi_linear_interpolation_pm25():
+    """PM2.5 在 351~500 μg/m³ 档线性插值，对应 IAQI 400~500。"""
+    expected = (500 - 400) / (500 - 351) * (425 - 351) + 400
+    assert abs(aqi.iaqi(425, "pm25") - expected) < 1e-9
+
+
+def test_iaqi_out_of_range_clamps_not_zero():
+    """超末档必须钳制到本污染物上限，不得返回 0（原实现返回 0 会显示「优」）。"""
+    assert aqi.iaqi(5000, "pm25") == 500.0
+    assert aqi.iaqi(9999, "o3") == 200.0
+
+
+def test_iaqi_gas_cap_is_200():
+    """气态污染物 1h 表只到 IAQI 200。"""
+    assert aqi.iaqi(800, "so2") == 200.0
+    assert aqi.iaqi(1200, "nox") == 200.0
+    assert aqi.iaqi(400, "o3") == 200.0
+
+
+def test_iaqi_co_uses_mg():
+    """CO 单位为 mg/m³：5 对应 IAQI 50，150 对应 IAQI 500。"""
+    assert aqi.iaqi(5, "co") == 50.0
+    assert aqi.iaqi(150, "co") == 500.0
+
+
+def test_iaqi_accepts_aliases():
+    """数值预报侧使用的 pm2_5 / no2 别名必须可解析。"""
+    assert aqi.iaqi(35, "pm2_5") == aqi.iaqi(35, "pm25")
+    assert aqi.iaqi(100, "no2") == aqi.iaqi(100, "nox")
+    assert aqi.iaqi(100, "NO2") == aqi.iaqi(100, "nox")
+
+
+def test_iaqi_invalid_input_returns_none():
+    """非数值、缺失、未知污染物一律返回 None。"""
+    assert aqi.iaqi(None, "pm25") is None
+    assert aqi.iaqi(float("nan"), "pm25") is None
+    assert aqi.iaqi(float("inf"), "pm25") is None
+    assert aqi.iaqi("abc", "pm25") is None
+    assert aqi.iaqi(10, "unknown") is None
+
+
+def test_iaqi_negative_and_string_numeric():
+    """负值按 0 处理；数字字符串可解析。"""
+    assert aqi.iaqi(-5, "pm25") == 0.0
+    assert aqi.iaqi("35", "pm25") == 50.0

@@ -90,3 +90,56 @@ def validate_breakpoints(table=None):
                             % (key, ALLOWED_IAQI_CAPS, bands[-1][3]))
 
     return problems
+
+
+# 别名归一化：数值预报侧使用 pm2_5 / no2 作为列名
+POLLUTANT_ALIASES = {
+    "pm2_5": "pm25",
+    "pm25": "pm25",
+    "pm10": "pm10",
+    "so2": "so2",
+    "no2": "nox",
+    "nox": "nox",
+    "co": "co",
+    "o3": "o3",
+}
+
+
+def normalize_key(raw_key):
+    """把别名归一化为规范污染物键；无法识别时返回 None。"""
+    if raw_key is None:
+        return None
+    return POLLUTANT_ALIASES.get(str(raw_key).strip().lower())
+
+
+def iaqi(conc, pollutant):
+    """单污染物分指数。无法计算时返回 None。
+
+    超末档按末档斜率线性外推后钳制到该污染物自身的最大 IAQI 节点
+    （颗粒物与 CO 为 500，气态污染物为 200）——**不返回 0**。
+    """
+    key = normalize_key(pollutant)
+    if key is None or key not in AQI_BREAKPOINTS:
+        return None
+    if conc is None:
+        return None
+    try:
+        value = float(conc)
+    except (TypeError, ValueError):
+        return None
+    if not isfinite(value):
+        return None
+    if value <= 0:
+        return 0.0
+
+    bands = AQI_BREAKPOINTS[key]
+    cap = bands[-1][3]
+    for lo, hi, i_lo, i_hi in bands:
+        if value <= hi:
+            # 表若有间隙，把落点收进本档下限（防御性；合法表不会触发）
+            point = value if value >= lo else lo
+            return (i_hi - i_lo) / (hi - lo) * (point - lo) + i_lo
+
+    lo, hi, i_lo, i_hi = bands[-1]
+    extrapolated = (i_hi - i_lo) / (hi - lo) * (value - lo) + i_lo
+    return float(min(extrapolated, cap))
