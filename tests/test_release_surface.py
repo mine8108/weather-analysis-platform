@@ -109,6 +109,25 @@ def test_no_stale_tab_reference_in_docs():
             assert bad not in text, "%s 含 %s" % (rel, bad)
 
 
+# ============================================================
+# 三、旧文件清理
+# ============================================================
+
+def test_legacy_html_removed():
+    """根目录旧手册 HTML 已被 docs/用户使用手册.md 取代。
+
+    注意：manual.py 里的 ``file_name="用户使用手册.html"`` 是**导出文件名**，
+    不是对仓库内文件的引用，不受本断言约束。
+    """
+    assert not os.path.exists(os.path.join(_APP_DIR, "用户使用手册.html"))
+
+
+def test_manual_module_does_not_read_legacy_html():
+    text = _read("modules/manual.py")
+    assert "MANUAL_PATH" in text
+    assert "用户使用手册.md" in text
+
+
 if __name__ == "__main__":
     import traceback
 
