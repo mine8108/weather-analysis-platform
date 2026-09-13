@@ -713,4 +713,55 @@ if not text:
 
 ### 未做（有意）
 
-服务端每日配额未实现（用户选择 A 方案）。若日后要做，落点是 `supabase/schema.sql` 新增 `vision_usage(user_id, day, calls, tokens)` 表 + RLS + 扣减 RPC，并沿用管理员面板改额度的既有范式。
+服务端每日配额未实现（用户当时选择 A 方案）。落点已写在这里，v2.3.7 按此实现，见补记六。
+
+## 实施记录补记六（2026-09-13，v2.3.7）：读图配额升为服务端每用户每日配额
+
+### 为什么必须搬到服务端
+
+用户问「管理员能调度普通用户的配额吗」。答案分两半：**存储配额早就能**（`profiles.storage_quota_bytes` + `get_storage_quota` RPC + 管理员面板，且 `profiles` 的 update 权限已从 authenticated 撤销，普通用户改不了自己的配额）；**读图配额不能**，因为它压根不是按用户的数据，而是两个代码常量加浏览器会话里的计数。
+
+这里有个值得点明的耦合：**「管理员能不能调」与「限制算不算数」是同一个问题的两面**，都卡在「没有服务端按用户的状态」上。会话级计数刷新即归零，所以它既不可调度、也不构成硬约束。
+
+还有一个此前没被正视的风险：读图用的是**部署方的 API 密钥**，任何被邀请用户的每次调用都计费在部署方账上，而原来的代码常量对所有人一视同仁，既不能多给也不能掐掉。配额因此是**安全事项而非仅成本事项**，这一点已写进 `SECURITY.md`。
+
+### 设计
+
+两层分工，职责不同：
+
+| 层 | 作用范围 | 用途 |
+|---|---|---|
+| 服务端每日配额（次数 + token） | 按用户、按自然日（Asia/Shanghai） | 硬约束，刷新/换设备/多标签都拦得住 |
+| 会话级计数与最小间隔 | 当前浏览器会话 | 只防连点，不作为成本控制 |
+
+自然日取 Asia/Shanghai 而非 UTC：UTC 的日界在早上 8 点翻篇，与用户直觉冲突。
+
+`begin_vision_call` 先占后用（同一事务内检查并自增次数，`for update` 锁行），避免并发标签同时穿透；token 的实际用量在调用返回后由 `record_vision_usage` 补记，**成功与失败都记**。
+
+### 安全边界（三条底线，已用测试锁死）
+
+配额的正确性不在 Python 里，而在 SQL 里。改错一个 `revoke`，登录用户就能自己清空计数，而所有 Python 测试依然全绿。因此新增 `tests/test_vision_quota.py`，直接对 `supabase/schema.sql` 的文本做断言：
+
+1. **函数一律以 `auth.uid()` 判定身份，不得接受调用方传入的 `p_user_id`**——否则可伪造或清空他人计数。测试断言该节内不出现 `p_user_id`。
+2. **token 增量钳到非负**（`greatest(coalesce(...,0),0)`）——否则登录用户传负数即可反向冲销自己的用量来绕过每日上限。
+3. **默认 PUBLIC 执行权收回**，仅授予 authenticated 与 service_role；`vision_usage` 表对客户端只读（`revoke insert, update, delete`）。
+
+其中第 1 条的负向断言自带校验：`p_user_id` 在文件前面的 `get_storage_quota` 里确实存在，若我的章节切分写错，断言会命中它而失败。它没有失败，说明切分正确。
+
+### 服务不可用时选择放行并告知
+
+`quota_allows(None)` 放行并显示「配额服务不可用（若刚升级版本，请先重跑 supabase/schema.sql），本次按会话级限制放行」。取舍理由：静默放行等于绕过配额，而因为一次数据库抖动（或尚未重跑 schema）就把功能整体锁死也不合理。选择「放行 + 明确告知」，并把恢复动作写在提示里。`db._vision_rpc` 用 `None` 表示服务不可用、用 `{"allowed": False}` 表示正常拒绝，两者在调用方分开处置。
+
+### 探测过程中的一个坑（值得记住）
+
+用 AppTest 验证新路径时，渲染在「本会话已尝试」那条 caption 之后**静默停止**，`at.exception` 却是 0。原因不在业务代码：`db.get_vision_quota()` → `get_supabase()` → 缺 Supabase 密钥时 `auth.py` 会 `st.error()` + `st.stop()`，而 `st.stop()` 抛的 `StopException` 继承自 `BaseException`，`except Exception` 抓不到，AppTest 也不把它列进 `exception`。
+
+教训：**任何触及 `auth.get_supabase()` 的 AppTest，若密钥不全就会被静默截断**，现象酷似「业务逻辑提前返回」。要么补齐密钥，要么把 `db.get_supabase` 打桩。我最初误以为是自己的新代码有问题，多花了两轮才定位。最终探针改为 `db.get_supabase = lambda: None`，渲染到底（`MARK-B: True`），5 条 caption 全部正确。
+
+### 升级要求
+
+新增了 `vision_usage` 表、三个函数与三个 `profiles` 列，**升级后必须重跑一次 `supabase/schema.sql`**（脚本可重复执行，不丢数据）。未重跑时的表现有两处提示：管理员面板的 schema 健康检查会直接报「数据库表未创建」并给出该指引（`_missing_tables` 已加入 `vision_usage`）；读图页会显示配额服务不可用并按会话级放行。
+
+### 验收
+
+`python -B -m pytest tests -q` → 398 passed；十个门禁脚本全部 exit=0；AppTest 两条路径（未登录 / 服务不可用）均 0 异常且渲染到底；新增 `tests/test_vision_quota.py` 19 项（schema 安全契约 6、数据访问层 7、页面侧纯函数 6）。

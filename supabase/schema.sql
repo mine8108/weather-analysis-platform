@@ -421,3 +421,206 @@ grant execute on function public.save_dataset(uuid, text, text) to authenticated
 -- 配额强制的关键：撤销 authenticated 对 datasets 的直插/直改权限
 -- （保留 select/delete 的 RLS 策略；写入一律经 save_dataset 函数）
 revoke insert, update on public.datasets from authenticated;
+
+-- ============================================================
+-- 8. 读图配额：按用户、按天的次数与 token 双维度限制
+--    背景：读图调用使用部署方的 API 密钥，任何被邀请用户的每次调用都计费在
+--    部署方账上。此前只有浏览器会话级的计数，刷新即归零，既不能作为成本控制，
+--    也没有对象可供管理员按用户调配。
+--    安全要求（重要）：
+--      1. 三个函数内部一律以 auth.uid() 判定身份，**不接受调用方传入 user_id**，
+--         否则可以伪造或清空他人计数；
+--      2. token 增量钳到非负，否则登录用户传负数即可把自己的用量改回去；
+--      3. 计数只能经这三个函数改动，表的直插/直改权限对客户端全部撤销。
+--    时区：以 Asia/Shanghai 划分自然日，与用户的直觉一致（UTC 会在早上 8 点翻篇）。
+-- ============================================================
+
+alter table public.profiles
+    add column if not exists vision_calls_per_day       integer not null default 5,
+    add column if not exists vision_tokens_per_day      bigint  not null default 100000,
+    add column if not exists vision_max_tokens_per_call integer not null default 20000;
+
+create table if not exists public.vision_usage (
+    user_id           uuid    not null references auth.users(id) on delete cascade,
+    day               date    not null default ((now() at time zone 'Asia/Shanghai')::date),
+    calls             integer not null default 0,
+    prompt_tokens     bigint  not null default 0,
+    completion_tokens bigint  not null default 0,
+    reasoning_tokens  bigint  not null default 0,
+    total_tokens      bigint  not null default 0,
+    updated_at        timestamptz not null default now(),
+    primary key (user_id, day)
+);
+
+create index if not exists vision_usage_day_idx on public.vision_usage (day);
+
+alter table public.vision_usage enable row level security;
+
+-- 只读自己那行；写入一律经函数，故不建 insert/update 策略
+drop policy if exists "vision_usage_select_self" on public.vision_usage;
+create policy "vision_usage_select_self"
+    on public.vision_usage for select
+    to authenticated
+    using (auth.uid() = user_id);
+
+revoke insert, update, delete on public.vision_usage from authenticated, anon;
+
+-- 8.1 查询今日配额状态（只读，不改计数）
+create or replace function public.get_vision_quota()
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+    v_uid      uuid := auth.uid();
+    v_day      date := (now() at time zone 'Asia/Shanghai')::date;
+    v_calls    integer;
+    v_tokens   bigint;
+    v_max_call integer;
+    v_used_c   integer := 0;
+    v_used_t   bigint := 0;
+begin
+    if v_uid is null then
+        return jsonb_build_object('ok', false, 'error', '未登录');
+    end if;
+    select vision_calls_per_day, vision_tokens_per_day, vision_max_tokens_per_call
+      into v_calls, v_tokens, v_max_call
+      from public.profiles where user_id = v_uid;
+    v_calls    := coalesce(v_calls, 5);
+    v_tokens   := coalesce(v_tokens, 100000);
+    v_max_call := coalesce(v_max_call, 20000);
+
+    select calls, total_tokens into v_used_c, v_used_t
+      from public.vision_usage where user_id = v_uid and day = v_day;
+    v_used_c := coalesce(v_used_c, 0);
+    v_used_t := coalesce(v_used_t, 0);
+
+    return jsonb_build_object(
+        'ok', true,
+        'calls_limit', v_calls,
+        'calls_used', v_used_c,
+        'calls_remaining', greatest(v_calls - v_used_c, 0),
+        'tokens_limit', v_tokens,
+        'tokens_used', v_used_t,
+        'tokens_remaining', greatest(v_tokens - v_used_t, 0),
+        'max_tokens_per_call', v_max_call,
+        'day', v_day
+    );
+end;
+$$;
+
+-- 8.2 开始一次调用：原子地检查并占用一次次数（先占后用，防并发穿透）
+--     token 的实际用量由调用返回后的 record_vision_usage 补记。
+create or replace function public.begin_vision_call()
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+    v_uid      uuid := auth.uid();
+    v_day      date := (now() at time zone 'Asia/Shanghai')::date;
+    v_calls    integer;
+    v_tokens   bigint;
+    v_max_call integer;
+    v_used_c   integer;
+    v_used_t   bigint;
+begin
+    if v_uid is null then
+        return jsonb_build_object('ok', false, 'allowed', false, 'message', '未登录');
+    end if;
+    -- 锁住本用户的 profiles 行，串行化并发调用（与 save_dataset 同法）
+    select vision_calls_per_day, vision_tokens_per_day, vision_max_tokens_per_call
+      into v_calls, v_tokens, v_max_call
+      from public.profiles where user_id = v_uid
+       for update;
+    v_calls    := coalesce(v_calls, 5);
+    v_tokens   := coalesce(v_tokens, 100000);
+    v_max_call := coalesce(v_max_call, 20000);
+
+    select calls, total_tokens into v_used_c, v_used_t
+      from public.vision_usage where user_id = v_uid and day = v_day
+       for update;
+    v_used_c := coalesce(v_used_c, 0);
+    v_used_t := coalesce(v_used_t, 0);
+
+    if v_used_c >= v_calls then
+        return jsonb_build_object('ok', true, 'allowed', false, 'reason', 'calls',
+            'message', format('今日读图次数已用完（%d 次）。次日重置，或请管理员调整配额。', v_calls),
+            'calls_limit', v_calls, 'calls_used', v_used_c, 'calls_remaining', 0,
+            'tokens_limit', v_tokens, 'tokens_used', v_used_t,
+            'tokens_remaining', greatest(v_tokens - v_used_t, 0),
+            'max_tokens_per_call', v_max_call, 'day', v_day);
+    end if;
+    if v_used_t >= v_tokens then
+        return jsonb_build_object('ok', true, 'allowed', false, 'reason', 'tokens',
+            'message', format('今日读图 token 配额已用完（%s）。次日重置，或请管理员调整配额。', v_tokens),
+            'calls_limit', v_calls, 'calls_used', v_used_c,
+            'calls_remaining', greatest(v_calls - v_used_c, 0),
+            'tokens_limit', v_tokens, 'tokens_used', v_used_t, 'tokens_remaining', 0,
+            'max_tokens_per_call', v_max_call, 'day', v_day);
+    end if;
+
+    insert into public.vision_usage (user_id, day, calls)
+    values (v_uid, v_day, 1)
+    on conflict (user_id, day) do update
+        set calls = public.vision_usage.calls + 1,
+            updated_at = now();
+
+    return jsonb_build_object('ok', true, 'allowed', true, 'message', '',
+        'calls_limit', v_calls, 'calls_used', v_used_c + 1,
+        'calls_remaining', greatest(v_calls - v_used_c - 1, 0),
+        'tokens_limit', v_tokens, 'tokens_used', v_used_t,
+        'tokens_remaining', greatest(v_tokens - v_used_t, 0),
+        'max_tokens_per_call', v_max_call, 'day', v_day);
+end;
+$$;
+
+-- 8.3 调用返回后补记实际用量。成功与失败都要记——失败同样被服务商计费。
+--     负数一律钳到 0（安全要求 2），否则可反向冲销自己的用量。
+create or replace function public.record_vision_usage(
+    p_prompt bigint, p_completion bigint, p_reasoning bigint, p_total bigint)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+    v_uid uuid := auth.uid();
+    v_day date := (now() at time zone 'Asia/Shanghai')::date;
+    v_p   bigint := greatest(coalesce(p_prompt, 0), 0);
+    v_c   bigint := greatest(coalesce(p_completion, 0), 0);
+    v_r   bigint := greatest(coalesce(p_reasoning, 0), 0);
+    v_t   bigint := greatest(coalesce(p_total, 0), 0);
+begin
+    if v_uid is null then
+        return jsonb_build_object('ok', false, 'error', '未登录');
+    end if;
+    if v_t = 0 then
+        v_t := v_p + v_c;
+    end if;
+    insert into public.vision_usage
+        (user_id, day, prompt_tokens, completion_tokens, reasoning_tokens, total_tokens)
+    values (v_uid, v_day, v_p, v_c, v_r, v_t)
+    on conflict (user_id, day) do update
+        set prompt_tokens     = public.vision_usage.prompt_tokens + excluded.prompt_tokens,
+            completion_tokens = public.vision_usage.completion_tokens + excluded.completion_tokens,
+            reasoning_tokens  = public.vision_usage.reasoning_tokens + excluded.reasoning_tokens,
+            total_tokens      = public.vision_usage.total_tokens + excluded.total_tokens,
+            updated_at        = now();
+    return public.get_vision_quota();
+end;
+$$;
+
+-- 安全修复（沿用 P2-2 的做法）：先收回默认的 PUBLIC 执行权，再按需授予
+revoke execute on function public.get_vision_quota() from public;
+revoke execute on function public.begin_vision_call() from public;
+revoke execute on function public.record_vision_usage(bigint, bigint, bigint, bigint) from public;
+grant execute on function public.get_vision_quota() to authenticated, service_role;
+grant execute on function public.begin_vision_call() to authenticated, service_role;
+grant execute on function public.record_vision_usage(bigint, bigint, bigint, bigint)
+    to authenticated, service_role;
+
+-- 管理员按用户调配额：profiles 的 update 权限此前已从 authenticated 撤销
+-- （见第 2 节的 P0-3 修复），因此只有 service_role（管理员面板）能改这三列。

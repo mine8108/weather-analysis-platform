@@ -13,7 +13,7 @@
 | **数据导入** | 支持 CSV / Excel 上传、网页手动逐条录入、Open-Meteo API 按经纬度+时间自动拉取；智能列名识别；标准模板下载；API 区含 **ERA5（CDS）变量 catalogue 与脚本包下载**（4 个产品 / 8 个变量分组 / 5 组常用预设 / 提交前字段数预警） |
 | **数据质控** | 内置于「数据导入」向导第 2 步，导入后默认展示质量报告：物理量范围校验（温度/气压/湿度/风速等）、相邻时次突跳检测、缺失率统计、百分制数据质量评分 |
 | **可视化分析** | 温/压/湿/风多要素综合看板、风向风速玫瑰图、要素关系散点矩阵、统计摘要；**要素分布直方图（默认含降水量，可叠加多要素对比）** |
-| **AI 读图解析** | 上传气象图（天气图 / 卫星云图 / 雷达回波 / 模式形势图），由多模态模型输出**六段式结构化解读**（图面要素 → 分布特征 → 关键数值 → 趋势演变 → 风险结论）；图片四重上限（3 张 / 原始 20MB / 提交 5MB / 合计 12MB）；**用量记账**（单次输出上限 2 万 token、每会话 5 次尝试，失败同样计费故按尝试计数，生成后显示本会话累计真实消耗）；**不依赖已导入数据**；可导出 Word（含原图）与 Markdown。调用失败不做文本降级 |
+| **AI 读图解析** | 上传气象图（天气图 / 卫星云图 / 雷达回波 / 模式形势图），由多模态模型输出**六段式结构化解读**（图面要素 → 分布特征 → 关键数值 → 趋势演变 → 风险结论）；图片四重上限（3 张 / 原始 20MB / 提交 5MB / 合计 12MB）；**用量记账与配额**（服务端每用户每日配额，次数与 token 双维度，刷新页面不可绕过；默认每日 5 次 / 10 万 token、单次输出上限 2 万，管理员可在面板按用户调配额；失败同样计费故按尝试计数，并显示本会话累计真实消耗）；**不依赖已导入数据**；可导出 Word（含原图）与 Markdown。调用失败不做文本降级 |
 | **报文解码** | 粘贴 METAR / SYNOP 标准报文，自动解析为结构化数据 |
 | **报告导出** | 处理后数据与 GFS 预报数据导出 CSV；一键生成 Word 分析报告（专业版为表格化排版、通俗版为叙述式），报告内不含图片 |
 | **数值预报 (GFS)** | 接入 Open-Meteo **GFS 数值预报（免注册，最长 16 天）**：气温/体感温度/降水时间序列、空气质量预报（AQI 六级分档，口径见 `AQI_STANDARD_LABEL`）、未来 72 小时高温预报面板（含 35/37/40℃ 国家阈值线）、风玫瑰预报、预报验证（GFS vs 实况） |
@@ -69,6 +69,7 @@ weather_app/
 │   ├── test_manual.py          # 手册结构与内容契约 24 条
 │   ├── test_chart_reader.py    # 读图管线 / 编码策略 / 用量记账 / prompt / 接线 41 条
 │   ├── test_ai_narrative.py    # 多模态请求体、空正文诊断、用量回传与报告导出 27 条
+│   ├── test_vision_quota.py    # 读图配额：schema 安全契约 / 数据层 / 纯函数 19 条
 │   ├── test_release_surface.py # 版本 / 依赖 / Secrets / CI 契约 18 条
 │   ├── test_weather_wall.py    # 天气墙（依赖 pytest；单跑需登录态）
 │   └── test_smoke.py           # 导入冒烟检查
@@ -135,7 +136,7 @@ streamlit run app.py
 
 ## 🧪 测试
 
-`tests/` 下为自测脚本。其中九个可直接运行，无需安装 pytest（CI 的门禁就是用这种方式跑的）：
+`tests/` 下为自测脚本。其中十个可直接运行，无需安装 pytest（CI 的门禁就是用这种方式跑的）：
 
 ```bash
 python -B tests/test_analyzer.py         # 预警检测与耦合分析 92 条
@@ -146,10 +147,11 @@ python -B tests/test_aqi.py              # AQI 断点表 / 分指数 / 综合指
 python -B tests/test_era5_guide.py       # ERA5 catalogue 与 payload 26 条
 python -B tests/test_manual.py           # 手册结构与内容契约 24 条
 python -B tests/test_chart_reader.py     # 读图管线、编码策略与用量记账 41 条
+python -B tests/test_vision_quota.py     # 读图配额与 schema 安全契约 19 条
 python -B tests/test_release_surface.py  # 版本/依赖/Secrets/CI 契约 18 条
 ```
 
-其余用例用 pytest 运行全部（当前共 **379** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
+其余用例用 pytest 运行全部（当前共 **398** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
 
 ```bash
 pip install -r requirements-dev.txt
@@ -178,7 +180,7 @@ python -B research/check_era5_variables.py --cache .cache-era5   # ERA5 变量�
 **发布后请肉眼核对一次线上版本号。** `git push` 成功、远端 `main` 已更新，**不等于**
 Streamlit Cloud 已经重建容器：v2.3.0 发布时就遇到过推送十余分钟后线上仍返回旧版本号、
 容器启动时间停在推送之前的情况，而这一状态是静默的，不主动核对就会误以为线上已是新版。
-（当前版本：**2.3.6**。）
+（当前版本：**2.3.7**。）
 
 做法很简单——侧边栏页脚始终显示 `© 气象数据交互分析平台 <版本号>`，与 `config.py` 的
 `APP_VERSION` 对一眼即可。若不一致，去 Streamlit Cloud 面板对该应用执行 **Reboot app**
@@ -252,6 +254,10 @@ Streamlit Cloud 已经重建容器：v2.3.0 发布时就遇到过推送十余分
 ### 2. 建表与行级安全
 - Supabase → SQL Editor → 新建查询 → 粘贴 `supabase/schema.sql` 并执行。
 - 该脚本创建 `datasets` 表并启用 RLS，保证用户只能读写自己的数据。
+- **升级到 2.3.7 及以后必须重跑一次该脚本**：新增了读图配额所需的
+  `vision_usage` 表与三个配额函数（`get_vision_quota` / `begin_vision_call` /
+  `record_vision_usage`），以及 `profiles` 上的三个配额列。脚本可重复执行，
+  重跑不会丢数据；未重跑时管理员面板会直接提示「数据库表未创建」并给出该指引。
 
 ### 3. 配置密钥
 - 本地：复制 `.streamlit/secrets.toml.example` 为 `.streamlit/secrets.toml` 并填入。

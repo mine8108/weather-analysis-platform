@@ -15,6 +15,7 @@
 import hashlib
 import secrets
 import socket
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
 import streamlit as st
@@ -493,7 +494,9 @@ def _render_admin_panel():
         st.success("已解锁。以下操作仅管理员可见。")
 
         # --- schema 健康检查 ---
-        missing = _missing_tables(sb_admin, ["invite_codes", "profiles", "datasets"])
+        missing = _missing_tables(sb_admin,
+                                  ["invite_codes", "profiles", "datasets",
+                                   "vision_usage"])
         if missing:
             st.error(
                 f"⚠️ 数据库表未创建：{', '.join(missing)}\n\n"
@@ -564,6 +567,67 @@ def _render_admin_panel():
                         {"storage_quota_bytes": int(new_mb) * 1048576}
                     ).eq("user_id", uid).execute()
                     st.success("配额已更新。")
+                except Exception as e:
+                    st.error(safe_error_text(e, "更新失败。"))
+
+            st.divider()
+
+            # --- 5.3 读图配额（supabase/schema.sql 第 8 节）---
+            # 读图用的是部署方的 API 密钥，任何用户的每次调用都计费在部署方账上，
+            # 因此这三项是成本控制的唯一旋钮。每日次数给 0 即等于停用该用户的读图。
+            st.subheader("读图配额（每日）")
+            prof_row = {}
+            try:
+                prof = (
+                    sb_admin.table("profiles")
+                    .select("vision_calls_per_day,vision_tokens_per_day,"
+                            "vision_max_tokens_per_call")
+                    .eq("user_id", uid)
+                    .execute()
+                )
+                prof_row = (prof.data or [{}])[0] if prof.data else {}
+                today = (datetime.now(timezone(timedelta(hours=8)))).date().isoformat()
+                usage_rows = (
+                    sb_admin.table("vision_usage")
+                    .select("calls,total_tokens")
+                    .eq("user_id", uid)
+                    .eq("day", today)
+                    .execute()
+                )
+                used_row = (usage_rows.data or [{}])[0] if usage_rows.data else {}
+                st.caption(
+                    "今日已用 %s / %s 次 · token %s / %s（每日 0 点北京时间重置）"
+                    % (used_row.get("calls", 0), prof_row.get("vision_calls_per_day", 5),
+                       used_row.get("total_tokens", 0),
+                       prof_row.get("vision_tokens_per_day", 100000))
+                )
+            except Exception:
+                st.caption("读图用量查询失败。若刚升级代码，请先重跑 supabase/schema.sql。")
+
+            vc1, vc2, vc3 = st.columns(3)
+            with vc1:
+                calls_day = st.number_input(
+                    "每日次数", min_value=0, max_value=200, step=1,
+                    value=int(prof_row.get("vision_calls_per_day", 5) or 0),
+                    key="vq_calls")
+            with vc2:
+                tokens_day = st.number_input(
+                    "每日 token", min_value=0, max_value=100000000, step=10000,
+                    value=int(prof_row.get("vision_tokens_per_day", 100000) or 0),
+                    key="vq_tokens")
+            with vc3:
+                max_call = st.number_input(
+                    "单次上限 token", min_value=256, max_value=32000, step=1000,
+                    value=int(prof_row.get("vision_max_tokens_per_call", 20000) or 20000),
+                    key="vq_maxcall")
+            if st.button("保存读图配额", key="vq_save"):
+                try:
+                    sb_admin.table("profiles").update({
+                        "vision_calls_per_day": int(calls_day),
+                        "vision_tokens_per_day": int(tokens_day),
+                        "vision_max_tokens_per_call": int(max_call),
+                    }).eq("user_id", uid).execute()
+                    st.success("读图配额已更新（对该用户的下一次生成生效）。")
                 except Exception as e:
                     st.error(safe_error_text(e, "更新失败。"))
 

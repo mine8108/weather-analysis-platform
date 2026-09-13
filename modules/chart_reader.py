@@ -207,6 +207,56 @@ def format_usage(usage):
     return text
 
 
+# ============================================================
+# 服务端每日配额（见 supabase/schema.sql 第 8 节）
+# 三个纯函数把「服务不可用」与「配额已用完」分开处置：
+# 前者是故障，后者是正常拒绝。把故障当放行会静默绕过配额，当拒绝又会因为一次
+# 数据库抖动把功能整体锁死，所以故障时放行并明确告知。
+# ============================================================
+
+def quota_allows(state):
+    """(是否放行, 提示文本)。state 为 None 表示配额服务不可用。"""
+    if not state:
+        return True, ("⚠️ 配额服务不可用（若刚升级版本，请先重跑 "
+                      "supabase/schema.sql），本次按会话级限制放行。")
+    if state.get("allowed"):
+        return True, ""
+    return False, str(state.get("message") or "今日读图配额已用完。")
+
+
+def quota_budget(state, default):
+    """本次调用的输出预算：以服务端下发的单次上限为准，取不到则用默认值。"""
+    if not state:
+        return default
+    try:
+        value = int(state.get("max_tokens_per_call") or 0)
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
+
+
+def format_daily_quota(state):
+    """今日配额状态的人话描述；state 不可用时返回空串。"""
+    if not state:
+        return ""
+    return ("今日读图已用 %s/%s 次（剩余 %s）· token %s/%s"
+            % (state.get("calls_used", 0), state.get("calls_limit", 0),
+               state.get("calls_remaining", 0),
+               format(int(state.get("tokens_used") or 0), ","),
+               format(int(state.get("tokens_limit") or 0), ",")))
+
+
+def daily_quota_exhausted(state):
+    """今日配额是否已用尽。state 为 None（服务不可用）时返回 False，交由放行逻辑。"""
+    if not state:
+        return False
+    try:
+        return int(state.get("calls_remaining") or 0) <= 0 \
+            or int(state.get("tokens_remaining") or 0) <= 0
+    except (TypeError, ValueError):
+        return False
+
+
 def build_chart_prompt(images_meta, user_note):
     """构造读图 prompt：六段固定结构 + 反幻觉硬约束。"""
     lines = [
@@ -281,19 +331,25 @@ def _render_failure_table():
 
 
 def _record_usage(usage):
-    """把一次调用的用量并入会话累计，并记下最近一次。
+    """把一次调用的用量并入会话累计、写回服务端，并记下最近一次。
 
     必须在成功与失败两条路径上都调用：服务商对失败的调用同样计费。
+    服务端写入失败只提示、不阻断——解读结果已经拿到，不该因为记账失败而丢弃。
     """
+    from db import record_vision_usage
+
     last = merge_usage(None, usage)
     total = merge_usage(st.session_state.get("chart_reader_usage_total"), usage)
     st.session_state["chart_reader_usage_last"] = last
     st.session_state["chart_reader_usage_total"] = total
+    if not record_vision_usage(usage):
+        st.caption("⚠️ 本次用量未能写入服务端配额，管理员看到的今日用量可能偏低。")
     return last, total
 
 
 def _generate(cfg, images, note):
     """执行一次读图解析。失败即报错并保留原图，不产出任何替代文本。"""
+    from db import begin_vision_call
     from modules.ai_narrative import (VISION_MAX_TOKENS, build_report_meta,
                                       call_vision_llm)
 
@@ -309,6 +365,15 @@ def _generate(cfg, images, note):
                    % MAX_GENERATIONS_PER_SESSION)
         return
 
+    # 服务端每日配额：先占后用，避免并发下多个标签同时穿透
+    quota_state = begin_vision_call()
+    allowed, notice = quota_allows(quota_state)
+    if notice:
+        (st.warning if allowed else st.error)(notice)
+    if not allowed:
+        return
+    budget = quota_budget(quota_state, VISION_MAX_TOKENS)
+
     prompt = build_chart_prompt(images, note)
     data_urls = [image_to_data_url(item["data_bytes"], item["mime"])
                  for item in images]
@@ -318,8 +383,7 @@ def _generate(cfg, images, note):
         try:
             text = call_vision_llm(prompt, data_urls, cfg["api_key"],
                                    base_url=cfg["base_url"], model=cfg["model"],
-                                   max_tokens=cfg.get("max_tokens"),
-                                   usage_out=usage)
+                                   max_tokens=budget, usage_out=usage)
         except Exception as exc:  # noqa: BLE001 - 任何失败都报错，不降级
             _record_usage(usage)
             st.session_state["chart_reader_gen_count"] = count + 1
@@ -342,8 +406,7 @@ def _generate(cfg, images, note):
 
 def render_chart_reader_tab():
     """渲染 AI 读图解析页。不依赖任何已导入数据。"""
-    from modules.ai_narrative import (VISION_MAX_TOKENS, display_report,
-                                      resolve_vision_config)
+    from modules.ai_narrative import display_report, resolve_vision_config
 
     st.subheader("[读图] AI 读图解析")
     st.caption("上传气象图（天气图 / 卫星云图 / 雷达回波 / 模式形势图），"
@@ -404,18 +467,29 @@ def render_chart_reader_tab():
                "提交合计约 %d KB，估算图像 token ≈ %d。"
                % (count, MAX_GENERATIONS_PER_SESSION, remaining,
                   len(ok_images), sum(item["new_kb"] for item in ok_images), tokens))
-    if total_usage.get("completion"):
-        cap_note = "单次输出上限 %s token" % format(
-            VISION_MAX_TOKENS, ",") if VISION_MAX_TOKENS else ""
-        st.caption("本会话累计消耗 %s。%s"
-                   % (format_usage(total_usage), cap_note))
-    else:
-        st.caption("单次输出上限 %s token；失败调用同样计费，故按尝试次数计数。"
-                   % format(VISION_MAX_TOKENS, ","))
 
-    disabled = (not ok_images) or bool(total_error) \
+    from db import get_vision_quota
+    quota_state = get_vision_quota()
+    quota_line = format_daily_quota(quota_state)
+    if quota_line:
+        st.caption("%s · 单次上限 %s token（每日 0 点北京时间重置）"
+                   % (quota_line,
+                      format(int(quota_state.get("max_tokens_per_call") or 0), ",")))
+    elif quota_state is None and st.session_state.get("auth_user"):
+        st.caption("⚠️ 未能读取今日配额，本次按会话级限制放行。")
+
+    if total_usage.get("completion"):
+        st.caption("本会话累计消耗 %s。" % format_usage(total_usage))
+    else:
+        st.caption("失败调用同样计费，故配额按尝试次数计数。")
+
+    daily_blocked = daily_quota_exhausted(quota_state)
+    disabled = (not ok_images) or bool(total_error) or daily_blocked \
         or count >= MAX_GENERATIONS_PER_SESSION
-    if remaining <= 0:
+    if daily_blocked:
+        st.error("今日读图配额已用完，生成按钮已禁用。次日自动重置，"
+                 "或请管理员调整你的配额。")
+    elif remaining <= 0:
         st.warning("本会话尝试次数已用完（%d 次）。刷新页面可重置，"
                    "但每次调用都会真实计费，请留意用量。"
                    % MAX_GENERATIONS_PER_SESSION)

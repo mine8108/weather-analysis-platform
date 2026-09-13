@@ -28,7 +28,7 @@ def _read(rel):
 
 def test_version_bumped():
     from config import APP_VERSION
-    assert APP_VERSION == "2.3.6", APP_VERSION
+    assert APP_VERSION == "2.3.7", APP_VERSION
 
 
 def test_live_artifacts_carry_current_version():
@@ -114,7 +114,7 @@ def test_ci_runs_all_gate_scripts():
     for script in ("test_analyzer.py", "test_data_quality.py",
                    "test_auth_session.py", "test_codec.py",
                    "test_aqi.py", "test_era5_guide.py", "test_manual.py",
-                   "test_chart_reader.py"):
+                   "test_chart_reader.py", "test_vision_quota.py"):
         assert script in text, script
 
 
@@ -122,6 +122,7 @@ def test_gate_scripts_have_standalone_runners():
     """CI 用 `python -B <file>` 直跑；缺 __main__ 运行器会退出 0 却什么都不跑。"""
     for rel in ("tests/test_aqi.py", "tests/test_era5_guide.py",
                 "tests/test_manual.py", "tests/test_chart_reader.py",
+                "tests/test_vision_quota.py",
                 "tests/test_release_surface.py", "tests/test_analyzer.py",
                 "tests/test_data_quality.py", "tests/test_codec.py",
                 "tests/test_auth_session.py"):
