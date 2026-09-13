@@ -291,3 +291,122 @@ def validate_catalogue():
             if name not in available:
                 problems.append("预设 %s: 变量 %s 不在该产品中" % (preset, name))
     return problems
+
+
+# 各数据集允许的键集（对 CDS process 定义实测所得，
+# 见 research/era5_variable_enums_2026-09-13.json 的 allowed_keys）。
+#
+# 注意：必须按【数据集】而非产品类型分键。ERA5-Land 与 ERA5 单层同属小时数据，
+# 但前者不接受 product_type、后者必须带，按类型分键会把两者混为一谈。
+KEYS_ALLOWED_BY_DATASET = {
+    "reanalysis-era5-land": (
+        "area", "data_format", "day", "download_format", "month",
+        "time", "variable", "year"),
+    "reanalysis-era5-single-levels": (
+        "area", "data_format", "day", "download_format", "month",
+        "product_type", "time", "variable", "year"),
+    "reanalysis-era5-pressure-levels": (
+        "area", "data_format", "day", "download_format", "month",
+        "pressure_level", "product_type", "time", "variable", "year"),
+    "reanalysis-era5-land-monthly-means": (
+        "area", "data_format", "download_format", "month",
+        "product_type", "time", "variable", "year"),
+}
+
+# 当前有效的 37 个气压层（hPa），与快照一致
+PRESSURE_LEVELS = ("1", "2", "3", "5", "7", "10", "20", "30", "50", "70", "100",
+                   "125", "150", "175", "200", "225", "250", "300", "350", "400",
+                   "450", "500", "550", "600", "650", "700", "750", "775", "800",
+                   "825", "850", "875", "900", "925", "950", "975", "1000")
+
+_ALL_DAYS = ["%02d" % d for d in range(1, 32)]
+_ALL_HOURS = ["%02d:00" % h for h in range(24)]
+
+
+def available_years():
+    """可选年份：ERA5 约滞后 2–3 个月，当年数据不完整，故上限取去年。"""
+    return list(range(1950, datetime.now().year))
+
+
+def _days_of_months(months):
+    """按月份取每月天数上限（2 月按 29 天，CDS 会忽略不存在的日期）。
+
+    这是刻意的安全高估：请求里 day 固定为 01–31，估算用于提前预警而非精确计费。
+    """
+    lengths = {1: 31, 2: 29, 3: 31, 4: 30, 5: 31, 6: 30, 7: 31, 8: 31,
+               9: 30, 10: 31, 11: 30, 12: 31}
+    return sum(lengths.get(int(m), 31) for m in months)
+
+
+def build_payload(product, years, months, variables, pressure_levels=None, area=None):
+    """按产品类型构建合法的 CDS 请求体。
+
+    - 仅当产品声明了 product_type 时才写入该键（ERA5-Land 不接受它）。
+    - 仅当 allow_day 为真时写入 day（月均值不接受它）。
+    - 月均值等产品用自身声明的 time_values，否则取全部 24 个整点。
+    - 坐标顺序为 [北, 西, 南, 东]，与 CDS 官网表单一致。
+    """
+    meta = ERA5_PRODUCTS[product]
+    payload = {
+        "variable": list(variables),
+        "year": ["%04d" % int(y) for y in sorted(years)],
+        "month": ["%02d" % int(m) for m in sorted(months)],
+    }
+    if meta.get("product_type"):
+        payload["product_type"] = list(meta["product_type"])
+    if meta.get("allow_day", True):
+        payload["day"] = list(_ALL_DAYS)
+    payload["time"] = list(meta.get("time_values") or _ALL_HOURS)
+    if meta["type"] == "pressure":
+        payload["pressure_level"] = [str(level) for level in (pressure_levels or [])]
+    if area:
+        north, west, south, east = area
+        payload["area"] = [float(north), float(west), float(south), float(east)]
+    payload["data_format"] = "netcdf"
+    payload["download_format"] = "unarchived"
+    return payload
+
+
+def validate_payload(product, payload):
+    """校验请求体：键集白名单、变量存在、气压层合法、无废弃关键字。"""
+    meta = ERA5_PRODUCTS[product]
+    problems = []
+    allowed = set(KEYS_ALLOWED_BY_DATASET[meta["dataset"]])
+    for key in payload:
+        if key not in allowed:
+            problems.append("%s: 该数据集不接受键 %r" % (product, key))
+    for name in payload.get("variable", []):
+        if name not in meta["variables"]:
+            problems.append("%s: 变量 %r 不在本产品中" % (product, name))
+    for level in payload.get("pressure_level", []):
+        if str(level) not in PRESSURE_LEVELS:
+            problems.append("%s: 气压层 %r 非法" % (product, level))
+    if meta.get("allow_day") is False and "day" in payload:
+        problems.append("%s: 月均值产品不接受 day" % product)
+    if not meta.get("product_type") and "product_type" in payload:
+        problems.append("%s: 该数据集不接受 product_type" % product)
+    return problems
+
+
+def estimate_field_count(product, years, months, variables,
+                         pressure_levels=None):
+    """估算请求规模（字段数），用于提交前与 CDS 数据集上限比对。
+
+    字段数 = 变量数 × 年数 × Σ(各月天数) × 时次数 × 气压层数
+    月均值产品的时次为 1 且不使用 day，故按「变量 × 年 × 月」计。
+    """
+    meta = ERA5_PRODUCTS[product]
+    n_var = len(variables)
+    n_year = len(years)
+    n_month = len(months)
+    if meta["type"] == "monthly":
+        return n_var * n_year * n_month
+    n_day = _days_of_months(months)
+    n_hour = len(meta.get("time_values") or _ALL_HOURS)
+    n_level = len(pressure_levels or []) if meta["type"] == "pressure" else 1
+    return n_var * n_year * n_day * n_hour * n_level
+
+
+def fields_over_limit(product, count):
+    """字段数是否超出该数据集上限。"""
+    return count > ERA5_PRODUCTS[product]["field_limit"]
