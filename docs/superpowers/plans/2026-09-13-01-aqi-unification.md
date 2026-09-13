@@ -480,10 +480,19 @@ def test_comprehensive_primary_is_max_pollutant():
 
 
 def test_comprehensive_primary_all_on_tie():
-    """并列最大时全部列为首要污染物。"""
+    """并列最大且 AQI > 50 时全部列为首要污染物。"""
+    result = aqi.comprehensive_aqi({"pm25": 75, "pm10": 150})
+    assert result["aqi"] == 100
+    assert set(result["primary_all"]) == {"PM2.5", "PM10"}
+    assert result["primary"] in {"PM2.5", "PM10"}
+
+
+def test_comprehensive_no_primary_at_good_tie():
+    """AQI <= 50 时即使并列也不设首要污染物（国标：AQI > 50 才判首要污染物）。"""
     result = aqi.comprehensive_aqi({"pm25": 35, "pm10": 50})
     assert result["aqi"] == 50
-    assert set(result["primary_all"]) == {"PM2.5", "PM10"}
+    assert result["primary"] is None
+    assert result["primary_all"] == []
 
 
 def test_comprehensive_primary_none_when_good():

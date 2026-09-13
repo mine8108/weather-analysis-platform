@@ -143,3 +143,59 @@ def iaqi(conc, pollutant):
     lo, hi, i_lo, i_hi = bands[-1]
     extrapolated = (i_hi - i_lo) / (hi - lo) * (value - lo) + i_lo
     return float(min(extrapolated, cap))
+
+
+def level_of(aqi_value):
+    """AQI 数值 → 等级标签。区间取自 config.AQI_LEVELS。"""
+    for _lv, info in sorted(AQI_LEVELS.items()):
+        lo, hi = info["range"]
+        if lo <= aqi_value <= hi:
+            return info["label"]
+    return "严重污染"
+
+
+def comprehensive_aqi(concentrations):
+    """由多项浓度计算综合 AQI。
+
+    concentrations: dict，键可用规范名或别名（pm2_5 / no2 等），值可为数值或数字字符串。
+    返回:
+        {"aqi": int | None, "level": str, "primary": str | None,
+         "primary_all": list[str], "details": list[dict]}
+    aqi 为 None 表示无任何可用浓度。
+    AQI <= 50 时 primary 为 None；并列最大时 primary_all 列出全部。
+    """
+    details = []
+    for raw_key, conc in (concentrations or {}).items():
+        key = normalize_key(raw_key)
+        if key is None:
+            continue
+        value = iaqi(conc, key)
+        if value is None:
+            continue
+        rounded = int(round(value))
+        details.append({
+            "key": key,
+            "label": POLLUTANT_LABELS[key],
+            "conc": float(conc),
+            "iaqi": rounded,
+            "level": level_of(rounded),
+        })
+
+    if not details:
+        return {"aqi": None, "level": "无数据", "primary": None,
+                "primary_all": [], "details": []}
+
+    best = max(d["iaqi"] for d in details)
+    best_labels = [d["label"] for d in details if d["iaqi"] == best]
+    if best <= 50:
+        primary, primary_all = None, []
+    else:
+        primary, primary_all = best_labels[0], best_labels
+
+    return {
+        "aqi": best,
+        "level": level_of(best),
+        "primary": primary,
+        "primary_all": primary_all,
+        "details": details,
+    }

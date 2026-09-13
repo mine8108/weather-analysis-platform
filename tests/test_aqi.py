@@ -129,3 +129,107 @@ def test_iaqi_negative_and_string_numeric():
     """负值按 0 处理；数字字符串可解析。"""
     assert aqi.iaqi(-5, "pm25") == 0.0
     assert aqi.iaqi("35", "pm25") == 50.0
+
+
+# ============================================================
+# 三、综合 AQI
+# ============================================================
+
+def test_comprehensive_takes_max_iaqi():
+    """综合 AQI 取各分指数最大值。"""
+    result = aqi.comprehensive_aqi({"pm25": 35, "pm10": 50, "so2": 150})
+    assert result["aqi"] == 50, result
+
+
+def test_comprehensive_primary_is_max_pollutant():
+    """首要污染物为分指数最大者。"""
+    result = aqi.comprehensive_aqi({"pm25": 115, "pm10": 50})
+    assert result["aqi"] == 150
+    assert result["primary"] == "PM2.5"
+    assert result["primary_all"] == ["PM2.5"]
+    assert result["level"] == "轻度污染"
+
+
+def test_comprehensive_primary_all_on_tie():
+    """并列最大且 AQI > 50 时全部列为首要污染物。"""
+    result = aqi.comprehensive_aqi({"pm25": 75, "pm10": 150})
+    assert result["aqi"] == 100
+    assert set(result["primary_all"]) == {"PM2.5", "PM10"}
+    assert result["primary"] in {"PM2.5", "PM10"}
+
+
+def test_comprehensive_no_primary_at_good_tie():
+    """AQI <= 50 时即使并列也不设首要污染物（国标：AQI > 50 才判首要污染物）。"""
+    result = aqi.comprehensive_aqi({"pm25": 35, "pm10": 50})
+    assert result["aqi"] == 50
+    assert result["primary"] is None
+    assert result["primary_all"] == []
+
+
+def test_comprehensive_primary_none_when_good():
+    """AQI <= 50 时无首要污染物。"""
+    result = aqi.comprehensive_aqi({"pm25": 10})
+    assert result["aqi"] == 14
+    assert result["level"] == "优"
+    assert result["primary"] is None
+    assert result["primary_all"] == []
+
+
+def test_comprehensive_accepts_aliases():
+    """别名与规范名混用结果一致。"""
+    a = aqi.comprehensive_aqi({"pm2_5": 75, "no2": 100})
+    b = aqi.comprehensive_aqi({"pm25": 75, "nox": 100})
+    assert a["aqi"] == b["aqi"] == 100
+    assert a["primary"] == b["primary"] == "PM2.5"
+
+
+def test_comprehensive_details_shape():
+    """明细包含键、标签、浓度、分指数与等级。"""
+    result = aqi.comprehensive_aqi({"pm25": 115, "o3": 200})
+    assert {d["key"] for d in result["details"]} == {"pm25", "o3"}
+    pm25_detail = [d for d in result["details"] if d["key"] == "pm25"][0]
+    assert pm25_detail["label"] == "PM2.5"
+    assert pm25_detail["iaqi"] == 150
+    assert pm25_detail["level"] == "轻度污染"
+    assert pm25_detail["conc"] == 115.0
+
+
+def test_comprehensive_skips_unusable_values():
+    """缺失/非数值项被跳过，不参与综合。"""
+    result = aqi.comprehensive_aqi({"pm25": None, "pm10": float("nan"), "o3": 400})
+    assert result["aqi"] == 200
+    assert [d["key"] for d in result["details"]] == ["o3"]
+
+
+def test_comprehensive_no_data():
+    """无任何可用浓度时 aqi 为 None。"""
+    result = aqi.comprehensive_aqi({})
+    assert result["aqi"] is None
+    assert result["level"] == "无数据"
+    assert result["primary"] is None
+    assert result["details"] == []
+
+
+def test_level_of_boundaries():
+    """等级区间边界：50 优 / 51 良 / 101 轻度污染 / 500 严重污染。"""
+    assert aqi.level_of(0) == "优"
+    assert aqi.level_of(50) == "优"
+    assert aqi.level_of(51) == "良"
+    assert aqi.level_of(100) == "良"
+    assert aqi.level_of(101) == "轻度污染"
+    assert aqi.level_of(500) == "严重污染"
+
+
+def test_level_tables_do_not_drift():
+    """nwp_forecast 的展示用等级表必须与 config.AQI_LEVELS 一致（截到 500）。"""
+    from modules.nwp_forecast import _AQ_LEVELS
+
+    config_pairs = []
+    for _lv, info in sorted(AQI_LEVELS.items()):
+        lo, hi = info["range"]
+        config_pairs.append((lo, hi, info["label"]))
+
+    nwp_pairs = [(lo, hi, name) for lo, hi, name, _tok in _AQ_LEVELS[:5]]
+    nwp_pairs.append((_AQ_LEVELS[5][0], 500, _AQ_LEVELS[5][2]))
+
+    assert config_pairs == nwp_pairs, (config_pairs, nwp_pairs)
