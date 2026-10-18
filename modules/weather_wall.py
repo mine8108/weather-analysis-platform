@@ -221,8 +221,10 @@ def fetch_wall_aqi(cities: list[dict]) -> dict:
     if not cities:
         return {}
     try:
-        # 相对导入：nwp_forecast 与 weather_wall 同属 modules 包
-        from .nwp_forecast import _compute_cn_aqi  # 懒加载：复用国标换算与六级色
+        # AQI 计算走 modules.aqi 公共出口，颜色走 design_tokens；
+        # 不再从 nwp_forecast 借私有函数，避免展示模块依赖预报模块内部实现。
+        from modules.aqi import comprehensive_aqi
+        from modules.design_tokens import aqi_color, token_value
         rows = _aqi_batch(
             tuple(c["lat"] for c in cities),
             tuple(c["lon"] for c in cities),
@@ -239,7 +241,13 @@ def fetch_wall_aqi(cities: list[dict]) -> dict:
                 "so2": cur.get("sulphur_dioxide"),
                 "o3": cur.get("ozone"),
             }
-            aqi, level, _primary, color = _compute_cn_aqi(conc)
+            result = comprehensive_aqi(conc)
+            if result["aqi"] is None:
+                aqi, level, color = None, "无数据", token_value("text-muted")
+            else:
+                aqi = result["aqi"]
+                level = result["level"]
+                color = aqi_color(level)
             out[c["zh"]] = {"aqi": aqi, "level": level, "color": color}
         st.session_state["_wall_aqi_fallback"] = out
         return out

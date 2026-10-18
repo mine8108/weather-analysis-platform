@@ -18,7 +18,7 @@ from config import (
     FOG_WARNING, RAINSTORM_WARNING, FROST_WARNING,
     THUNDER_WARNING, HAZE_WARNING,
     PUBLIC_ADVICE, AGRI_ADVICE,
-    get_beaufort_level,
+    get_beaufort_level, level_label,
 )
 
 # 可配置的事件检测规则（用户可在侧边栏自定义覆盖）
@@ -33,14 +33,11 @@ def set_custom_thresholds(custom):
 def current_thresholds():
     """当前生效的自定义阈值。
 
-    优先读会话状态，实现多用户隔离；无 Streamlit 上下文或未设置时退回
-    模块级 CUSTOM_THRESHOLDS，保持既有测试与脚本的调用方式不变。
+    会话状态优先（由 modules/warn_rules 统一读取），无 Streamlit 上下文或
+    未设置时退回模块级 CUSTOM_THRESHOLDS，保持既有测试与脚本的调用方式不变。
     """
-    try:
-        import streamlit as st
-        custom = st.session_state.get("_custom_thresholds")
-    except Exception:
-        custom = None
+    from modules.warn_rules import current_custom
+    custom = current_custom()
     if custom:
         return custom
     return CUSTOM_THRESHOLDS or {}
@@ -104,7 +101,7 @@ def check_high_temperature(df):
                     warnings_list.append({
                         "type": "高温",
                         "level": "黄色",
-                        "level_num": yellow_cfg["level"],
+                        "level_num": level_label("黄色"),
                         "detail": f"已连续 {max_consecutive} 天日最高气温≥{yellow_temp}℃",
                         "icon": yellow_cfg["icon"],
                     })
@@ -117,7 +114,7 @@ def check_high_temperature(df):
             warnings_list.append({
                 "type": "高温",
                 "level": level,
-                "level_num": cfg[level]["level"],
+                "level_num": level_label(level),
                 "detail": f"24h 内最高气温达 {max_recent:.1f}℃，≥{threshold}℃",
                 "icon": cfg[level]["icon"],
             })
@@ -167,7 +164,7 @@ def check_cold_wave(df):
             warnings_list.append({
                 "type": "寒潮",
                 "level": level,
-                "level_num": cfg["level"],
+                "level_num": level_label(level),
                 "detail": (f"降温 {drop:.1f}℃（≥{drop_thresh}℃），"
                            f"最低气温 {min_temp:.1f}℃（≤{min_thresh}℃）"),
                 "icon": cfg["icon"],
@@ -211,7 +208,7 @@ def check_gale(df):
         warnings_list.append({
             "type": "大风",
             "level": level,
-            "level_num": GALE_WARNING[level]["level"],
+            "level_num": level_label(level),
             "detail": f"风速 {actual:.1f} m/s（{bf_name}，{bf}级），≥{thresh} m/s",
             "icon": GALE_WARNING[level]["icon"],
         })
@@ -241,7 +238,7 @@ def check_fog(df):
             warnings_list.append({
                 "type": "大雾",
                 "level": level,
-                "level_num": FOG_WARNING[level]["level"],
+                "level_num": level_label(level),
                 "detail": f"最低能见度 {min_vis_m:.0f} m（＜{threshold} m）",
                 "icon": FOG_WARNING[level]["icon"],
             })
@@ -292,7 +289,7 @@ def check_rainstorm(df):
     warnings_list.append({
         "type": "暴雨",
         "level": level,
-        "level_num": RAINSTORM_WARNING[level]["level"],
+        "level_num": level_label(level),
         "detail": detail,
         "icon": RAINSTORM_WARNING[level]["icon"],
     })
@@ -323,7 +320,7 @@ def check_frost(df):
             warnings_list.append({
                 "type": "霜冻",
                 "level": level,
-                "level_num": cfg["level"],
+                "level_num": level_label(level),
                 "detail": f"最低气温 {min_temp:.1f}℃（≤{threshold}℃，以气温近似地温）",
                 "icon": cfg["icon"],
             })
@@ -368,7 +365,7 @@ def check_thunderstorm(df):
     return [{
         "type": "雷电",
         "level": "黄色",
-        "level_num": cfg["level"],
+        "level_num": level_label("黄色"),
         "detail": f"最近 {window_hours:g} 小时内检测到雷暴天气码 (WMO 95-99)",
         "icon": cfg["icon"],
     }]
@@ -400,7 +397,7 @@ def check_haze(df):
             return [{
                 "type": "霾",
                 "level": level,
-                "level_num": cfg["level"],
+                "level_num": level_label(level),
                 "detail": f"能见度 {min_vis:.0f} m（＜{threshold} m，可能为霾）",
                 "icon": cfg["icon"],
             }]

@@ -377,12 +377,11 @@ def is_dark() -> bool:
 
 
 # ============================================================
-# 五、config.COLORS 键 → token 名
+# 五、历史调色键 → token 名
 # ============================================================
-# ``config.COLORS`` 是项目早期的图表配色表，键名（temp_color / so2_color …）
-# 已被各模块大量引用。这里提供「键 → token」映射与解析函数，
-# 让调用点保持原有写法的同时拿到随主题变化的颜色，
-# 从而不必一次性重写全部引用。
+# 早期图表配色表（temp_color / so2_color …）已被各模块大量引用。
+# config 中的 hex 副本已删除，这里保留「键 → token」映射，
+# 让调用点维持原有写法并拿到随主题变化的颜色。
 COLOR_KEY_TO_TOKEN: Dict[str, str] = {
     # 气象要素
     "temp_color": "temp",
@@ -408,33 +407,24 @@ COLOR_KEY_TO_TOKEN: Dict[str, str] = {
 
 
 def color_var(color_key: str) -> str:
-    """``config.COLORS`` 的键 → 当前主题下的 ``var(--token)``。
+    """``COLOR_KEY_TO_TOKEN`` 的键 → 当前主题下的 ``var(--token)``。
 
-    适用于 **HTML/CSS** 场景（内联 style、style 块）。
-    未登记的键原样返回 ``config.COLORS`` 里的 hex，保证向后兼容：
-    新增配色时不会因为忘记登记映射而直接报错，只是不跟随主题。
+    适用于 **HTML/CSS** 场景（内联 style、style 块）。未登记的键回退到
+    accent token，并在源码层面禁止再引入第二份 hex 表。
     """
     token = COLOR_KEY_TO_TOKEN.get(color_key)
-    if token:
-        return css_var(token)
-    from config import COLORS
-
-    return COLORS.get(color_key, css_var("accent"))
+    return css_var(token) if token else css_var("accent")
 
 
 def color_value(color_key: str, dark: bool | None = None) -> str:
-    """``config.COLORS`` 的键 → 当前主题下的**具体色值（hex/rgba）**。
+    """``COLOR_KEY_TO_TOKEN`` 的键 → 当前主题下的**具体色值（hex/rgba）**。
 
     适用于 **Plotly 图表** 场景。图表由 plotly.js 在浏览器里绘制 SVG，
     对 SVG 的 `fill` / `stroke` 属性不会解析 CSS `var()`，必须给真实色值。
     纯 HTML 场景请改用 :func:`color_var`（可随主题即时切换）。
     """
     token = COLOR_KEY_TO_TOKEN.get(color_key)
-    if token:
-        return token_value(token, dark)
-    from config import COLORS
-
-    return COLORS.get(color_key, "#888888")
+    return token_value(token, dark) if token else "#888888"
 
 
 def token_value(token: str, dark: bool | None = None) -> str:

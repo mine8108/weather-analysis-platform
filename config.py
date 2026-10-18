@@ -210,30 +210,30 @@ FIELD_RANGES = {
 
 # --- 高温预警 ---
 HIGH_TEMP_WARNING = {
-    "黄色": {"condition": "连续3天日最高气温≥35℃", "temp": 35, "days": 3, "level": "Ⅲ级", "icon": "[晴]"},
-    "橙色": {"condition": "24h内最高气温≥37℃", "temp": 37, "hours": 24, "level": "Ⅱ级", "icon": "[火]"},
-    "红色": {"condition": "24h内最高气温≥40℃", "temp": 40, "hours": 24, "level": "Ⅰ级", "icon": "[红]"},
+    "黄色": {"condition": "连续3天日最高气温≥35℃", "temp": 35, "days": 3, "icon": "[晴]"},
+    "橙色": {"condition": "24h内最高气温≥37℃", "temp": 37, "hours": 24, "icon": "[火]"},
+    "红色": {"condition": "24h内最高气温≥40℃", "temp": 40, "hours": 24, "icon": "[红]"},
 }
 
 # --- 寒潮预警 ---
 COLD_WAVE_WARNING = {
     "蓝色": {
-        "level": "Ⅳ级", "icon": "[蓝]",
+        "icon": "[蓝]",
         "temp_drop": 8, "min_temp": 4, "hours": 48, "wind_level": 5,
         "condition": "48h降温≥8℃且最低气温≤4℃"
     },
     "黄色": {
-        "level": "Ⅲ级", "icon": "[黄]",
+        "icon": "[黄]",
         "temp_drop": 10, "min_temp": 4, "hours": 24, "wind_level": 6,
         "condition": "24h降温≥10℃且最低气温≤4℃"
     },
     "橙色": {
-        "level": "Ⅱ级", "icon": "[橙]",
+        "icon": "[橙]",
         "temp_drop": 12, "min_temp": 0, "hours": 24, "wind_level": 6,
         "condition": "24h降温≥12℃且最低气温≤0℃"
     },
     "红色": {
-        "level": "Ⅰ级", "icon": "[红]",
+        "icon": "[红]",
         "temp_drop": 16, "min_temp": 0, "hours": 24, "wind_level": 6,
         "condition": "24h降温≥16℃且最低气温≤0℃"
     },
@@ -242,22 +242,22 @@ COLD_WAVE_WARNING = {
 # --- 大风预警 ---
 GALE_WARNING = {
     "蓝色": {
-        "level": "Ⅳ级", "icon": "[蓝]",
+        "icon": "[蓝]",
         "avg_wind": 10.8, "gust": None, "hours": 24,
         "condition": "24h内平均风力≥6级(10.8m/s)或阵风≥7级"
     },
     "黄色": {
-        "level": "Ⅲ级", "icon": "[黄]",
+        "icon": "[黄]",
         "avg_wind": 17.2, "gust": None, "hours": 12,
         "condition": "12h内平均风力≥8级(17.2m/s)或阵风≥9级"
     },
     "橙色": {
-        "level": "Ⅱ级", "icon": "[橙]",
+        "icon": "[橙]",
         "avg_wind": 24.5, "gust": None, "hours": 6,
         "condition": "6h内平均风力≥10级(24.5m/s)或阵风≥11级"
     },
     "红色": {
-        "level": "Ⅰ级", "icon": "[红]",
+        "icon": "[红]",
         "avg_wind": 32.7, "gust": None, "hours": 6,
         "condition": "6h内平均风力≥12级(32.7m/s)或阵风≥13级"
     },
@@ -265,50 +265,70 @@ GALE_WARNING = {
 
 # --- 大雾预警 ---
 FOG_WARNING = {
-    "黄色": {"level": "Ⅲ级", "icon": "[黄]", "visibility": 500, "hours": 12,
+    "黄色": {"icon": "[黄]", "visibility": 500, "hours": 12,
               "condition": "能见度<500m"},
-    "橙色": {"level": "Ⅱ级", "icon": "[橙]", "visibility": 200, "hours": 6,
+    "橙色": {"icon": "[橙]", "visibility": 200, "hours": 6,
               "condition": "能见度<200m"},
-    "红色": {"level": "Ⅰ级", "icon": "[红]", "visibility": 50, "hours": 2,
+    "红色": {"icon": "[红]", "visibility": 50, "hours": 2,
               "condition": "能见度<50m"},
 }
 
 # --- 暴雨预警 ---
 RAINSTORM_WARNING = {
-    "蓝色": {"level": "Ⅳ级", "icon": "[蓝]", "rain": 50, "hours": 12,
+    "蓝色": {"icon": "[蓝]", "rain": 50, "hours": 12,
               "condition": "12h降雨量≥50mm"},
-    "黄色": {"level": "Ⅲ级", "icon": "[黄]", "rain": 50, "hours": 6,
+    "黄色": {"icon": "[黄]", "rain": 50, "hours": 6,
               "condition": "6h降雨量≥50mm"},
-    "橙色": {"level": "Ⅱ级", "icon": "[橙]", "rain": 50, "hours": 3,
+    "橙色": {"icon": "[橙]", "rain": 50, "hours": 3,
               "condition": "3h降雨量≥50mm"},
-    "红色": {"level": "Ⅰ级", "icon": "[红]", "rain": 100, "hours": 3,
+    "红色": {"icon": "[红]", "rain": 100, "hours": 3,
               "condition": "3h降雨量≥100mm"},
 }
 
 # --- 霜冻预警 ---
 FROST_WARNING = {
-    "蓝色": {"level": "Ⅳ级", "icon": "[蓝]", "ground_temp": 0, "hours": 48,
+    "蓝色": {"icon": "[蓝]", "ground_temp": 0, "hours": 48,
               "condition": "48h内地面最低温度≤0℃"},
-    "黄色": {"level": "Ⅲ级", "icon": "[黄]", "ground_temp": -3, "hours": 24,
+    "黄色": {"icon": "[黄]", "ground_temp": -3, "hours": 24,
               "condition": "24h内地面最低温度≤-3℃"},
-    "橙色": {"level": "Ⅱ级", "icon": "[橙]", "ground_temp": -5, "hours": 24,
+    "橙色": {"icon": "[橙]", "ground_temp": -5, "hours": 24,
               "condition": "24h内地面最低温度≤-5℃"},
 }
 
 # --- 雷电预警 ---
 THUNDER_WARNING = {
-    "黄色": {"level": "Ⅲ级", "icon": "[雷电]", "condition": "6h内可能发生雷电活动"},
-    "橙色": {"level": "Ⅱ级", "icon": "[雷电]", "condition": "2h内发生雷电可能性很大"},
-    "红色": {"level": "Ⅰ级", "icon": "[雷电]", "condition": "2h内发生雷电可能性非常大"},
+    "黄色": {"icon": "[雷电]", "condition": "6h内可能发生雷电活动"},
+    "橙色": {"icon": "[雷电]", "condition": "2h内发生雷电可能性很大"},
+    "红色": {"icon": "[雷电]", "condition": "2h内发生雷电可能性非常大"},
 }
 
 # --- 霾预警 ---
 HAZE_WARNING = {
-    "黄色": {"level": "Ⅲ级", "icon": "[黄]", "visibility": 3000, "hours": 12,
+    "黄色": {"icon": "[黄]", "visibility": 3000, "hours": 12,
               "condition": "能见度<3000m（霾）"},
-    "橙色": {"level": "Ⅱ级", "icon": "[橙]", "visibility": 2000, "hours": 6,
+    "橙色": {"icon": "[橙]", "visibility": 2000, "hours": 6,
               "condition": "能见度<2000m（霾）"},
 }
+
+# 预警颜色 → 等级串，全项目唯一生成方式。
+# 八个预警表里的 "level" 字段不再手写，由下面的循环从本表注入，
+# 避免 Ⅰ/Ⅱ/Ⅲ 与 I/II/III 两套写法同时进报告。
+LEVEL_LABELS = {"红色": "Ⅰ级", "橙色": "Ⅱ级", "黄色": "Ⅲ级", "蓝色": "Ⅳ级"}
+
+_WARNING_TABLES = (
+    HIGH_TEMP_WARNING, COLD_WAVE_WARNING, GALE_WARNING, FOG_WARNING,
+    RAINSTORM_WARNING, FROST_WARNING, THUNDER_WARNING, HAZE_WARNING,
+)
+
+
+def level_label(level):
+    """预警颜色 → 等级串；未知颜色原样返回。"""
+    return LEVEL_LABELS.get(level, str(level))
+
+
+for _table in _WARNING_TABLES:
+    for _color, _rule in _table.items():
+        _rule["level"] = level_label(_color)
 
 # ============================================================
 # 三、蒲福风力等级表
@@ -486,41 +506,10 @@ LIFE_INDEX_META = {
 # ============================================================
 # 五、配色方案
 # ============================================================
-# 说明：本表是项目早期的图表配色表，键名被各模块大量引用。
-# 为避免与 modules/design_tokens.py 的 token 表漂移（改造前同一个「红色」
-# 在 config、analyzer、nwp_forecast 三处取值不同），此处取值已与
-# design_tokens.LIGHT_TOKENS 对齐：
-#   · 模块内联样式用 design_tokens.color_var(key) → var(--token)，随主题切换；
-#   · 图表参数用 design_tokens.color_value(key)   → 当前主题的具体色值。
-COLORS = {
-    # 通用分类色（primary/purple 等映射到 token，见 COLOR_KEY_TO_TOKEN）
-    "primary": "#1f77b4",
-    "secondary": "#ff7f0e",
-    "success": "#2ca02c",
-    "danger": "#d62728",
-    "warning": "#ffbb00",
-    "info": "#17becf",
-    "purple": "#9467bd",
-    "pink": "#e377c2",
-    # 预警颜色（与 design_tokens 的 warn-4/3/2/1 同源）
-    "warn_blue": "#1f5c9e",
-    "warn_yellow": "#8a6410",
-    "warn_orange": "#a8561f",
-    "warn_red": "#a82c22",
-    # 图表色系（与 design_tokens 的 temp/pres/humid/wind/vis/rain 同源）
-    "temp_color": "#c0392b",
-    "pres_color": "#1f7a4d",
-    "humid_color": "#1f6fb2",
-    "wind_color": "#8a5a0a",
-    "vis_color": "#7d4fa8",
-    "rain_color": "#1f6fa8",
-    # 大气污染物色系（与 design_tokens 的 so2/nox/tsp/pm25/pm10 同源）
-    "so2_color": "#a37a10",    # SO₂ 硫磺黄
-    "nox_color": "#a8443f",    # NOx 铁锈红棕
-    "tsp_color": "#7a6549",    # TSP 灰棕
-    "pm25_color": "#4a6b8f",   # PM2.5 灰蓝
-    "pm10_color": "#5f5578",   # PM10 灰紫
-}
+# 配色已全部迁到 modules/design_tokens.py（唯一真相源）。config 不再保留
+# hex 颜色表：同色两处定义必然漂移，且旧表会诱使新代码继续引用它。
+# 模块内联样式用 design_tokens.color_var(key) → var(--token)，随主题切换；
+# 图表参数用 design_tokens.color_value(key) → 当前主题的具体色值。
 
 # ============================================================
 # 七、大气环境质量标准 (GB 3095 达标限值 + HJ 633 AQI 分指数)

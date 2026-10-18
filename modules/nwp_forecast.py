@@ -26,9 +26,9 @@ from plotly.subplots import make_subplots
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import retry_with_backoff, supabase_secrets_ready
-from config import (AQI_STANDARD_LABEL, COLORS, safe_chart, _is_dark,
+from config import (AQI_STANDARD_LABEL, safe_chart, _is_dark,
                     WARN_LEVEL_ORDER, LIFE_INDEX_META as _LIFE_INDEX_META,
-                    WIND_DIRECTIONS)
+                    WIND_DIRECTIONS, level_label)
 from modules.design_tokens import (
     aqi_token,
     color_value,
@@ -38,6 +38,7 @@ from modules.design_tokens import (
 )
 from modules.aqi import comprehensive_aqi
 from modules import gfs_cache
+from modules import warn_rules
 
 _LOG = logging.getLogger(__name__)
 
@@ -957,13 +958,15 @@ def _analyze_forecast(fdf):
     }
 
     # ----- 1. 高温预警（含连续事件检测）-----
-    hot = dmax_t[dmax_t >= 35]
+    # 阈值与等级串统一走 modules/warn_rules，自定义阈值在预报侧同样生效。
+    _high = warn_rules.high_temp_levels()
+    hot = dmax_t[dmax_t >= _high["黄色"]]
     # 连续高温检测
     consecutive_hot = 0
     max_consec_hot = 0
     hot_streak_dates = []
     for d, val in dmax_t.items():
-        if val >= 35:
+        if val >= _high["黄色"]:
             consecutive_hot += 1
             if consecutive_hot > max_consec_hot:
                 max_consec_hot = consecutive_hot
@@ -976,13 +979,14 @@ def _analyze_forecast(fdf):
     if len(hot) > 0:
         peak = hot.max()
         peak_date = str(hot.idxmax())
-        if peak >= 40:
-            level, lv_num, icon_ = "红色", "I级", "[红]"
-        elif peak >= 37:
-            level, lv_num, icon_ = "橙色", "II级", "[橙]"
+        if peak >= _high["红色"]:
+            level, icon_ = "红色", "[红]"
+        elif peak >= _high["橙色"]:
+            level, icon_ = "橙色", "[橙]"
         else:
-            level, lv_num, icon_ = "黄色", "III级", "[黄]"
-        hot_detail = f"未来{ndays}天中{len(hot)}天日最高气温>=35C，峰值{peak:.1f}C ({peak_date})"
+            level, icon_ = "黄色", "[黄]"
+        lv_num = level_label(level)
+        hot_detail = f"未来{ndays}天中{len(hot)}天日最高气温>={_high['黄色']:.0f}C，峰值{peak:.1f}C ({peak_date})"
         if max_consec_hot >= 3:
             hot_detail += f"，其中连续{max_consec_hot}天高温（"
             hot_detail += "~".join(hot_streak_dates[:2]) if len(hot_streak_dates) >= 2 else hot_streak_dates[0]
@@ -994,9 +998,10 @@ def _analyze_forecast(fdf):
         })
 
     # ----- 2. 暴雨预警（含连续降水检测 + 强度分类）-----
-    # 降水强度分类
+    # 预报侧按日累计降水量判定，阈值集中在 warn_rules.DAILY_RAIN_LEVELS。
+    _rain = warn_rules.DAILY_RAIN_LEVELS
     precip_cats = {"大雨(25-50mm)": 0, "暴雨(50-100mm)": 0, "大暴雨(>=100mm)": 0}
-    heavy = dprecip[dprecip >= 25]
+    heavy = dprecip[dprecip >= _rain["大雨"]]
     consecutive_rain = 0
     max_consec_rain = 0
     for d, val in dprecip.items():
@@ -1008,22 +1013,22 @@ def _analyze_forecast(fdf):
     results["precision"]["consecutive_rain"] = max_consec_rain
 
     for d, val in dprecip.items():
-        if val >= 100:
+        if val >= _rain["红色"]:
             precip_cats["大暴雨(>=100mm)"] += 1
-            lv, lnum = "红色", "I级"
-        elif val >= 75:
+            lv = "红色"
+        elif val >= _rain["橙色"]:
             precip_cats["暴雨(50-100mm)"] += 1
-            lv, lnum = "橙色", "II级"
-        elif val >= 50:
+            lv = "橙色"
+        elif val >= _rain["黄色"]:
             precip_cats["暴雨(50-100mm)"] += 1
-            lv, lnum = "黄色", "III级"
-        elif val >= 25:
+            lv = "黄色"
+        elif val >= _rain["大雨"]:
             precip_cats["大雨(25-50mm)"] += 1
             continue
         else:
             continue
         results["warnings"].append({
-            "type": "暴雨", "level": lv, "level_num": lnum,
+            "type": "暴雨", "level": lv, "level_num": level_label(lv),
             "detail": f"{d} 日降水量 {val:.1f} mm，需关注短时强降水。",
             "icon": "[暴]",
         })
@@ -1033,18 +1038,19 @@ def _analyze_forecast(fdf):
         results["precision"]["max_6h_precip"] = (float(h6_precip.max()), str(h6_precip.idxmax()))
 
     # ----- 3. 大风预警 -----
-    windy = dmax_ws[dmax_ws >= 10.8]
+    _gale = warn_rules.gale_levels()
+    windy = dmax_ws[dmax_ws >= _gale["蓝色"]]
     for d, val in windy.items():
-        if val >= 24.5:
-            lv, lnum = "橙色", "II级"
-        elif val >= 17.2:
-            lv, lnum = "黄色", "III级"
-        elif val >= 10.8:
-            lv, lnum = "蓝色", "IV级"
+        if val >= _gale["橙色"]:
+            lv = "橙色"
+        elif val >= _gale["黄色"]:
+            lv = "黄色"
+        elif val >= _gale["蓝色"]:
+            lv = "蓝色"
         else:
             continue
         results["warnings"].append({
-            "type": "大风", "level": lv, "level_num": lnum,
+            "type": "大风", "level": lv, "level_num": level_label(lv),
             "detail": f"{d} 最大风速 {val:.1f} m/s，需注意户外作业安全。",
             "icon": "[风]",
         })

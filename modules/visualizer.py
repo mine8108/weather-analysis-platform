@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 from config import (
-    COLORS, WIND_DIRECTIONS, LIMIT_STANDARD_LABEL,
+    WIND_DIRECTIONS, LIMIT_STANDARD_LABEL,
     get_beaufort_level, get_wind_direction_name, get_dominant_wind_direction,
     safe_chart, FIELD_LABELS,
 )

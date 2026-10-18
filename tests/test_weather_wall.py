@@ -387,6 +387,8 @@ def _make_app_test(monkeypatch, with_df: bool):
     monkeypatch.setattr(db_mod, "get_storage_usage_bytes", lambda *a, **k: 0)
     monkeypatch.setattr(db_mod, "get_storage_quota_bytes", lambda *a, **k: 10485760)
     monkeypatch.setattr(db_mod, "list_datasets", lambda *a, **k: [])
+    monkeypatch.setattr(db_mod, "list_datasets_result", lambda *a, **k: ([], None))
+    # 自动载入走 load_latest_dataset → list_datasets_result，若不打桩会尝试真实网络
     # 城市列表持久化隔离到临时文件，避免测试写入真实用户 ~/.weather_wall_cities.json
     import tempfile
     from modules import city_prefs as cp_mod

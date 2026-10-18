@@ -235,4 +235,15 @@ python -m pytest tests -q
 - 新增测试：`test_dataset.py`(9)，含 db 级保存读回往返；全量 462 项通过。
 - 残留：`get_storage_usage_bytes` 等标量 RPC 仍以默认值兜底，留到批次 3 的错误契约收敛一并处理。
 
+### 批次 3（2026-10-18，已完成）
+
+- 新增 `modules/warn_rules.py`：`high_temp_levels` / `gale_levels` / `fog_levels` / `frost_levels` / `haze_levels` / `rainstorm_levels` / `cold_wave_levels` / `thunder_window_hours` 与 `default_custom()`，自定义阈值在观测侧与预报侧读同一份。
+- `config.py` 的八张预警表不再手写等级串，由 `LEVEL_LABELS` 在 import 期注入；新增 `level_label()` 作为唯一生成方式。analyzer 与 nwp_forecast 的 `level_num` 全部改为调用它，ASCII 的 I/II/III 写法消失。
+- `nwp_forecast._analyze_forecast` 的高温、暴雨、大风阈值改读 `warn_rules`，侧边栏默认值由 `default_custom()` 派生，app 里不再有第三份数字。
+- 天气墙 AQI 改走 `modules.aqi.comprehensive_aqi` + `design_tokens.aqi_color`，不再从 `nwp_forecast` 私有导入。
+- 删除 `config.COLORS`（37 个 hex）与 `design_tokens` 的兼容回退分支；`config.toml` 只剩 Streamlit 自身主题占位。
+- 新增测试：`test_warn_rules.py`(7)，全量 469 项通过。
+- 已知：`test_weather_wall.py` 单文件运行存在既有的测试顺序依赖（需要全量运行），留到批次 5。
+
+
 

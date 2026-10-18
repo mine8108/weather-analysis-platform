@@ -40,6 +40,7 @@ from modules.nwp_forecast import render_forecast_tab
 from utils import df_fingerprint as _df_fingerprint, go_back as _go_back, _safe_toast
 from auth import render_auth_page, is_authenticated, sign_out_user, ensure_session
 from modules import theme_aether
+from modules import warn_rules
 from modules.design_tokens import css_var
 from modules.weather_wall import render_wall
 
@@ -536,61 +537,62 @@ with st.sidebar:
         st.caption("默认值即国家标准值，修改后点底部按钮生效（仅影响当前会话）")
 
         custom = {}
+        _d = warn_rules.default_custom()
 
         st.write("**高温检测阈值 (℃)**")
         col_a, col_b = st.columns(2)
         with col_a:
-            ht_y = st.number_input("黄色 ≥", value=35.0, step=0.5, key="ht_y")
+            ht_y = st.number_input("黄色 ≥", value=_d["high_temp"]["黄色"], step=0.5, key="ht_y")
         with col_b:
-            ht_o = st.number_input("橙色 ≥", value=37.0, step=0.5, key="ht_o")
-        ht_r = st.number_input("红色 ≥", value=40.0, step=0.5, key="ht_r")
+            ht_o = st.number_input("橙色 ≥", value=_d["high_temp"]["橙色"], step=0.5, key="ht_o")
+        ht_r = st.number_input("红色 ≥", value=_d["high_temp"]["红色"], step=0.5, key="ht_r")
         custom["high_temp"] = {"黄色": ht_y, "橙色": ht_o, "红色": ht_r}
 
         st.write("**大风检测阈值 (m/s)**")
         col_c, col_d = st.columns(2)
         with col_c:
-            gw_b = st.number_input("蓝色 ≥", value=10.8, step=0.5, key="gw_b")
+            gw_b = st.number_input("蓝色 ≥", value=_d["gale"]["蓝色"], step=0.5, key="gw_b")
         with col_d:
-            gw_y = st.number_input("黄色 ≥", value=17.2, step=0.5, key="gw_y")
+            gw_y = st.number_input("黄色 ≥", value=_d["gale"]["黄色"], step=0.5, key="gw_y")
         col_e, col_f = st.columns(2)
         with col_e:
-            gw_o = st.number_input("橙色 ≥", value=24.5, step=0.5, key="gw_o")
+            gw_o = st.number_input("橙色 ≥", value=_d["gale"]["橙色"], step=0.5, key="gw_o")
         with col_f:
-            gw_r = st.number_input("红色 ≥", value=32.7, step=0.5, key="gw_r")
+            gw_r = st.number_input("红色 ≥", value=_d["gale"]["红色"], step=0.5, key="gw_r")
         custom["gale"] = {"蓝色": gw_b, "黄色": gw_y, "橙色": gw_o, "红色": gw_r}
 
         st.write("**大雾检测阈值 (m)**")
-        fg_y = st.number_input("黄色 <", value=500, step=50, key="fg_y")
-        fg_o = st.number_input("橙色 <", value=200, step=50, key="fg_o")
-        fg_r = st.number_input("红色 <", value=50, step=10, key="fg_r")
+        fg_y = st.number_input("黄色 <", value=_d["fog"]["黄色"], step=50, key="fg_y")
+        fg_o = st.number_input("橙色 <", value=_d["fog"]["橙色"], step=50, key="fg_o")
+        fg_r = st.number_input("红色 <", value=_d["fog"]["红色"], step=10, key="fg_r")
         custom["fog"] = {"黄色": fg_y, "橙色": fg_o, "红色": fg_r}
 
         # R-14 补齐：暴雨 / 霜冻 / 霾 / 雷电 四类此前只能改 config.py 才生效
         st.write("**暴雨检测阈值 (mm)**")
         col_r1, col_r2 = st.columns(2)
         with col_r1:
-            rs_b = st.number_input("蓝色 ≥（12h）", value=50.0, step=5.0, key="rs_b")
-            rs_o = st.number_input("橙色 ≥（3h）", value=50.0, step=5.0, key="rs_o")
+            rs_b = st.number_input("蓝色 ≥（12h）", value=_d["rainstorm"]["蓝色"], step=5.0, key="rs_b")
+            rs_o = st.number_input("橙色 ≥（3h）", value=_d["rainstorm"]["橙色"], step=5.0, key="rs_o")
         with col_r2:
-            rs_y = st.number_input("黄色 ≥（6h）", value=50.0, step=5.0, key="rs_y")
-            rs_r = st.number_input("红色 ≥（3h）", value=100.0, step=5.0, key="rs_r")
+            rs_y = st.number_input("黄色 ≥（6h）", value=_d["rainstorm"]["黄色"], step=5.0, key="rs_y")
+            rs_r = st.number_input("红色 ≥（3h）", value=_d["rainstorm"]["红色"], step=5.0, key="rs_r")
         custom["rainstorm"] = {"蓝色": rs_b, "黄色": rs_y, "橙色": rs_o, "红色": rs_r}
 
         st.write("**霜冻检测阈值 (℃)**")
         col_fr1, col_fr2 = st.columns(2)
         with col_fr1:
-            fr_b = st.number_input("蓝色 ≤", value=0.0, step=0.5, key="fr_b")
-            fr_o = st.number_input("橙色 ≤", value=-5.0, step=0.5, key="fr_o")
+            fr_b = st.number_input("蓝色 ≤", value=_d["frost"]["蓝色"], step=0.5, key="fr_b")
+            fr_o = st.number_input("橙色 ≤", value=_d["frost"]["橙色"], step=0.5, key="fr_o")
         with col_fr2:
-            fr_y = st.number_input("黄色 ≤", value=-3.0, step=0.5, key="fr_y")
+            fr_y = st.number_input("黄色 ≤", value=_d["frost"]["黄色"], step=0.5, key="fr_y")
         custom["frost"] = {"蓝色": fr_b, "黄色": fr_y, "橙色": fr_o}
 
         st.write("**霾检测阈值 (m)**")
         col_hz1, col_hz2 = st.columns(2)
         with col_hz1:
-            hz_y = st.number_input("黄色 <", value=3000, step=100, key="hz_y")
+            hz_y = st.number_input("黄色 <", value=_d["haze"]["黄色"], step=100, key="hz_y")
         with col_hz2:
-            hz_o = st.number_input("橙色 <", value=2000, step=100, key="hz_o")
+            hz_o = st.number_input("橙色 <", value=_d["haze"]["橙色"], step=100, key="hz_o")
         custom["haze"] = {"黄色": hz_y, "橙色": hz_o}
 
         st.write("**雷电检测窗口**")

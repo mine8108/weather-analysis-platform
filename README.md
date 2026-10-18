@@ -73,6 +73,7 @@ weather_app/
 │   ├── test_session_isolation.py # 自定义阈值跨会话隔离 2 条
 │   ├── test_state_registry.py  # 会话状态注册表完整性 5 条
 │   ├── test_manual.py          # 手册结构与内容契约 25 条
+│   ├── test_warn_rules.py      # 预警阈值与等级串单一出口 7 条
 │   ├── test_chart_reader.py    # 读图管线 / 编码策略 / 用量记账 / prompt / 接线 41 条
 │   ├── test_ai_narrative.py    # 多模态请求体、空正文诊断、用量回传与报告导出 27 条
 │   ├── test_vision_quota.py    # 读图配额：schema 安全契约 / 数据层 / 纯函数 26 条
@@ -161,7 +162,7 @@ python -B tests/test_supabase_backend.py # Supabase 后端契约 24 条
 python -B tests/test_release_surface.py  # 版本/依赖/Secrets/CI 契约 18 条
 ```
 
-其余用例用 pytest 运行全部（当前共 **462** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
+其余用例用 pytest 运行全部（当前共 **469** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
 
 ```bash
 pip install -r requirements-dev.txt
