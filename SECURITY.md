@@ -44,6 +44,8 @@ RLS 策略定义于 `sql/schema.sql`，需在 Supabase 控制台 SQL Editor 执�
 
 注意：`st.markdown(unsafe_allow_html=True)` 在 1.59.1 走 rehype-raw，**不经过 DOMPurify**；任何数据字符串必须先 `html.escape`。DOMPurify 只对 `st.html` 生效。
 
+**2026-10-18 线上核验**：Supabase「Allow new users to sign up」确认为关闭；「Confirm email」已开启；`sql/schema.sql` 已重跑成功；修复代码已推送并部署，管理员面板安全自检通过；邀请码注册端到端回归通过（测试账号已删除）。
+
 **部署后必须重跑 `sql/schema.sql`**（新增表 / 函数 / 列与多项执行权变更），否则出站配额与邀请码注册会失败。完整变更与验证见 `research/audit-2026-10-18/修复记录.md`。
 
 ## 公开库部署须知
