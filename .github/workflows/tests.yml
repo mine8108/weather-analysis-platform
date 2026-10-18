@@ -58,6 +58,9 @@ jobs:
       - name: 发布面契约（版本/依赖/Secrets/CI）
         run: python -B tests/test_release_surface.py
 
+      - name: 会话状态注册表校验
+        run: python -B research/check_state_registry.py
+
       # 全量回归：批次 0 起改为阻断。含 AppTest 启动冒烟与天气墙用例。
       - name: 全量回归（阻断）
         run: python -m pytest tests -q

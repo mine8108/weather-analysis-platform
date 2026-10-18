@@ -92,46 +92,27 @@ def _safe_reset():
     同时删掉 _auto_load_done 会让云端数据被自动载回，重置等于没重置。
     """
     from modules.app_state import reset_session
-    reset_session(
-        st.session_state,
-        keep_prefixes=("auth_", "invite_", "admin_"),
-    )
+    reset_session(st.session_state)
 
 
-# Tab 名称映射(用于重置按钮显示当前 Tab 名)
-_TAB_NAMES = ["导入", "可视化", "数值预报", "读图解析", "报告导出", "报文解码"]
+# Tab 名称映射由注册表派生，避免两处顺序漂移
+from modules.app_state import TAB_NAMES as _TAB_NAMES  # noqa: E402
 
-# 每个 Tab 重置时清理的 session_state key(精确匹配 + "_" 前缀动态匹配)
-_RESET_KEYS_BY_TAB = {
-    "导入": ["df", "source", "import_step", "import_method", "manual_data", "raw_df",
-             "import_warnings", "_template_cache", "era5_data", "era5_lat", "era5_lon",
-             # 天气墙状态（首页=导入 Tab 顶部）：重置后彻底清理，含一次性提示与定位组件值
-             "wall_cities", "wall_query", "wall_geo", "wall_candidate_pick",
-             "_resolve_candidates", "_wall_notice", "_geo_consumed", "_relocate"],
-    "数值预报": ["fc_df", "fc_analysis", "life_indices",
-                 "nwp_forecast_for_analysis", "nwp_combined"],
-    "可视化": ["multi_station_selected"],
-    "读图解析": ["chart_reader_images", "chart_reader_text", "chart_reader_meta",
-                 "chart_reader_report_images", "chart_reader_last_gen",
-                 "chart_reader_gen_count"],
-    "报告导出": ["report_data"],
-    "报文解码": ["manual_data", "codec_result", "codec_errors"],
-}
+# 每个 Tab 的重置键由 modules/app_state.KEYS 派生，不再手写清单。
 
 
 def _reset_current_tab():
-    """清空当前 Tab 的业务数据 key,保留登录态(auth_user)、导航栈、阈值设置。
-    用于侧边栏「重置当前模块数据」按钮。
+    """清空当前 Tab 的业务数据，保留登录态、导航栈与偏好设置。
+
+    重置范围来自 modules/app_state 的注册表；新增会话键只需登记一次。
     """
+    from modules.app_state import reset_tab
     tab_idx = st.session_state.get("active_tab", 0)
     tab_name = _TAB_NAMES[tab_idx] if 0 <= tab_idx < len(_TAB_NAMES) else "当前模块"
-    keys = _RESET_KEYS_BY_TAB.get(tab_name, [])
-    removed = []
-    for k in list(st.session_state.keys()):
-        # 精确匹配 + "key_" 前缀动态匹配(如 api_data_xxx)
-        if any(k == p or k.startswith(p + "_") for p in keys):
-            del st.session_state[k]
-            removed.append(k)
+    removed = reset_tab(st.session_state, tab_name)
+    if tab_name == "导入":
+        st.session_state["import_step"] = 0
+        st.session_state["import_method"] = None
     # 天气墙状态被清理时，同步清空持久化文件：否则下次渲染 load_cities()
     # 会把重置前的城市从磁盘读回，"重置彻底清理"不生效
     if any(r.startswith("wall_") for r in removed):

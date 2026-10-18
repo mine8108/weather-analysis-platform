@@ -209,4 +209,21 @@ python -m pytest tests -q
 1. 子代理驱动，每个任务派一个全新子代理，任务间由 Lead 复核。
 2. 本会话内逐任务执行，每个任务后跑一次全量测试。
 
-确认后我从批次 0 任务 1 开始。
+## 七、实施记录
+
+### 批次 0（2026-10-18，已完成）
+
+- 依赖装在仓库内 `.venv`（Tsinghua 镜像），全量回归从 427 项增长到 446 项，全部通过。
+- 七项修复全部落地，两个提交：`704f646` 会话与阈值作用域，`f992ae9` 配额、解码、导入与 CI。
+- 新增测试：`test_app_state.py`(4)、`test_codec_render.py`(3)、`test_import_merge.py`(6)。
+- CI 的 `pytest` 步骤从 `continue-on-error` 改为阻断，并保留 11 个脚本门禁。
+- 批次 0 的可见变更只做了 V1（解码按钮恢复可用）与 V3（重置文案）。
+
+### 批次 1（2026-10-18，已完成）
+
+- `modules/app_state.py` 升级为注册表：66 个会话键 + 129 个 widget key + 6 条动态前缀规则。
+- `app.py` 删除 `_RESET_KEYS_BY_TAB`，`_reset_current_tab` 改用 `reset_tab`；`_safe_reset` 改用注册表 keep 策略。
+- `auth.py` 的 `_LOGOUT_KEEP` 改为从注册表导入，三份手写清单归一。
+- `research/check_state_registry.py` 接入 CI，未登记的字面量键直接失败。
+- 新增测试：`test_state_registry.py`(5)、`test_session_isolation.py`(2)，全量 453 项通过。
+

@@ -293,12 +293,15 @@ def test_report_images_prefers_generation_time_cache():
 
 
 def test_report_image_cache_is_wired_into_render_and_reset():
-    """缓存必须被写入（生成时）、被读取（导出时）、被清理（重置时）。"""
+    """缓存必须被写入（生成时）、被读取（导出时）、被登记清理（重置时）。"""
+    from modules import app_state
     reader = _read("modules/chart_reader.py")
     assert reader.count("chart_reader_report_images") >= 2
     assert "report_images_for_export" in reader
-    app = _read("app.py")
-    assert "chart_reader_report_images" in app, "重置键需覆盖报告图片缓存"
+    assert app_state.KEYS["chart_reader_report_images"]["tab"] == "读图解析"
+    state = {"chart_reader_report_images": [1]}
+    app_state.reset_tab(state, "读图解析")
+    assert "chart_reader_report_images" not in state
 
 
 if __name__ == "__main__":

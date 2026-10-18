@@ -179,8 +179,9 @@ def is_authenticated() -> bool:
     return bool(st.session_state.get("auth_user"))
 
 
-# 退出登录时保留的键：仅导航栈，不含任何用户数据
-_LOGOUT_KEEP = {"_nav_stack"}
+# 退出登录时保留的键：仅导航栈，不含任何用户数据。
+# 由 modules.app_state 统一声明，避免第二份手写清单。
+from modules.app_state import LOGOUT_KEEP as _LOGOUT_KEEP
 
 
 def sign_out_user():

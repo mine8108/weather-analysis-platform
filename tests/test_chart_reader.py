@@ -352,9 +352,16 @@ def test_app_tab_label_renamed_to_chart_reader():
 
 
 def test_app_tab_names_and_reset_keys_updated():
-    source = _source("app.py")
-    assert '"读图解析"' in source
-    assert '"chart_reader_images"' in source
+    """读图相关会话键必须登记在注册表，且重置该 Tab 时被清除。"""
+    from modules import app_state
+    assert "读图解析" in app_state.TAB_NAMES
+    for key in ("chart_reader_images", "chart_reader_text",
+                "chart_reader_report_images"):
+        assert app_state.KEYS[key]["tab"] == "读图解析", key
+    state = {"chart_reader_images": [1], "auth_user": {"id": "u1"}}
+    app_state.reset_tab(state, "读图解析")
+    assert "chart_reader_images" not in state
+    assert "auth_user" in state
 
 
 def test_app_renders_chart_tab_without_data():
