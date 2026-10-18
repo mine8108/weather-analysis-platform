@@ -73,6 +73,7 @@ weather_app/
 │   ├── test_session_isolation.py # 自定义阈值跨会话隔离 2 条
 │   ├── test_state_registry.py  # 会话状态注册表完整性 5 条
 │   ├── test_manual.py          # 手册结构与内容契约 25 条
+│   ├── test_nwp_calc.py        # GFS 预报纯计算层 7 条
 │   ├── test_warn_rules.py      # 预警阈值与等级串单一出口 7 条
 │   ├── test_chart_reader.py    # 读图管线 / 编码策略 / 用量记账 / prompt / 接线 41 条
 │   ├── test_ai_narrative.py    # 多模态请求体、空正文诊断、用量回传与报告导出 27 条
@@ -94,6 +95,9 @@ weather_app/
     ├── codec.py                # SYNOP/METAR 解码
     ├── nwp_forecast.py         # GFS 数值预报接入 + 时间图/空气质量/风玫瑰/预报验证
     ├── gfs_cache.py            # GFS 二级缓存读写契约（updated_at / service_role 写入）
+    ├── dataset.py              # 数据集契约：列名归一 / 版本化序列化 / 云端往返
+    ├── warn_rules.py           # 预警阈值解析与等级串（观测侧与预报侧共用）
+    ├── nwp/                    # GFS 预报纯计算层（calc.py，不依赖 Streamlit）
     ├── supabase_backend.py     # 安全自检判定（纯逻辑，不依赖 Streamlit）
     ├── verify.py               # GFS 预报 vs 实况 的定量验证
     ├── reporter.py             # Word/CSV 报告导出
@@ -162,7 +166,7 @@ python -B tests/test_supabase_backend.py # Supabase 后端契约 24 条
 python -B tests/test_release_surface.py  # 版本/依赖/Secrets/CI 契约 18 条
 ```
 
-其余用例用 pytest 运行全部（当前共 **469** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
+其余用例用 pytest 运行全部（当前共 **476** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
 
 ```bash
 pip install -r requirements-dev.txt

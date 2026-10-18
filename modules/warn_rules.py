@@ -31,9 +31,17 @@ DAILY_RAIN_LEVELS = {"红色": 100.0, "橙色": 75.0, "黄色": 50.0, "大雨": 
 
 
 def current_custom():
-    """当前会话的自定义阈值；无 Streamlit 上下文时返回空 dict。"""
+    """当前会话的自定义阈值；无 Streamlit 运行时上下文时返回空 dict。"""
     try:
         import streamlit as st
+        try:
+            from streamlit.runtime import exists as _runtime_exists
+            running = bool(_runtime_exists())
+        except Exception:
+            # 测试替身只提供 session_state，没有 runtime 子模块，视为可用
+            running = True
+        if not running:
+            return {}
         return st.session_state.get("_custom_thresholds") or {}
     except Exception:
         return {}

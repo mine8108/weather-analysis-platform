@@ -245,5 +245,16 @@ python -m pytest tests -q
 - 新增测试：`test_warn_rules.py`(7)，全量 469 项通过。
 - 已知：`test_weather_wall.py` 单文件运行存在既有的测试顺序依赖（需要全量运行），留到批次 5。
 
+### 批次 4（进行中）
+
+切片 1 完成：`nwp_forecast` 纯计算层抽出。
+
+- 新增 `modules/nwp/calc.py`（493 行）：`heat_index`、`_calc_ssd`、`_get_now_row`、`_calc_life_indices`、`_analyze_forecast`。模块导入不拉入 Streamlit，已用子进程断言。
+- `_calc_life_indices` 改为接收显式 `current` 参数，不再读 `st.session_state`、不再内部联网；实时观测由 `render_forecast_tab` 取好后传入。
+- 抽层过程中修掉一个真实崩溃：连续 3 天高温时 `hot_streak_dates` 是 `datetime.date`，直接 `join` 抛 `TypeError`，此前被顶层错误边界吞成「页面异常」。现在先转字符串。
+- `nwp_forecast.py` 从 1935 行降到 1480 行，对外函数名保持不变。
+- 新增测试：`test_nwp_calc.py`(7)，全量 476 项通过。
+- 待做切片：`auth.py` 管理员面板拆到 `modules/admin/`、`reporter.py` 按报告类型拆、`theme_css.py` 的 CSS 字符串外置。
+
 
 

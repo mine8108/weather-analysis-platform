@@ -1117,17 +1117,28 @@ def _sample_frames():
 # ============================================================
 
 def _with_fake_streamlit(session_state):
-    """临时把 streamlit 模块替换成只带 session_state 的替身，返回恢复函数。"""
+    """临时把 streamlit 模块替换成带 session_state 的替身，返回恢复函数。
+
+    同时替换 streamlit.runtime 子模块：真实子模块留在 sys.modules 里时，
+    warn_rules.current_custom 会读到「无运行时」而退回模块级阈值。
+    """
     import types
 
     saved = sys.modules.get("streamlit")
+    saved_runtime = sys.modules.get("streamlit.runtime")
     sys.modules["streamlit"] = types.SimpleNamespace(session_state=session_state)
+    sys.modules["streamlit.runtime"] = types.SimpleNamespace(
+        exists=lambda: True)
 
     def restore():
         if saved is None:
             sys.modules.pop("streamlit", None)
         else:
             sys.modules["streamlit"] = saved
+        if saved_runtime is None:
+            sys.modules.pop("streamlit.runtime", None)
+        else:
+            sys.modules["streamlit.runtime"] = saved_runtime
 
     return restore
 
