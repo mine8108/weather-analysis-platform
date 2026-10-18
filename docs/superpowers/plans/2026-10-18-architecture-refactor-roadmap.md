@@ -272,5 +272,13 @@ python -m pytest tests -q
 - 拆分同时补齐了报告导出的行为测试：此前 `export_report_word` 没有任何测试覆盖。新增 `test_report_export.py`(4)，验证专业版包含预警章节、通俗版可生成、空数据不崩、CSV 表头正确。
 - 全量 480 项通过。
 
+切片 4 完成：`theme_css.py` 的 530 行 CSS 外置。
+
+- `BASE_CSS` 移到 `modules/theme_assets/base.css`，`theme_css.py` 从 834 行降到 315 行，只保留变量块生成与暗色覆盖。
+- `research/check_py_vars.py` 扩展为同时扫描 `.css`，外置后校验点从 220 恢复到 380，并跳过 `.venv`。
+- 新增 `test_theme_assets.py`(4)，验证资源可读、亮色回退选择器与暗色作用域。
+- 全量 484 项通过。
+- 剩余：`nwp_forecast.py` 的抓取层与图表层尚未拆出，批次 4 收尾放在下一轮。
+
 
 

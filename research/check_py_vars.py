@@ -24,7 +24,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-SKIP_DIRS = {"__pycache__", "research", "tests", ".git", ".streamlit"}
+SKIP_DIRS = {"__pycache__", "research", "tests", ".git", ".streamlit", ".venv"}
 
 CALL_NAMES = ("css_var", "token_value", "_sev", "_aq_color", "color_var", "color_value")
 
@@ -112,6 +112,20 @@ def main() -> int:
                     if var not in defined:
                         missing.append((str(path.relative_to(ROOT)), node.lineno,
                                         f'{key} → --{var}'))
+
+    # 3) 外置 CSS 资源：theme_assets 下的 .css 与 Python 字符串同等对待
+    for path in sorted(ROOT.rglob("*.css")):
+        if any(part in SKIP_DIRS for part in path.parts):
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        local_defined = {m.group(1) for m in
+                         re.finditer(r"--([A-Za-z0-9_-]+)\s*:", text)}
+        for match in re.finditer(r"var\(--([a-z0-9-]+)\)", text):
+            checked += 1
+            if match.group(1) not in defined and match.group(1) not in local_defined:
+                line = text[:match.start()].count("\n") + 1
+                missing.append((str(path.relative_to(ROOT)), line,
+                                f"--{match.group(1)}"))
 
     if missing:
         print(f"发现 {len(missing)} 处无法解析的 CSS 变量引用：")
