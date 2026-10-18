@@ -80,35 +80,47 @@ class _FakeClient:
 # 一、安全自检判定
 # ============================================================
 def _healthy_report():
+    functions = {}
+    for name in backend.ANON_FORBIDDEN_FUNCTIONS:
+        functions[name] = {"anon": False, "authenticated": False}
+    for name in backend.AUTHENTICATED_FORBIDDEN_FUNCTIONS:
+        functions.setdefault(name, {"anon": False, "authenticated": False})
+        functions[name]["authenticated"] = False
+    for name in backend.SERVICE_REQUIRED_FUNCTIONS:
+        functions.setdefault(name, {"anon": False, "authenticated": False})
+        functions[name]["service_role"] = True
+    # save_dataset 是登录用户正常调用的写函数
+    functions["save_dataset"] = {"anon": False, "authenticated": True,
+                                 "service_role": True}
+
+    table_privileges = {}
+    for table in backend.RLS_TABLES:
+        for role in ("anon", "authenticated"):
+            for privilege in ("SELECT", "INSERT", "UPDATE", "DELETE"):
+                table_privileges["%s.%s.%s" % (table, role, privilege)] = False
+
+    policies = [
+        {"table": "datasets", "name": "datasets_owner_only",
+         "roles": ["public"]},
+        {"table": "profiles", "name": "profiles_select_self",
+         "roles": ["public"]},
+        {"table": "profiles", "name": "profiles_insert_service",
+         "roles": ["service_role"]},
+        {"table": "vision_usage", "name": "vision_usage_select_self",
+         "roles": ["authenticated"]},
+    ]
+    definer_functions = {
+        name: {"security_definer": True,
+               "search_path": "search_path=public, pg_temp"}
+        for name in backend.SECURITY_DEFINER_FUNCTIONS
+    }
+
     return {
         "rls": {table: True for table in backend.RLS_TABLES},
-        "functions": {
-            "save_dataset": {"anon": False, "authenticated": True},
-            "put_gfs_cache": {"anon": False, "authenticated": False,
-                              "service_role": True},
-            "security_selfcheck": {"anon": False, "authenticated": False},
-            "release_invite_code": {"anon": False, "authenticated": False},
-        },
-        "table_privileges": {
-            "datasets.authenticated.INSERT": False,
-            "datasets.authenticated.UPDATE": False,
-            "profiles.authenticated.UPDATE": False,
-            "vision_usage.authenticated.INSERT": False,
-            "vision_usage.authenticated.UPDATE": False,
-            "vision_usage.authenticated.DELETE": False,
-            "gfs_cache.authenticated.SELECT": False,
-            "gfs_cache.authenticated.INSERT": False,
-            "gfs_cache.authenticated.UPDATE": False,
-            "gfs_cache.authenticated.DELETE": False,
-            "admin_audit_log.authenticated.SELECT": False,
-            "admin_audit_log.authenticated.INSERT": False,
-            "admin_audit_log.authenticated.UPDATE": False,
-            "admin_audit_log.authenticated.DELETE": False,
-            "schema_version.authenticated.SELECT": False,
-            "schema_version.authenticated.INSERT": False,
-            "schema_version.authenticated.UPDATE": False,
-            "schema_version.authenticated.DELETE": False,
-        },
+        "functions": functions,
+        "table_privileges": table_privileges,
+        "policies": policies,
+        "definer_functions": definer_functions,
     }
 
 
@@ -153,6 +165,44 @@ def test_selfcheck_detects_table_write_privilege():
         report["table_privileges"][key] = True
         problems = backend.selfcheck_problems(report)
         assert any(table in p and priv in p for p in problems), (key, problems)
+
+
+def test_selfcheck_treats_missing_entries_as_failure():
+    """SEC-17：报告缺少某项时必须判失败，不能把「无法证明」当成「安全」。"""
+    report = _healthy_report()
+    report["functions"].pop("claim_invite_code")
+    assert any("claim_invite_code" in p
+               for p in backend.selfcheck_problems(report)), report["functions"]
+
+    report = _healthy_report()
+    report["table_privileges"].pop("invite_codes.anon.SELECT")
+    assert any("invite_codes" in p
+               for p in backend.selfcheck_problems(report)), report["table_privileges"]
+
+
+def test_selfcheck_detects_policy_and_definer_drift():
+    """SEC-17：策略缺失、策略对 anon 开放、SECURITY DEFINER/search_path 漂移都要报。"""
+    report = _healthy_report()
+    report["policies"] = [
+        p for p in report["policies"] if p["name"] != "datasets_owner_only"
+    ]
+    assert any("datasets_owner_only" in p
+               for p in backend.selfcheck_problems(report)), report["policies"]
+
+    report = _healthy_report()
+    report["policies"].append({"name": "bad_policy", "roles": ["anon"]})
+    assert any("bad_policy" in p
+               for p in backend.selfcheck_problems(report)), report["policies"]
+
+    report = _healthy_report()
+    report["definer_functions"]["save_dataset"]["search_path"] = "search_path=public"
+    assert any("save_dataset" in p and "pg_temp" in p
+               for p in backend.selfcheck_problems(report)), report["definer_functions"]
+
+    report = _healthy_report()
+    report["definer_functions"].pop("save_dataset")
+    assert any("save_dataset" in p
+               for p in backend.selfcheck_problems(report)), report["definer_functions"]
 
 
 def test_selfcheck_rejects_non_dict_report():
@@ -247,7 +297,9 @@ def test_nwp_cache_read_uses_rpc():
     key = "gfs_fc_cache_v3_1.0000_2.0000_d7_blend"
     with mock.patch.object(nwp_forecast, "st", _fake_streamlit_secrets()), \
             mock.patch("utils.st", _fake_streamlit_secrets()), \
-            mock.patch("auth.get_supabase", return_value=client):
+            mock.patch("auth.get_supabase_admin", return_value=client), \
+            mock.patch("auth.get_supabase",
+                       side_effect=AssertionError("读取不得使用登录用户客户端")):
         df = nwp_forecast._load_gfs_from_cache(key)
     assert df is not None and len(df) == 1
     assert ("get_gfs_cache", {"p_key": key}) in client.calls
@@ -341,7 +393,11 @@ def test_schema_defines_cache_rpc_and_updated_at():
         "grant execute on function public.security_selfcheck() to service_role",
         "revoke execute on function public.security_selfcheck() from public, anon, authenticated;",
         "revoke execute on function public.save_dataset(uuid, text, text) from public, anon;",
-        "revoke execute on function public.consume_invite_code(text, uuid) from public, anon;",
+        "revoke execute on function public.consume_invite_code(text, uuid) from public, anon, authenticated;",
+        "revoke execute on function public.claim_invite_code(text) from public, anon, authenticated;",
+        "revoke all on public.invite_codes from anon, authenticated;",
+        "revoke all on public.datasets from anon;",
+        "set search_path = public, pg_temp",
         "from public, anon, authenticated;",
         "to service_role;",
         "datasets_name_len_check",

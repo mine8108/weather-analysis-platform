@@ -1,6 +1,7 @@
 {
   "name": "Python 3",
   // Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
+  // 安全修复（SEC-29）：镜像未钉 digest，仅是开发环境风险；生产在 Streamlit Cloud。
   "image": "mcr.microsoft.com/devcontainers/python:1-3.11-bookworm",
   "customizations": {
     "codespaces": {
@@ -17,7 +18,9 @@
       ]
     }
   },
-  "updateContentCommand": "[ -f packages.txt ] && sudo apt update && sudo apt upgrade -y && sudo xargs apt install -y <packages.txt; [ -f requirements.txt ] && pip3 install --user -r requirements.txt; pip3 install --user streamlit; echo '✅ Packages installed and Requirements met'",
+  // 安全修复（SEC-29）：删除未固定版本的 `pip3 install streamlit`（会把
+  // requirements.txt 里的固定版本覆盖成当日最新版），并去掉无差别的 apt upgrade。
+  "updateContentCommand": "[ -f packages.txt ] && sudo apt update && sudo xargs apt install -y <packages.txt; [ -f requirements.txt ] && pip3 install --user -r requirements.txt; echo '✅ Packages installed and Requirements met'",
   "postAttachCommand": {
     "server": "streamlit run app.py"
   },

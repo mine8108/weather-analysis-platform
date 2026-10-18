@@ -22,7 +22,8 @@ Streamlit 组件协议（无 React，手工实现）：
 
   function send(type, data) {
     var msg = Object.assign({ isStreamlitMessage: true, type: type }, data);
-    window.parent.postMessage(msg, "*");
+    // 安全修复（SEC-15）：只发给同源父窗口，避免被第三方站点嵌入时外泄定位结果
+    window.parent.postMessage(msg, window.location.origin);
   }
 
   function setFrameHeight(h) { send("streamlit:setFrameHeight", { height: h }); }
@@ -60,6 +61,9 @@ Streamlit 组件协议（无 React，手工实现）：
 
   // 处理 RENDER 事件：args.clear=true → 清缓存重定位；否则有缓存直接回传，无缓存请求定位
   window.addEventListener("message", function (event) {
+    // 安全修复（SEC-15）：只接受同源父窗口发来的指令
+    if (event.origin !== window.location.origin) return;
+    if (event.source !== window.parent) return;
     if (!event.data || event.data.type !== "streamlit:render") return;
     var args = event.data.args || {};
     if (args.clear === true) {

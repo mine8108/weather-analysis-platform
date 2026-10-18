@@ -3,6 +3,8 @@
 包含：国家预警标准阈值、字段映射、风力等级表、防御指南文本、配色方案
 """
 
+import re
+
 # ============================================================
 # 一、字段映射：常见气象数据列名 → 标准字段名
 # ============================================================
@@ -685,12 +687,34 @@ WMO_WEATHER_CODES = {
 # 八、全局调试模式与单图崩溃防护
 # ============================================================
 def get_debug_mode():
-    """返回当前调试模式 (从 streamlit session_state 读取，外部调用时默认 False)。"""
+    """返回当前调试模式。
+
+    安全修复（SEC-12）：调试输出必须由部署方显式开启（Secrets 里
+    ``DEBUG_MODE = true``）且本会话勾选调试开关，二者同时成立才生效。
+    仅靠侧边栏 checkbox 的话，任何登录用户都能让完整堆栈显示在自己页面上。
+    """
     try:
         import streamlit as st
-        return st.session_state.get("debug_mode", False)
+
+        enabled = st.secrets.get("DEBUG_MODE", False)
+        if isinstance(enabled, str):
+            enabled = enabled.strip().lower() in ("1", "true", "yes", "on")
+        return bool(enabled) and bool(st.session_state.get("debug_mode", False))
     except Exception:
         return False
+
+
+_SAFE_FILENAME_RE = re.compile(r"[^\w\u4e00-\u9fff\- ]+", re.UNICODE)
+
+
+def safe_download_name(label, ext=".html"):
+    """下载文件名白名单（SEC-40）。
+
+    只保留字母/数字/下划线/中文/连字符/空格，其余替换为下划线并截断。
+    当前调用点都是常量，这里是接口层兜底，防止未来把用户数据传进 file_name。
+    """
+    stem = _SAFE_FILENAME_RE.sub("_", str(label or "")).strip(" ._")[:80]
+    return (stem or "chart") + ext
 
 
 def safe_chart(fig, section_label, *, use_container_width=True, key=None):
@@ -725,7 +749,7 @@ def safe_chart(fig, section_label, *, use_container_width=True, key=None):
             st.download_button(
                 label="📥 导出 HTML",
                 data=html_bytes,
-                file_name=f"{section_label}.html",
+                file_name=safe_download_name(section_label),
                 mime="text/html",
                 key=export_key,
             )

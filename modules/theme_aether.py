@@ -23,6 +23,7 @@
 """
 
 import json
+import re
 from pathlib import Path
 
 import streamlit as st
@@ -55,6 +56,26 @@ __all__ = [
 
 # ---- 本地偏好文件（未登录用户的持久化通道） ----
 _PREF_FILE = Path.home() / ".aether_theme.json"
+_UID_SAFE_RE = re.compile(r"[^0-9A-Za-z_-]")
+
+
+def _current_uid() -> str:
+    try:
+        user = st.session_state.get("auth_user") or {}
+        return str(user.get("id") or "")
+    except Exception:
+        return ""
+
+
+def _pref_file(uid=None) -> Path:
+    """安全修复（SEC-06）：登录用户按 uid 分区，避免共享 home 文件串号。"""
+    if uid is None:
+        uid = _current_uid()
+    uid = str(uid or "")
+    if not uid:
+        return _PREF_FILE
+    safe = _UID_SAFE_RE.sub("", uid)[:64] or "user"
+    return _PREF_FILE.parent / ("%s.%s.json" % (_PREF_FILE.stem, safe))
 
 # ---- 标记 DOM 当前主题的属性名。CSS 变量块与所有暗色覆盖规则都挂在它下面。 ----
 THEME_ATTR = "data-dsh-theme"
@@ -74,11 +95,12 @@ FONTS_URL = (
 # ============================================================
 # 二、持久化：本地文件 + Supabase user_metadata
 # ============================================================
-def _load_pref_local() -> str | None:
+def _load_pref_local(uid=None) -> str | None:
     """读取本地主题偏好，返回 'light' / 'dark' / None。"""
+    path = _pref_file(uid)
     try:
-        if _PREF_FILE.exists():
-            theme = json.loads(_PREF_FILE.read_text(encoding="utf-8")).get("theme")
+        if path.exists():
+            theme = json.loads(path.read_text(encoding="utf-8")).get("theme")
             if theme in THEME_NAMES:
                 return theme
     except Exception:
@@ -86,10 +108,14 @@ def _load_pref_local() -> str | None:
     return None
 
 
-def _save_pref_local(theme: str) -> None:
+def _save_pref_local(theme: str, uid=None) -> None:
     """写本地主题偏好。失败不影响主流程。"""
+    path = _pref_file(uid)
     try:
-        _PREF_FILE.write_text(json.dumps({"theme": theme}), encoding="utf-8")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps({"theme": theme}), encoding="utf-8")
+        tmp.replace(path)
     except Exception:
         pass
 
@@ -170,9 +196,13 @@ def get_tokens(dark: bool | None = None) -> dict:
 def theme_attr_js() -> str:
     """把 ``data-dsh-theme`` 写到 ``<html>`` 上。
 
-    必须用 ``st.html(..., unsafe_allow_javascript=True)`` 注入：
-    **``st.markdown(unsafe_allow_html=True)`` 会把 ``<script>`` 剥掉**
-    （Streamlit 用 DOMPurify 清洗 HTML）。改造前的 ``_inject_borderless_js``
+    必须用 ``st.html(..., unsafe_allow_javascript=True)`` 注入。
+    版本事实（1.59.1 前端产物核验，SEC-41）：
+    - ``st.html`` 默认经过 DOMPurify，``<script>`` 会被剥掉；显式
+      ``unsafe_allow_javascript=True`` 才会重建并执行 script 节点。
+    - ``st.markdown(unsafe_allow_html=True)`` 走 rehype-raw 链路，
+      **不经过 DOMPurify**，raw HTML 会被解析成真实 DOM 元素。
+    因此本函数只允许拼接常量，任何数据字符串都必须先 ``html.escape``。改造前的 ``_inject_borderless_js``
     正是走 markdown 注入脚本，实际上从未执行过——这类「写了但没生效」的
     静默失效是暗色模式长期修不干净的重要原因。
 

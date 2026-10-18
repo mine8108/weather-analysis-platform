@@ -145,6 +145,28 @@ class TestCardHtml:
         html = weather_wall.card_html(city, wx, "sunny", 0, aqi=None)
         assert "AQI" not in html
 
+    def test_card_html_escapes_untrusted_city_name(self):
+        """SEC-05：来自地理编码/云端元数据的城市名必须 HTML 转义。"""
+        city = {"zh": '<img src=x onerror=alert(1)>',
+                "en": '</div><iframe srcdoc="x">',
+                "lat": 39.9, "lon": 116.4, "region": "测试", "capital": False}
+        html = weather_wall.card_html(city, None, "sunny", 0)
+        assert "<img" not in html and "<iframe" not in html
+        assert "&lt;img" in html and "&lt;iframe" in html
+
+    def test_normalize_city_rejects_invalid_coordinates(self):
+        """SEC-35：NaN / 越界坐标必须丢弃；合法值做清洗与类型转换。"""
+        assert weather_wall._normalize_city(
+            {"zh": "x", "lat": "nan", "lon": 1}) is None
+        assert weather_wall._normalize_city(
+            {"zh": "x", "lat": 999, "lon": 1}) is None
+        assert weather_wall._normalize_city(
+            {"zh": "x", "lat": 1, "lon": 181}) is None
+        ok = weather_wall._normalize_city(
+            {"zh": " 北京 ", "en": "Beijing", "lat": "39.9", "lon": "116.4"})
+        assert ok is not None
+        assert ok["zh"] == "北京" and ok["lat"] == 39.9 and ok["lon"] == 116.4
+
 
 # ============================================================
 # 四、数据层（离线 mock requests，真实调用解析逻辑）

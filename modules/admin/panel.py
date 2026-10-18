@@ -19,46 +19,66 @@ from utils import safe_error_text
 _LOG = auth._LOG
 
 
-_ADMIN_MAX_ATTEMPTS = 5          # 连续失败 5 次锁定
-
-
-_ADMIN_LOCK_SECONDS = 300        # 锁定 5 分钟
-
-
+_ADMIN_MAX_ATTEMPTS = 5          # 单个会话连续失败 5 次后进入退避
+_ADMIN_LOCK_SECONDS = 300        # 单会话退避 5 分钟
+_ADMIN_GLOBAL_WINDOW = 60        # 全局滑动窗口（秒）
+_ADMIN_GLOBAL_MAX = 20           # 全局窗口内最多失败次数
 _ADMIN_SESSION_SECONDS = 600     # 解锁后 10 分钟自动失效
 
+# 安全修复（SEC-11）：失败计数按会话隔离（key 为服务端生成的随机 sid），
+# 全局只做滑动窗口限速。旧实现用进程级硬锁，匿名者每 5 分钟失败 5 次
+# 就能让管理员长期无法解锁。
+_ADMIN_FAILS = {}
+_ADMIN_GLOBAL_FAILS = []
 
-_ADMIN_FAILS = 0
 
-
-_ADMIN_LOCKED_UNTIL = 0.0
+def _admin_sid() -> str:
+    """每会话一个服务端随机标识；客户端无法伪造或跨会话复用。"""
+    sid = st.session_state.get("_admin_sid")
+    if not sid:
+        sid = secrets.token_hex(16)
+        st.session_state["_admin_sid"] = sid
+    return sid
 
 
 def _try_admin_unlock(admin_pw: str, pw: str) -> None:
-    """校验管理员密码：常量时间比较 + 全局失败计数 + 锁定退避。"""
-    global _ADMIN_FAILS, _ADMIN_LOCKED_UNTIL
-    import time as _t
+    """校验管理员密码：常量时间比较 + 单会话退避 + 全局滑动窗口限速。"""
+    now = time.time()
+    sid = _admin_sid()
 
-    now = _t.time()
-    if now < _ADMIN_LOCKED_UNTIL:
-        st.error(f"尝试次数过多，请 {int(_ADMIN_LOCKED_UNTIL - now)} 秒后再试。")
+    # 全局窗口只限速，不锁死所有来源
+    global _ADMIN_GLOBAL_FAILS
+    _ADMIN_GLOBAL_FAILS = [
+        t for t in _ADMIN_GLOBAL_FAILS if now - t < _ADMIN_GLOBAL_WINDOW
+    ]
+    if len(_ADMIN_GLOBAL_FAILS) >= _ADMIN_GLOBAL_MAX:
+        st.error("尝试过于频繁，请稍后再试。")
+        return
+
+    fails = [t for t in _ADMIN_FAILS.get(sid, [])
+             if now - t < _ADMIN_LOCK_SECONDS]
+    _ADMIN_FAILS[sid] = fails
+    if len(fails) >= _ADMIN_MAX_ATTEMPTS:
+        wait = int(_ADMIN_LOCK_SECONDS - (now - fails[0]))
+        st.error(f"尝试次数过多，请 {max(wait, 1)} 秒后再试。")
         return
 
     if pw and secrets.compare_digest(pw.encode("utf-8"), admin_pw.encode("utf-8")):
-        _ADMIN_FAILS = 0
-        _ADMIN_LOCKED_UNTIL = 0.0
+        _ADMIN_FAILS.pop(sid, None)
         st.session_state["admin_unlocked"] = True
         st.session_state["admin_unlock_time"] = now
         st.rerun()
         return
 
-    _ADMIN_FAILS += 1
-    if _ADMIN_FAILS >= _ADMIN_MAX_ATTEMPTS:
-        _ADMIN_LOCKED_UNTIL = now + _ADMIN_LOCK_SECONDS
-        _ADMIN_FAILS = 0
-        st.error(f"密码错误次数过多，已锁定 {_ADMIN_LOCK_SECONDS // 60} 分钟。")
+    fails.append(now)
+    _ADMIN_GLOBAL_FAILS.append(now)
+    remaining = _ADMIN_MAX_ATTEMPTS - len(fails)
+    if remaining <= 0:
+        st.error(
+            f"密码错误次数过多，本会话已锁定 {_ADMIN_LOCK_SECONDS // 60} 分钟。"
+        )
     else:
-        st.error(f"密码错误。剩余尝试 {_ADMIN_MAX_ATTEMPTS - _ADMIN_FAILS} 次。")
+        st.error(f"密码错误。剩余尝试 {remaining} 次。")
 
 
 def _admin_unlock_expired() -> bool:
@@ -71,7 +91,9 @@ def _admin_unlock_expired() -> bool:
 
 def render_admin_panel():
     """折叠式管理员入口：生成邀请码、列出用户、设置配额、查看用量。"""
-    admin_pw = str(st.secrets.get("ADMIN_PASSWORD", "")).strip()
+    # 安全修复（SEC-26）：与 auth._secrets_get 一致，缺 secrets 文件时返回空串，
+    # 不再让登录页因 StreamlitSecretNotFoundError 整页崩溃。
+    admin_pw = auth._secrets_get("ADMIN_PASSWORD")
 
     with st.expander("🔧 管理员入口", expanded=False):
         if not admin_pw:
@@ -227,7 +249,7 @@ def render_admin_panel():
                 prof = (
                     sb_admin.table("profiles")
                     .select("vision_calls_per_day,vision_tokens_per_day,"
-                            "vision_max_tokens_per_call")
+                            "vision_max_tokens_per_call,outbound_calls_per_day")
                     .eq("user_id", uid)
                     .execute()
                 )
@@ -282,19 +304,50 @@ def render_admin_panel():
                 except Exception as e:
                     st.error(safe_error_text(e, "更新失败。"))
 
+            # --- 5.4 出站请求配额（SEC-02）---
+            # 外部数据接口按部署方共享配额计费/限流，0 表示停用该用户的所有出站请求。
+            st.subheader("外部请求配额（每日）")
+            out_calls = st.number_input(
+                "每日外部请求次数", min_value=0, max_value=100000, step=10,
+                value=int(prof_row.get("outbound_calls_per_day", 200) or 0),
+                key="oq_calls")
+            st.caption("覆盖 GFS / 空气质量 / 历史 API / 天气墙批量请求；0 表示停用。")
+            if st.button("保存外部请求配额", key="oq_save"):
+                try:
+                    sb_admin.table("profiles").update({
+                        "outbound_calls_per_day": int(out_calls),
+                    }).eq("user_id", uid).execute()
+                    _audit_admin(sb_admin, "quota.outbound.update", uid,
+                                 {"calls": int(out_calls)})
+                    st.success("外部请求配额已更新。")
+                except Exception as e:
+                    st.error(safe_error_text(e, "更新失败。"))
+
 
 def _audit_admin(sb_admin, action, target_user=None, detail=None):
-    """写管理员审计日志；失败只记日志，不影响管理操作。"""
+    """写管理员审计日志；失败只记 error 日志，不影响管理操作。
+
+    安全修复（SEC-23）：附带本会话的管理员 sid 作为操作者线索；写失败
+    提升到 error 级别，便于从日志告警里发现审计链路故障。
+    """
     if sb_admin is None:
         return
+    payload_detail = dict(detail or {})
+    try:
+        sid = st.session_state.get("_admin_sid")
+        if sid:
+            payload_detail.setdefault("actor_sid", str(sid))
+    except Exception:
+        pass
     try:
         sb_admin.table("admin_audit_log").insert({
             "action": action,
             "target_user": target_user,
-            "detail": detail or {},
+            "detail": payload_detail,
         }).execute()
     except Exception:
-        _LOG.warning("写管理员审计日志失败 action=%s", action, exc_info=True)
+        # 安全修复（SEC-23）：审计写失败必须显式告警，不能只当普通日志忽略
+        _LOG.error("写管理员审计日志失败 action=%s", action, exc_info=True)
 
 
 def _gen_code() -> str:

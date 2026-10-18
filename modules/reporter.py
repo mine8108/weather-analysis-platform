@@ -10,6 +10,8 @@ import traceback
 
 import streamlit as st
 
+from config import get_debug_mode
+
 from modules.report.base import (  # noqa: F401
     Cm, export_data_csv, _add_page_break, _add_table, _build_cover_meta,
     _build_cover_table, _build_toc, _compute_report_title, _number,
@@ -123,7 +125,8 @@ def render_export_tab(df, warnings_list, score, source=""):
                     st.rerun()
             except Exception as e:
                 st.error(f"报告生成失败: {e}")
-                if st.session_state.get("debug_mode"):
+                # 安全修复（SEC-12）：调试输出统一受 Secrets 的 DEBUG_MODE 控制
+                if get_debug_mode():
                     st.code(traceback.format_exc(), language="python")
 
     if "report_data" in st.session_state:

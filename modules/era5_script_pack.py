@@ -19,6 +19,7 @@
 
 import io
 import json
+import math
 import textwrap
 import zipfile
 from datetime import datetime
@@ -91,6 +92,9 @@ def _py_literal(value, level=0):
     if value is None:
         return "None"
     if isinstance(value, float):
+        # 安全修复（SEC-38）：NaN/Inf 会生成 nan/inf 名称，脚本运行时 NameError
+        if not math.isfinite(value):
+            raise ValueError("payload 含 NaN/Inf，无法生成可执行脚本")
         return repr(value)
     if isinstance(value, int):
         return repr(value)

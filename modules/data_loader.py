@@ -2,7 +2,9 @@
 数据导入模块：CSV/Excel 文件上传、手动录入、API 获取、模板下��
 """
 
+import hashlib
 import re
+from collections import OrderedDict
 from datetime import datetime, timedelta
 from io import StringIO, BytesIO
 import sys
@@ -15,13 +17,52 @@ import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import FIELD_ALIASES, STANDARD_FIELDS
-from utils import retry_with_backoff, safe_error_text
+from utils import retry_with_backoff, safe_error_text, check_response_size
 from modules.era5_guide import render_era5_guide
+from modules.quota import take_outbound
 
 
 # 安全修复（P-07）：上传资源限制
 _MAX_UPLOAD_BYTES = 20 * 1024 * 1024            # 单文件原始大小上限 20MB
-_MAX_XLSX_UNCOMPRESSED = 200 * 1024 * 1024      # xlsx 解压后体积上限 200MB（防 zip 炸弹）
+_MAX_XLSX_UNCOMPRESSED = 50 * 1024 * 1024       # xlsx 解压后体积上限 50MB（防 zip 炸弹）
+# 安全修复（SEC-03）：结构上限。只有字节上限时，20MB 的高列/高行文件
+# 仍可把单进程 worker 占满数分钟并触发 OOM。
+_MAX_ROWS = 200_000
+_MAX_COLS = 200
+_MAX_CELLS = 2_000_000
+
+# 解析结果缓存（按内容 sha256），避免「跳过向导」模式下每次 rerun 重新解析。
+_PARSE_CACHE = OrderedDict()
+_PARSE_CACHE_MAX = 8
+
+
+def _cache_lookup(key):
+    if key in _PARSE_CACHE:
+        _PARSE_CACHE.move_to_end(key)
+        return _PARSE_CACHE[key]
+    return None
+
+
+def _cache_store(key, df):
+    _PARSE_CACHE[key] = df
+    _PARSE_CACHE.move_to_end(key)
+    while len(_PARSE_CACHE) > _PARSE_CACHE_MAX:
+        _PARSE_CACHE.popitem(last=False)
+
+
+def _check_shape(df) -> None:
+    """行/列/单元格上限校验（SEC-03）。"""
+    if df is None:
+        return
+    rows, cols = df.shape
+    if cols > _MAX_COLS:
+        raise ValueError(f"列数过多（{cols} 列，上限 {_MAX_COLS} 列），请先裁剪数据。")
+    if rows > _MAX_ROWS:
+        raise ValueError(f"行数过多（{rows} 行，上限 {_MAX_ROWS} 行），请先裁剪数据。")
+    if rows * cols > _MAX_CELLS:
+        raise ValueError(
+            f"数据规模过大（{rows * cols} 个单元格，上限 {_MAX_CELLS} 个），请先裁剪数据。"
+        )
 
 
 def _check_upload_size(file) -> None:
@@ -68,35 +109,60 @@ def detect_field_types(df):
 
 
 
-def load_csv(file) -> pd.DataFrame:
-    """加载CSV文件，尝试多种编码和分隔符（安全修复 P-07：先校验文件大小）"""
-    _check_upload_size(file)
-    content = file.read()
+def _read_csv_content(content: bytes) -> pd.DataFrame:
+    """按编码回退解析 CSV（SEC-03：限制 nrows，避免超大文件先全量进内存）。"""
     encodings = ["utf-8", "gbk", "gb2312", "gb18030", "latin-1"]
-
+    df = None
     for enc in encodings:
         try:
-            df = pd.read_csv(StringIO(content.decode(enc, errors="replace")))
-            if len(df.columns) > 1:
+            candidate = pd.read_csv(
+                StringIO(content.decode(enc, errors="replace")),
+                nrows=_MAX_ROWS + 1,
+            )
+            if len(candidate.columns) > 1:
+                df = candidate
                 break
         except Exception:
             continue
-    else:
-        df = pd.read_csv(StringIO(content.decode("utf-8", errors="replace")))
-
+    if df is None:
+        df = pd.read_csv(
+            StringIO(content.decode("utf-8", errors="replace")),
+            nrows=_MAX_ROWS + 1,
+        )
     # 去除全空行
-    df = df.dropna(how="all").reset_index(drop=True)
-    return df
+    return df.dropna(how="all").reset_index(drop=True)
+
+
+def load_csv(file) -> pd.DataFrame:
+    """加载CSV文件，尝试多种编码和分隔符（安全修复 P-07 / SEC-03）。"""
+    _check_upload_size(file)
+    content = file.read()
+    key = ("csv", hashlib.sha256(content).hexdigest())
+    cached = _cache_lookup(key)
+    if cached is not None:
+        return cached.copy()
+    df = _read_csv_content(content)
+    _check_shape(df)
+    _cache_store(key, df)
+    return df.copy()
 
 
 def load_excel(file) -> pd.DataFrame:
-    """加载Excel文件（安全修复 P-07：校验原始大小 + 解压后体积防 zip 炸弹）"""
+    """加载Excel文件（安全修复 P-07 / SEC-03：原始大小 + 解压体积 + 行列上限）。"""
     _check_upload_size(file)
     data = file.getvalue()
+    key = ("xlsx", hashlib.sha256(data).hexdigest())
+    cached = _cache_lookup(key)
+    if cached is not None:
+        return cached.copy()
     _check_xlsx_bomb(data)
-    df = pd.read_excel(BytesIO(data), engine="openpyxl")
+    df = pd.read_excel(
+        BytesIO(data), engine="openpyxl", nrows=_MAX_ROWS + 1
+    )
     df = df.dropna(how="all").reset_index(drop=True)
-    return df
+    _check_shape(df)
+    _cache_store(key, df)
+    return df.copy()
 
 
 def parse_timestamp(df):
@@ -413,6 +479,12 @@ def _show_time_report(df, method, valid, total):
     )
 
 
+def _safe_source_name(name, limit=80) -> str:
+    """上传文件名只取可打印字符并截断（SEC-39），避免 Markdown/文档回显污染。"""
+    s = "".join(ch for ch in str(name or "") if ch.isprintable()).strip()
+    return s[:limit] or "未命名"
+
+
 def render_file_upload_section():
     """渲染文件上传区域（CSV / Excel）"""
     st.subheader("[文件] 文件导入")
@@ -429,7 +501,9 @@ def render_file_upload_section():
     with col2:
         uploaded_xlsx = st.file_uploader(
             "上传 Excel 文件",
-            type=["xlsx", "xls"],
+            # SEC-42：只接受 xlsx；.xls 是 OLE2 格式，openpyxl 不支持，
+            # 之前的 .xls 选项只会稳定报「不是有效的 xlsx」。
+            type=["xlsx"],
             key="xlsx_upload"
         )
 
@@ -440,13 +514,13 @@ def render_file_upload_section():
     if uploaded_csv is not None:
         with st.spinner("正在解析 CSV 文件..."):
             df = load_csv(uploaded_csv)
-            source = f"CSV: {uploaded_csv.name}"
+            source = f"CSV: {_safe_source_name(uploaded_csv.name)}"
 
     # ---- Excel ----
     elif uploaded_xlsx is not None:
         with st.spinner("正在解析 Excel 文件..."):
             df = load_excel(uploaded_xlsx)
-            source = f"Excel: {uploaded_xlsx.name}"
+            source = f"Excel: {_safe_source_name(uploaded_xlsx.name)}"
 
     # ---- 公共：标准化 + 时间解析 ----
     if df is not None:
@@ -542,6 +616,11 @@ def fetch_open_meteo(lat, lon, start_date, end_date):
     """从 Open-Meteo API 获取历史气象数据"""
     import requests
 
+    # 安全修复（SEC-02）：服务端每用户每日出站配额
+    allowed, quota_msg = take_outbound()
+    if not allowed:
+        return None, quota_msg
+
     url = "https://archive-api.open-meteo.com/v1/archive"
     params = {
         "latitude": lat,
@@ -565,6 +644,7 @@ def fetch_open_meteo(lat, lon, start_date, end_date):
     # 修复 R-17：429/5xx 必须抛 HTTPError，否则 retry_with_backoff 里的 429
     # 分支永远不会触发（原实现只解析 JSON，限流时静默拿到错误体）。
     resp.raise_for_status()
+    check_response_size(resp)
     data = resp.json()
 
     if "hourly" not in data:
@@ -597,6 +677,11 @@ def fetch_open_meteo_air_quality(lat, lon, start_date, end_date):
     """
     import requests
 
+    # 安全修复（SEC-02）：服务端每用户每日出站配额
+    allowed, quota_msg = take_outbound()
+    if not allowed:
+        return None, quota_msg
+
     url = "https://air-quality-api.open-meteo.com/v1/air-quality"
     params = {
         "latitude": lat,
@@ -614,6 +699,7 @@ def fetch_open_meteo_air_quality(lat, lon, start_date, end_date):
     try:
         resp = requests.get(url, params=params, timeout=30)
         resp.raise_for_status()
+        check_response_size(resp)
         data = resp.json()
     except requests.exceptions.Timeout:
         return None, "⚠️ API 请求超时，请重试"

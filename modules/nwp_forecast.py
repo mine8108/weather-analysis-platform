@@ -25,7 +25,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils import retry_with_backoff, supabase_secrets_ready
+from utils import retry_with_backoff, supabase_secrets_ready, check_response_size
 from config import (AQI_STANDARD_LABEL, safe_chart, _is_dark,
                     WARN_LEVEL_ORDER, LIFE_INDEX_META as _LIFE_INDEX_META,
                     WIND_DIRECTIONS, level_label)
@@ -39,6 +39,7 @@ from modules.design_tokens import (
 from modules.aqi import comprehensive_aqi
 from modules import gfs_cache
 from modules import warn_rules
+from modules.quota import take_outbound
 from modules.nwp.calc import (
     heat_index, _calc_ssd, _calc_life_indices, _analyze_forecast,
 )
@@ -152,9 +153,11 @@ def _load_gfs_from_cache(cache_key):
 
     过滤字段改用 ``updated_at``：旧实现按 ``created_at`` 过滤，而 upsert 不会
     刷新 ``created_at``，缓存会在首次写入一小时后对所有人永久失效。
+    安全修复（SEC-25）：读取也走 service_role。``get_gfs_cache`` 已从客户端
+    角色收回，避免登录用户按可预测 key 探测「某坐标最近是否被查询过」。
     """
     try:
-        sb = _cache_client()
+        sb = _cache_client(admin=True)
         if sb is None:
             return None
         records = gfs_cache.read_from(sb, cache_key)
@@ -208,15 +211,23 @@ def fetch_gfs_forecast(lat, lon, days=7, model="gfs_seamless",
         _days_key = days
     cache_key = _gfs_forecast_cache_key(lat, lon, _days_key, model, window)
     cache_lat, cache_lon = _gfs_cache_coords(lat, lon)
-    # 第一层：同一会话内同参数直接命中
+    # 第一层：同一会话内同参数缓存（带 1 小时 TTL，SEC-33：旧实现永不过期）
     cached = st.session_state.get(cache_key)
-    if cached is not None:
-        return cached, None
+    if (isinstance(cached, tuple) and len(cached) == 2
+            and isinstance(cached[0], datetime)):
+        cached_ts, cached_df = cached
+        if (datetime.now(timezone.utc) - cached_ts).total_seconds() < 3600:
+            return cached_df, None
     # 第二层：Supabase 跨用户 / 跨重启共享缓存
     sb_df = _load_gfs_from_cache(cache_key)
     if sb_df is not None:
-        st.session_state[cache_key] = sb_df
+        st.session_state[cache_key] = (datetime.now(timezone.utc), sb_df)
         return sb_df, None
+
+    # 安全修复（SEC-02）：服务端每用户每日出站配额，缓存未命中才占用
+    allowed, quota_msg = take_outbound()
+    if not allowed:
+        return None, quota_msg
 
     url = "https://api.open-meteo.com/v1/forecast"
     params = {
@@ -239,10 +250,13 @@ def fetch_gfs_forecast(lat, lon, days=7, model="gfs_seamless",
 
     resp = requests.get(url, params=params, timeout=60)
     resp.raise_for_status()
+    check_response_size(resp)
     data = resp.json()
 
     if "hourly" not in data:
-        return None, f"API 返回异常: {data}"
+        # 安全修复（SEC-34）：第三方响应体不回显给用户，细节只进服务端日志
+        _LOG.warning("GFS 接口返回缺少 hourly 字段")
+        return None, "数值预报接口返回异常数据，请稍后重试。"
 
     h = data["hourly"]
     df = pd.DataFrame({
@@ -258,7 +272,7 @@ def fetch_gfs_forecast(lat, lon, days=7, model="gfs_seamless",
     })
     df["station_id"] = f"GFS({lat:.2f},{lon:.2f})"
 
-    st.session_state[cache_key] = df
+    st.session_state[cache_key] = (datetime.now(timezone.utc), df)
     # 第三层落地后写入二级缓存（失败静默忽略）
     _save_gfs_to_cache(
         cache_key, cache_lat, cache_lon, _days_key, model, df)
@@ -273,6 +287,10 @@ def _fetch_gfs_current(lat, lon, model="gfs_seamless"):
     失败返回 None。**不依赖服务器时钟**，每次返回 Open-Meteo 当时的真"当前时刻"实测。
     """
     try:
+        # 安全修复（SEC-02）：实况卡片同样计入每用户每日出站配额
+        allowed, _quota_msg = take_outbound()
+        if not allowed:
+            return None
         url = "https://api.open-meteo.com/v1/forecast"
         params = {
             "latitude": float(lat),
@@ -288,6 +306,7 @@ def _fetch_gfs_current(lat, lon, model="gfs_seamless"):
             params["models"] = model
         resp = requests.get(url, params=params, timeout=15)
         resp.raise_for_status()
+        check_response_size(resp)
         data = resp.json()
         cur = data.get("current")
         if not cur:
@@ -364,6 +383,10 @@ def fetch_air_quality(lat, lon, days=7):
         ts, df, current = cached
         if (datetime.now(timezone.utc) - ts).total_seconds() < 3600:
             return df, current, None
+    # 安全修复（SEC-02）：CAMS 请求同样计入每用户每日出站配额
+    allowed, quota_msg = take_outbound()
+    if not allowed:
+        return None, None, quota_msg
     try:
         url = "https://air-quality-api.open-meteo.com/v1/air-quality"
         params = {
@@ -377,9 +400,11 @@ def fetch_air_quality(lat, lon, days=7):
         }
         resp = requests.get(url, params=params, timeout=30)
         resp.raise_for_status()
+        check_response_size(resp)
         data = resp.json()
         if "hourly" not in data:
-            return None, None, f"空气质量接口返回异常: {data}"
+            _LOG.warning("空气质量接口返回缺少 hourly 字段")
+            return None, None, "空气质量接口返回异常数据，请稍后重试。"
         h = data["hourly"]
         df = pd.DataFrame({
             "timestamp": pd.to_datetime(h["time"]),
@@ -427,7 +452,8 @@ def fetch_air_quality(lat, lon, days=7):
         st.session_state[cache_key] = (datetime.now(timezone.utc), df, current)
         return df, current, None
     except Exception as e:  # noqa: BLE001
-        return None, None, f"空气质量获取失败: {e}"
+        _LOG.warning("空气质量获取失败：%s", type(e).__name__)
+        return None, None, "空气质量获取失败，请稍后重试。"
 
 
 def air_quality_aqi_chart(aq_df, dark=None):

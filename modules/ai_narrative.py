@@ -21,6 +21,8 @@ from datetime import datetime
 import requests
 import streamlit as st
 
+from utils import check_response_size
+
 DEFAULT_BASE_URL = "https://api.deepseek.com"
 VISION_TIMEOUT_SECONDS = 90
 # 输出预算。读图要求六段式长回答，且推理型模型的思考过程也从这里扣额度。
@@ -202,6 +204,7 @@ def call_vision_llm(prompt, images_b64, api_key, base_url=None, model=None,
         timeout=VISION_TIMEOUT_SECONDS,
     )
     resp.raise_for_status()
+    check_response_size(resp)
     data = resp.json()
     # 记账先于解析：后面任何分支抛异常，用量都已经落账
     if usage_out is not None:

@@ -42,6 +42,8 @@ begin
 end $$;
 
 alter table public.datasets enable row level security;
+-- 安全修复（SEC-17）：anon 不应持有任何业务表权限，RLS 之外再加表级防线
+revoke all on public.datasets from anon;
 
 drop policy if exists "datasets_owner_only" on public.datasets;
 create policy "datasets_owner_only"
@@ -76,6 +78,8 @@ create table if not exists public.profiles (
 );
 
 alter table public.profiles enable row level security;
+-- 安全修复（SEC-17）：anon 不应持有任何业务表权限
+revoke all on public.profiles from anon;
 
 drop policy if exists "profiles_select_self" on public.profiles;
 create policy "profiles_select_self"
@@ -142,6 +146,8 @@ end $$;
 alter table public.invite_codes enable row level security;
 -- 不创建任何面向 anon/authenticated 的 policy：
 -- 即默认拒绝直接读取，只能通过下方 SECURITY DEFINER 函数访问。
+-- 安全修复（SEC-21）：同时收回表级权限，作为 RLS 之外的第二道防线。
+revoke all on public.invite_codes from anon, authenticated;
 
 -- ============================================================
 -- 4. 触发器：新 auth 用户自动建 profiles 行（带默认配额）
@@ -150,7 +156,7 @@ create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 begin
     insert into public.profiles (user_id, role, storage_quota_bytes)
@@ -164,6 +170,10 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
     after insert on auth.users
     for each row execute function public.handle_new_user();
+
+-- 安全修复（SEC-20）：触发器函数只由触发器调用，不应对客户端开放执行权。
+revoke execute on function public.handle_new_user() from public, anon, authenticated;
+revoke execute on function public.set_updated_at() from public, anon, authenticated;
 
 -- 安全修复（S15）：触发器只覆盖新用户，升级前创建的账号可能没有 profiles
 -- 行。这里幂等补行，保证后续的行锁一定锁得到。
@@ -210,7 +220,7 @@ create or replace function public.is_invite_code_valid(p_code text)
 returns boolean
 language sql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
     select exists (
         select 1 from public.invite_codes
@@ -230,7 +240,7 @@ create or replace function public.claim_invite_code(p_code text)
 returns boolean
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 declare
     v_count int;
@@ -255,7 +265,7 @@ create or replace function public.release_invite_code(p_code text)
 returns void
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 begin
     if auth.role() <> 'service_role' then
@@ -276,11 +286,16 @@ create or replace function public.consume_invite_code(p_code text, p_user_id uui
 returns boolean
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 declare
     v_count int;
 begin
+    -- 安全修复（SEC-22）：p_user_id 为 NULL 时 `auth.uid() <> NULL` 结果是 NULL，
+    -- IF 会按 false 继续执行并返回 true；这里显式拒绝。
+    if p_user_id is null then
+        return false;
+    end if;
     -- 身份校验：service_role 直接放行；否则必须是已登录用户本人
     if auth.role() <> 'service_role'
        and (auth.uid() is null or auth.uid() <> p_user_id) then
@@ -297,19 +312,18 @@ begin
 end;
 $$;
 
--- 安全修复（P2-2）：Postgres 函数默认对 PUBLIC 授 EXECUTE，Supabase 还会通过
--- 默认权限把 anon/authenticated 直接授给新函数。只 revoke FROM public 收不干净，
--- 因此按函数用途显式收回 anon/authenticated，再按需 grant。
-revoke execute on function public.is_invite_code_valid(text) from public;
-revoke execute on function public.claim_invite_code(text) from public;
-revoke execute on function public.consume_invite_code(text, uuid) from public, anon;
+-- 安全修复（P2-2 / SEC-08）：Postgres 函数默认对 PUBLIC 授 EXECUTE，
+-- Supabase 还会通过默认权限把 anon/authenticated 直接授给新函数。
+-- 验码 / 认领 / 核销 / 释放全部改由服务端 service_role 代调：
+-- 注册流程已经在 auth.py 里先创建了管理客户端，匿名执行权不再必要。
+revoke execute on function public.is_invite_code_valid(text) from public, anon, authenticated;
+revoke execute on function public.claim_invite_code(text) from public, anon, authenticated;
+revoke execute on function public.consume_invite_code(text, uuid) from public, anon, authenticated;
 revoke execute on function public.release_invite_code(text) from public, anon, authenticated;
 
--- 验码与认领必须允许未登录用户调用（注册发生在登录之前）
-grant execute on function public.is_invite_code_valid(text) to anon, authenticated, service_role;
-grant execute on function public.claim_invite_code(text) to anon, authenticated, service_role;
--- 核销仅登录用户 / 服务端可调；释放仅服务端可调（函数内另有身份校验）
-grant execute on function public.consume_invite_code(text, uuid) to authenticated, service_role;
+grant execute on function public.is_invite_code_valid(text) to service_role;
+grant execute on function public.claim_invite_code(text) to service_role;
+grant execute on function public.consume_invite_code(text, uuid) to service_role;
 grant execute on function public.release_invite_code(text) to service_role;
 
 -- ============================================================
@@ -320,7 +334,7 @@ create or replace function public.get_storage_usage(p_user_id uuid)
 returns bigint
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 begin
     if auth.role() <> 'service_role'
@@ -338,7 +352,7 @@ create or replace function public.get_storage_quota(p_user_id uuid)
 returns bigint
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 declare
     v_quota bigint;
@@ -424,7 +438,7 @@ create or replace function public.put_gfs_cache(
 returns boolean
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 declare
     v_uid uuid := auth.uid();
@@ -432,8 +446,9 @@ declare
     v_lat_key numeric;
     v_lon_key numeric;
 begin
-    -- 应用服务端用 service_role 写入；登录用户不再拥有执行权。
-    if v_uid is null and auth.role() <> 'service_role' then
+    -- 应用服务端用 service_role 写入；唯一合法调用方就是 service_role。
+    -- 安全修复（SEC-18）：原判断对 authenticated 也会放行，唯一屏障只剩执行权。
+    if auth.role() <> 'service_role' then
         return false;
     end if;
     if p_key is null or left(p_key, 13) <> 'gfs_fc_cache_'
@@ -520,7 +535,7 @@ create or replace function public.get_gfs_cache(p_key text)
 returns jsonb
 language sql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
     select data_json
       from public.gfs_cache
@@ -530,9 +545,11 @@ as $$
      limit 1;
 $$;
 
-revoke execute on function public.get_gfs_cache(text) from public, anon;
-grant execute on function public.get_gfs_cache(text)
-    to authenticated, service_role;
+-- 安全修复（SEC-25）：读取也收归服务端。登录用户不再能按可预测 key
+-- 探测「某坐标最近 1 小时是否被他人查询过」；缓存内容是公开天气数据，
+-- 由 service_role 读取不扩大数据面。
+revoke execute on function public.get_gfs_cache(text) from public, anon, authenticated;
+grant execute on function public.get_gfs_cache(text) to service_role;
 
 -- ============================================================
 -- 8. save_dataset：带配额强制的数据集写入函数（SECURITY DEFINER）
@@ -548,7 +565,7 @@ create or replace function public.save_dataset(
 returns jsonb
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 declare
     v_uid uuid := auth.uid();
@@ -567,35 +584,29 @@ begin
     if char_length(p_name) > 200 then
         return jsonb_build_object('ok', false, 'error', '名称过长');
     end if;
-    -- 插入场景限制数据集数量；更新不设限，避免历史超额用户无法修改已有数据。
-    if p_dataset_id is null then
-        select count(*) into v_count
-          from public.datasets where user_id = v_uid;
-        if v_count >= 200 then
-            return jsonb_build_object('ok', false, 'error', '数据集数量已达上限');
-        end if;
-    end if;
     v_new_bytes := octet_length(p_csv) + octet_length(p_name);
-    -- 已用量（更新场景排除自身旧数据），名称字节同样计入配额
-    if p_dataset_id is null then
-        select coalesce(sum(octet_length(csv_text) + octet_length(name)), 0)
-          into v_used
-          from public.datasets where user_id = v_uid;
-    else
-        select coalesce(sum(octet_length(csv_text) + octet_length(name)), 0)
-          into v_used
-          from public.datasets
-         where user_id = v_uid and id <> p_dataset_id;
-    end if;
     -- 老用户可能没有 profiles 行，先幂等补行再锁。
     insert into public.profiles (user_id) values (v_uid)
     on conflict (user_id) do nothing;
-    -- 安全修复（P2-4）：锁住本用户的 profiles 行，串行化并发保存，
-    -- 避免两个请求同时通过配额校验后各自写入、最终超出配额
+    -- 安全修复（SEC-01）：先取锁，再统计。原实现先统计后取锁，
+    -- READ COMMITTED 下并发事务都用加锁前的旧用量通过校验，配额被绕过。
     select storage_quota_bytes into v_quota
       from public.profiles where user_id = v_uid
        for update;
     v_quota := coalesce(v_quota, 10485760);
+
+    -- 锁内统计（并发事务已串行化，这里读到的一定是最新已提交值）
+    select count(*) into v_count
+      from public.datasets where user_id = v_uid;
+    -- 插入场景限制数据集数量；更新不设限，避免历史超额用户无法修改已有数据。
+    if p_dataset_id is null and v_count >= 200 then
+        return jsonb_build_object('ok', false, 'error', '数据集数量已达上限');
+    end if;
+    select coalesce(sum(octet_length(csv_text) + octet_length(name)), 0)
+      into v_used
+      from public.datasets
+     where user_id = v_uid
+       and (p_dataset_id is null or id <> p_dataset_id);
     if v_used + v_new_bytes > v_quota then
         return jsonb_build_object('ok', false, 'error', '配额不足');
     end if;
@@ -666,13 +677,15 @@ create policy "vision_usage_select_self"
     using (auth.uid() = user_id);
 
 revoke insert, update, delete on public.vision_usage from authenticated, anon;
+-- 安全修复（SEC-17）：anon 连只读也不需要，收回剩余 SELECT
+revoke select on public.vision_usage from anon;
 
 -- 9.1 查询今日配额状态（只读，不改计数）
 create or replace function public.get_vision_quota()
 returns jsonb
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 declare
     v_uid      uuid := auth.uid();
@@ -718,7 +731,7 @@ create or replace function public.begin_vision_call()
 returns jsonb
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 declare
     v_uid      uuid := auth.uid();
@@ -789,7 +802,7 @@ create or replace function public.record_vision_usage(
 returns jsonb
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 declare
     v_uid uuid := auth.uid();
@@ -831,6 +844,78 @@ grant execute on function public.record_vision_usage(bigint, bigint, bigint, big
 -- （见第 2 节的 P0-3 修复），因此只有 service_role（管理员面板）能改这三列。
 
 -- ============================================================
+-- 9.4 出站请求配额（SEC-02）
+--     背景：本应用所有用户共用一个出口 IP，Open-Meteo 免费配额按来源共享；
+--     旧实现没有服务端限额，任意登录用户改 0.01° 坐标触发 rerun 即可打光全站日配额。
+--     设计：与读图配额同构，按用户/自然日原子占用，默认 200 次/日。
+-- ============================================================
+
+alter table public.profiles
+    add column if not exists outbound_calls_per_day integer not null default 200;
+
+create table if not exists public.outbound_usage (
+    user_id    uuid not null references auth.users(id) on delete cascade,
+    day        date not null default ((now() at time zone 'Asia/Shanghai')::date),
+    calls      integer not null default 0,
+    updated_at timestamptz not null default now(),
+    primary key (user_id, day)
+);
+
+alter table public.outbound_usage enable row level security;
+-- 计数只经函数改动，客户端不直接读写
+revoke all on public.outbound_usage from anon, authenticated;
+
+create or replace function public.begin_outbound_call()
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+    v_uid    uuid := auth.uid();
+    v_day    date := (now() at time zone 'Asia/Shanghai')::date;
+    v_limit  integer;
+    v_used   integer;
+begin
+    if v_uid is null then
+        return jsonb_build_object('ok', false, 'allowed', false, 'message', '未登录');
+    end if;
+    -- 老用户可能没有 profiles 行，先幂等补行再锁
+    insert into public.profiles (user_id) values (v_uid)
+    on conflict (user_id) do nothing;
+    -- 锁住 profiles 行，串行化同一用户的并发占用
+    select outbound_calls_per_day into v_limit
+      from public.profiles where user_id = v_uid
+       for update;
+    v_limit := coalesce(v_limit, 200);
+
+    insert into public.outbound_usage (user_id, day, calls)
+    values (v_uid, v_day, 1)
+    on conflict (user_id, day) do update
+        set calls = public.outbound_usage.calls + 1,
+            updated_at = now()
+    returning calls into v_used;
+
+    if v_used > v_limit then
+        -- 超额请求不消耗额度，避免并发把计数越推越高
+        update public.outbound_usage
+           set calls = greatest(calls - 1, 0)
+         where user_id = v_uid and day = v_day;
+        return jsonb_build_object(
+            'ok', true, 'allowed', false,
+            'message', format('今日外部数据请求次数已用完（%s 次），次日 0 点重置。', v_limit),
+            'used', greatest(v_used - 1, 0), 'limit', v_limit);
+    end if;
+
+    return jsonb_build_object(
+        'ok', true, 'allowed', true, 'used', v_used, 'limit', v_limit);
+end;
+$$;
+
+revoke execute on function public.begin_outbound_call() from public, anon;
+grant execute on function public.begin_outbound_call() to authenticated, service_role;
+
+-- ============================================================
 -- 10. 安全自检：把线上 RLS、函数执行权、表级写权限汇总成 jsonb
 --    管理员面板解锁后调用，与仓库声明的边界逐项比对。只授予 service_role，
 --    避免把安全配置暴露给普通登录用户。
@@ -839,7 +924,7 @@ create or replace function public.security_selfcheck()
 returns jsonb
 language sql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
     select jsonb_build_object(
         'schema_version', (select version from public.schema_version where id = 1),
@@ -871,6 +956,34 @@ as $$
                    group by proname
               ) grouped
         ),
+        'policies', (
+            select coalesce(
+                       jsonb_agg(jsonb_build_object(
+                           'table', tablename,
+                           'name', policyname,
+                           'cmd', cmd,
+                           'roles', roles,
+                           'qual', qual,
+                           'with_check', with_check
+                       ) order by tablename, policyname),
+                       '[]'::jsonb)
+              from pg_policies
+             where schemaname = 'public'
+        ),
+        'definer_functions', (
+            select coalesce(jsonb_object_agg(proname, info), '{}'::jsonb)
+              from (
+                  select p.proname,
+                         jsonb_build_object(
+                             'security_definer', bool_or(p.prosecdef),
+                             'search_path', max(array_to_string(p.proconfig, ','))
+                         ) as info
+                    from pg_proc p
+                    join pg_namespace n on n.oid = p.pronamespace
+                   where n.nspname = 'public' and p.prokind = 'f'
+                   group by p.proname
+              ) df
+        ),
         'table_privileges', (
             select coalesce(
                        jsonb_object_agg(
@@ -879,7 +992,8 @@ as $$
                        '{}'::jsonb)
               from (values ('datasets'), ('profiles'), ('invite_codes'),
                            ('gfs_cache'), ('vision_usage'),
-                           ('admin_audit_log'), ('schema_version')) as tabs(t)
+                           ('admin_audit_log'), ('schema_version'),
+                           ('outbound_usage')) as tabs(t)
              cross join (values ('anon'), ('authenticated')) as roles(r)
              cross join (values ('SELECT'), ('INSERT'), ('UPDATE'),
                           ('DELETE')) as privs(pv)
@@ -911,6 +1025,10 @@ begin
              $c$vision_tokens_per_day >= 0$c$),
             ('public.profiles', 'profiles_vision_max_call_check',
              $c$vision_max_tokens_per_call > 0$c$),
+            ('public.profiles', 'profiles_outbound_calls_check',
+             $c$outbound_calls_per_day >= 0$c$),
+            ('public.outbound_usage', 'outbound_usage_calls_check',
+             $c$calls >= 0$c$),
             ('public.gfs_cache', 'gfs_cache_lat_check',
              $c$lat between -90 and 90$c$),
             ('public.gfs_cache', 'gfs_cache_lon_check',

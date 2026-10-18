@@ -147,6 +147,10 @@ def build_manual_html(md_text):
         '<html lang="zh-CN">\n<head>\n<meta charset="UTF-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
         "<title>气象数据交互分析平台 · 用户使用手册</title>\n"
+        # 安全修复（SEC-37）：导出件加 CSP，阻断脚本与外部资源（样式仍内联）
+        "<meta http-equiv=\"Content-Security-Policy\" "
+        "content=\"default-src 'none'; style-src 'unsafe-inline'; "
+        "img-src https: data:; font-src data:\">\n"
         "<style>%s</style>\n</head>\n<body>\n"
         '<div class="hero"><h1>气象数据交互分析平台</h1>'
         "<p>用户使用手册</p>"

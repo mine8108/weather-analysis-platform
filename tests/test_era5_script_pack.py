@@ -382,7 +382,7 @@ def test_module_imports_only_the_stdlib_whitelist():
                 imported.add(alias.name.split(".")[0])
         elif isinstance(node, ast.ImportFrom) and node.module:
             imported.add(node.module.split(".")[0])
-    allowed = {"io", "zipfile", "textwrap", "json", "datetime"}
+    allowed = {"io", "zipfile", "textwrap", "json", "datetime", "math"}
     assert imported <= allowed, sorted(imported - allowed)
     for banned in ("cdsapi", "xarray", "netCDF4", "streamlit", "pandas"):
         assert banned not in imported, banned

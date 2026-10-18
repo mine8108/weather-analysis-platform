@@ -32,6 +32,14 @@ venv.bak/
 .streamlit/secrets.toml
 .streamlit/credentials.toml
 
+# ===== 通用凭据文件（SEC-28：防止未来引入 dotenv/证书时误提交） =====
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+
 # ===== 本地缓存 / 日志 =====
 .cache/
 *.log
@@ -62,3 +70,8 @@ tmp*/
 # ===== 数据集（可选保留示例，忽略大文件） =====
 data/raw/
 *.parquet
+
+# ===== 安全审计报告（SEC-43） =====
+# 报告含可利用细节；公开仓库在修复完成前不应跟踪，避免变成攻击手册。
+# 修复并验证后可删除本行、再按需提交。
+research/audit-2026-10-18/

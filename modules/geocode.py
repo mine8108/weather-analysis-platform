@@ -12,7 +12,7 @@ import re
 
 import streamlit as st
 
-from utils import retry_with_backoff
+from utils import retry_with_backoff, check_response_size
 
 _GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
 _REVERSE_URL = "https://api.bigdatacloud.net/data/reverse-geocode-client"
@@ -33,6 +33,7 @@ def _geocode_search_raw(name: str) -> list:
         timeout=15,
     )
     resp.raise_for_status()
+    check_response_size(resp)
     data = resp.json()
     return data.get("results") or []
 
@@ -106,6 +107,7 @@ def reverse_geocode(lat: float, lon: float) -> str:
             timeout=15,
         )
         resp.raise_for_status()
+        check_response_size(resp)
         data = resp.json()
     except Exception:
         return ""  # 失败统一返回空串，调用方降级为「经纬度 (lat, lon)」

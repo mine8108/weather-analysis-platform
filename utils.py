@@ -68,17 +68,55 @@ def tab_fingerprint_match(tab_name, df):
 # 二、API 重试 + 降级
 # ============================================================
 
+_MAX_RESPONSE_BYTES = 5 * 1024 * 1024
+
+
+def check_response_size(resp, max_bytes=_MAX_RESPONSE_BYTES):
+    """响应体大小兜底（SEC-34）。
+
+    第三方响应若声明了异常大的 Content-Length，直接拒绝解析，避免把
+    本应用当成放大器或一次性读入大体积 JSON。没有该响应头时跳过（chunked
+    响应无法在解析前无损判断，交给 requests 的 timeout 兜底）。
+    """
+    try:
+        headers = getattr(resp, "headers", None) or {}
+        raw = headers.get("Content-Length", headers.get("content-length"))
+        if raw is None:
+            return
+        size = int(raw)
+    except (TypeError, ValueError):
+        return
+    if size > max_bytes:
+        raise ValueError(
+            "响应体过大（%.1f MB），已拒绝解析" % (size / 1048576.0)
+        )
+
+
+def _api_cache_key(func, args, kwargs) -> str:
+    """按「函数名 + 参数指纹」生成降级缓存键（安全修复 SEC-07）。
+
+    旧实现只按函数名缓存，导致 API 故障时把上一次查询（可能是另一个坐标 /
+    另一个城市）的结果当作本次结果返回。参数指纹保证降级数据只用于同一请求。
+    """
+    try:
+        raw = repr((args, sorted(kwargs.items())))
+    except Exception:
+        raw = repr(args)
+    digest = hashlib.md5(raw.encode("utf-8", "replace")).hexdigest()[:12]
+    return "_api_cache_%s_%s" % (func.__name__, digest)
+
+
 def retry_with_backoff(max_retries=3, base_delay=2, backoff_factor=2, max_delay=60):
     """带指数退避的重试装饰器，针对 429 做特殊处理"""
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             last_error = None
+            cache_key = _api_cache_key(func, args, kwargs)
             for attempt in range(1, max_retries + 1):
                 try:
                     result = func(*args, **kwargs)
-                    # 成功时写入缓存
-                    cache_key = f"_api_cache_{func.__name__}"
+                    # 成功时写入缓存（键含参数指纹）
                     st.session_state[cache_key] = result
                     return result
                 except Exception as e:
@@ -122,11 +160,10 @@ def retry_with_backoff(max_retries=3, base_delay=2, backoff_factor=2, max_delay=
                                 f"请求失败，已达最大重试（{max_retries} 次）: "
                                 f"{str(e)[:200]}"
                             )
-            # 全部重试失败，降级
-            cache_key = f"_api_cache_{func.__name__}"
+            # 全部重试失败，降级（只复用同一参数集的缓存）
             cached = st.session_state.get(cache_key)
             if cached is not None:
-                st.warning("请求失败，使用上次缓存数据（可能过期）。")
+                st.warning("请求失败，使用同一请求的上次缓存数据（可能过期）。")
                 return cached
             return None, f"API 不可用: {str(last_error)[:200]}"
         return wrapper

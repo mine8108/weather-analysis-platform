@@ -278,3 +278,36 @@ def record_vision_usage(usage):
         "p_reasoning": int(usage.get("reasoning") or 0),
         "p_total": int(usage.get("total") or 0),
     })
+
+
+# ============================================================
+# 出站请求配额（SEC-02，见 sql/schema.sql 第 9.4 节）
+# 与读图配额同一约定：None 表示配额服务不可用（调用方放行并降级），
+# dict 里 allowed=False 表示今日额度已用完（正常拒绝）。
+# ============================================================
+
+def begin_outbound_call():
+    """原子地占用一次外部数据请求额度。
+
+    未登录、会话里还没有 Supabase 客户端（测试/首屏）时返回 None，
+    由调用方按「服务不可用」处理，避免在登录前或测试环境触发网络。
+    """
+    uid = _user_id()
+    if uid is None or st.session_state.get("_sb_client") is None:
+        return None
+    sb = get_supabase()
+    if sb is None:
+        return None
+    try:
+        res = sb.rpc("begin_outbound_call", {}).execute()
+        data = res.data if hasattr(res, "data") else res
+        if isinstance(data, list):
+            data = data[0] if data else None
+        if isinstance(data, dict) and data.get("ok"):
+            return data
+        return None
+    except Exception as exc:
+        _LOG.warning("出站配额 RPC 失败", exc_info=True)
+        if is_session_error(exc):
+            expire_session()
+        return None

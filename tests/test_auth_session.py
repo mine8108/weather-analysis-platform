@@ -49,8 +49,10 @@ class _FakeRpc:
         self._c.calls.append(("rpc", self._n, dict(self._p)))
         if self._n == "claim_invite_code":
             return _FakeResp(self._c.claim_ok)
-        if self._n == "consume_invite_code" and self._c.consume_error:
-            raise RuntimeError(self._c.consume_error)
+        if self._n == "consume_invite_code":
+            if self._c.consume_error:
+                raise RuntimeError(self._c.consume_error)
+            return _FakeResp(self._c.consume_ok)
         return _FakeResp(True)
 
 
@@ -89,11 +91,13 @@ class _FakeAuth:
 class FakeClient:
     """最小可用的假客户端，记录全部调用。"""
 
-    def __init__(self, *, claim_ok=True, create_user_error=None, consume_error=None):
+    def __init__(self, *, claim_ok=True, create_user_error=None,
+                 consume_error=None, consume_ok=True):
         self.calls = []
         self.claim_ok = claim_ok
         self.create_user_error = create_user_error
         self.consume_error = consume_error
+        self.consume_ok = consume_ok
         self.auth = _FakeAuth(self)
 
     def rpc(self, name, params=None):
@@ -306,6 +310,22 @@ def test_register_rolls_back_when_consume_fails():
     assert "已回滚" in at.session_state["auth_error"]
 
 
+def test_register_rolls_back_when_consume_returns_false():
+    """SEC-09：核销返回 false 与抛异常同等对待，必须回滚且不得自动登录。"""
+    CREATED.clear()
+    _install_fake_supabase({"claim_ok": True, "consume_ok": False})
+    at = _new_apptest(_script_register_consume_fails).run()
+    assert not at.exception, f"脚本异常: {at.exception}"
+    calls = _admin_client().calls
+    assert any(c[0] == "delete_user" for c in calls), "核销返回 false 未回滚账号"
+    assert any(
+        c[0] == "rpc" and c[1] == "release_invite_code" for c in calls
+    ), "核销返回 false 未释放认领"
+    assert "已回滚" in at.session_state["auth_error"]
+    assert not any(c[0] == "sign_in" for client in CREATED for c in client.calls), \
+        "核销失败后不得自动登录"
+
+
 def test_register_sends_hash_not_plaintext():
     """R-22：认领与核销传给数据库的是 SHA-256 摘要，不是明文邀请码。"""
     CREATED.clear()
@@ -316,12 +336,18 @@ def test_register_sends_hash_not_plaintext():
     expected = hashlib.sha256("GOODCODE".encode("utf-8")).hexdigest()
     assert len(expected) == 64
 
-    anon = [c for c in CREATED if getattr(c, "key", None) == "anon-key"][-1]
-    claim = [c[2] for c in anon.calls if c[0] == "rpc" and c[1] == "claim_invite_code"]
-    assert claim and claim[0]["p_code"] == expected, claim
-
     admin = _admin_client()
-    consume = [c[2] for c in admin.calls if c[0] == "rpc" and c[1] == "consume_invite_code"]
+    claim = [c[2] for c in admin.calls
+             if c[0] == "rpc" and c[1] == "claim_invite_code"]
+    assert claim and claim[0]["p_code"] == expected, claim
+    # SEC-08：认领必须由 service_role 代调，anon 客户端不得再持有执行权
+    anon = [c for c in CREATED if getattr(c, "key", None) == "anon-key"][-1]
+    assert not [c for c in anon.calls
+                if c[0] == "rpc" and c[1] == "claim_invite_code"], \
+        "认领不应再由匿名客户端发起"
+
+    consume = [c[2] for c in admin.calls
+               if c[0] == "rpc" and c[1] == "consume_invite_code"]
     assert consume and consume[0]["p_code"] == expected, consume
     assert "GOODCODE" not in str(claim) + str(consume), "明文邀请码不得进入请求参数"
 

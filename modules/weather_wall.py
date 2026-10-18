@@ -8,13 +8,55 @@
 - 状态：st.session_state["wall_cities"] 驱动，render() 数据驱动重绘。
 """
 
+import html as _html
+import math
+
 import streamlit as st
 
-from utils import retry_with_backoff, _safe_toast
+from utils import retry_with_backoff, _safe_toast, check_response_size
+from modules.quota import take_outbound
 # 相对导入：weather_wall 以 modules 包成员导入时，同目录模块需 . 前缀
 from .geocode import format_candidate, forward_geocode, parse_lat_lon, reverse_geocode
 from .geolocate import geo_locator
 from .city_prefs import load_cities, save_cities
+
+# ============================================================
+# 零、不可信文本的清洗与转义（SEC-05 / SEC-35）
+# ============================================================
+def _clean_text(value, limit=40):
+    """去掉控制字符并截断；用于城市名/英文名/分组名等展示字段。"""
+    s = "".join(ch for ch in str(value or "") if ch.isprintable()).strip()
+    return s[:limit]
+
+
+def _esc(value):
+    """HTML 转义；card_html 的所有插值都必须经过它。"""
+    return _html.escape(str(value or ""), quote=True)
+
+
+def _normalize_city(city):
+    """把任意来源的城市 dict 归一化为安全结构；非法条目返回 None。"""
+    if not isinstance(city, dict):
+        return None
+    try:
+        lat, lon = float(city["lat"]), float(city["lon"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not (math.isfinite(lat) and math.isfinite(lon)
+            and -90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+        return None
+    zh = _clean_text(city.get("zh"))
+    if not zh:
+        return None
+    return {
+        "zh": zh,
+        "en": _clean_text(city.get("en")),
+        "lat": lat,
+        "lon": lon,
+        "region": _clean_text(city.get("region") or "自定义", 20) or "自定义",
+        "capital": bool(city.get("capital", False)),
+    }
+
 
 # ============================================================
 # 一、城市库
@@ -112,6 +154,11 @@ def _fetch_batch_retry(lats: tuple, lons: tuple):
     并不会抛异常，因此外层 _fetch_batch 必须校验类型后再交给缓存层。
     """
     import requests
+
+    # 安全修复（SEC-02）：天气墙批量请求同样计入每用户每日出站配额
+    allowed, quota_msg = take_outbound()
+    if not allowed:
+        return (None, quota_msg)
     resp = requests.get(
         "https://api.open-meteo.com/v1/forecast",
         params={
@@ -126,6 +173,7 @@ def _fetch_batch_retry(lats: tuple, lons: tuple):
         timeout=30,
     )
     resp.raise_for_status()
+    check_response_size(resp)
     data = resp.json()
     return data if isinstance(data, list) else [data]
 
@@ -187,6 +235,11 @@ def refresh_weather() -> None:
 def _aqi_batch_retry(lats: tuple, lons: tuple):
     """Open-Meteo Air Quality API 当前浓度（多坐标批量一次请求）。"""
     import requests
+
+    # 安全修复（SEC-02）：空气质量批量请求同样计入每用户每日出站配额
+    allowed, quota_msg = take_outbound()
+    if not allowed:
+        return (None, quota_msg)
     resp = requests.get(
         "https://air-quality-api.open-meteo.com/v1/air-quality",
         params={
@@ -198,6 +251,7 @@ def _aqi_batch_retry(lats: tuple, lons: tuple):
         timeout=30,
     )
     resp.raise_for_status()
+    check_response_size(resp)
     data = resp.json()
     return data if isinstance(data, list) else [data]
 
@@ -375,7 +429,7 @@ def card_html(city: dict, wx: dict | None, scene: str, idx: int = 0,
 <div class="ww-card sc-{scene}" style="animation-delay:{delay:.2f}s">
   <div class="ww-sky">{_sky_html(scene, idx)}</div>
   <div class="ww-shade"></div>
-  <div class="ww-city">{city['zh']}<span class="ww-en">{city['en']}</span></div>
+  <div class="ww-city">{_esc(city.get('zh'))}<span class="ww-en">{_esc(city.get('en'))}</span></div>
   <div class="ww-temp">{temp}</div>
   <div class="ww-cond">{cond}</div>
   <div class="ww-sub">{sub}</div>
@@ -565,6 +619,12 @@ def _add_city(city: dict) -> bool:
     "删了搜索字段弹窗还在"），改写入一次性 _wall_notice，由 render_wall
     渲染为页面内警告，并绑定当前输入状态，输入清空即不再显示。
     """
+    # 安全修复（SEC-05/35）：所有来源（城市库、地理编码、定位组件、云端偏好）
+    # 统一在这里归一化并校验坐标，避免非法/超长/带控制字符的条目进入会话与磁盘。
+    city = _normalize_city(city)
+    if city is None:
+        st.session_state["_wall_notice"] = "城市信息无效（名称或坐标不合法），已忽略"
+        return False
     ok, msg = _can_add(city)
     if not ok:
         st.session_state["_wall_notice"] = msg
@@ -657,7 +717,13 @@ def build_city_from_geo(loc: dict | None, reverse_fn=reverse_geocode) -> dict | 
         lat, lon = float(loc["lat"]), float(loc["lon"])
     except (TypeError, ValueError, KeyError):
         return None
-    name = reverse_fn(lat, lon) or f"({lat:.2f}, {lon:.2f})"
+    # 安全修复（SEC-35）：组件回传值可被客户端篡改，必须校验有限性与范围
+    if not (math.isfinite(lat) and math.isfinite(lon)
+            and -90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+        return None
+    name = _clean_text(reverse_fn(lat, lon) or f"({lat:.2f}, {lon:.2f})")
+    if not name:
+        return None
     return {
         "zh": name, "en": f"{lat:.2f}, {lon:.2f}",
         "lat": lat, "lon": lon, "region": "定位", "capital": False,
@@ -681,7 +747,12 @@ def render_wall() -> None:
     # 城市列表统一存完整 dict（含经纬度）。初始化从持久化读回（刷新/重启保留），
     # 无持久化数据时为空 → 显示引导占位卡（用户已拍板定位失败的降级方案）。
     if "wall_cities" not in st.session_state:
-        st.session_state["wall_cities"] = load_cities()
+        # 安全修复（SEC-05/06）：读回时再归一化一次，防止共享文件/云端元数据
+        # 里的历史脏数据（超长、控制字符、非法坐标）进入渲染路径。
+        raw_cities = load_cities()
+        st.session_state["wall_cities"] = [
+            c for c in (_normalize_city(x) for x in (raw_cities or [])) if c
+        ]
     cities: list[dict] = st.session_state["wall_cities"]
 
     st.markdown(wall_css(), unsafe_allow_html=True)

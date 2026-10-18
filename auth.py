@@ -296,7 +296,7 @@ def render_auth_page():
         mode = st.radio("操作", ["登录", "注册"], horizontal=True, key="auth_mode")
         email = st.text_input("邮箱", placeholder="you@example.com", key="auth_email")
         password = st.text_input(
-            "密码", type="password", placeholder="至少 6 位", key="auth_password"
+            "密码", type="password", placeholder="至少 8 位", key="auth_password"
         )
         invite_code = ""
         if mode == "注册":
@@ -308,8 +308,8 @@ def render_auth_page():
         if submitted:
             if not email or not password:
                 st.error("请输入邮箱和密码。")
-            elif len(password) < 6:
-                st.error("密码至少 6 位。")
+            elif len(password) < 8:
+                st.error("密码至少 8 位。")
             elif mode == "注册" and not invite_code:
                 st.error("请填写邀请码（注册需管理员授权）。")
             else:
@@ -364,8 +364,8 @@ def _do_auth(mode: str, email: str, password: str, invite_code: str = ""):
             st.session_state["auth_error"] = (
                 "邮箱尚未确认。请查收邮件，或到 Supabase 控制台关闭 Confirm email。"
             )
-        elif "weak password" in msg or ("password" in msg and "6" in msg):
-            st.session_state["auth_error"] = "密码强度不足：至少 6 位。"
+        elif "weak password" in msg or "password should be" in msg:
+            st.session_state["auth_error"] = "密码强度不足：至少 8 位。"
         else:
             st.session_state["auth_error"] = safe_error_text(e, "登录或注册失败，请稍后重试。")
         st.rerun()
@@ -402,9 +402,11 @@ def _register_with_invite(sb, email: str, password: str, code: str):
 
     # 2) 原子认领（认领成功的码在 15 分钟内对其他请求不可用）
     # 安全修复 R-22：库里只存 SHA-256 摘要，因此传哈希而不是明文
+    # 安全修复 SEC-08：认领改由 service_role 代调，不再对匿名/登录角色开放执行权，
+    # 避免任何拿到码的人直接调 RPC 反复占位把码锁死。
     code_hash = _hash_invite_code(code)
     try:
-        claimed = sb.rpc("claim_invite_code", {"p_code": code_hash}).execute()
+        claimed = sb_admin.rpc("claim_invite_code", {"p_code": code_hash}).execute()
     except Exception as e:
         st.session_state["auth_error"] = _schema_error_msg(e)
         st.rerun()
@@ -424,22 +426,32 @@ def _register_with_invite(sb, email: str, password: str, code: str):
             raise RuntimeError("未返回用户标识")
     except Exception as e:
         _release_invite_code(sb_admin, code)
-        msg = str(e).lower()
-        if "already" in msg or "registered" in msg or "exists" in msg:
-            st.session_state["auth_error"] = "该邮箱已注册，请直接登录。"
-        else:
-            st.session_state["auth_error"] = safe_error_text(e, "建账号失败，请稍后重试或联系管理员。")
+        # 安全修复 SEC-10：不再按上游错误文本区分「邮箱已注册」，
+        # 统一文案避免未认证接口被用来枚举注册邮箱；细节只写服务端日志。
+        _LOG.warning("注册建号失败 code_hash=%s err=%s",
+                     code_hash[:8], type(e).__name__)
+        st.session_state["auth_error"] = safe_error_text(
+            e,
+            "建账号失败：邀请码无效、邮箱不可用或服务暂不可用，请联系管理员。",
+        )
         st.rerun()
         return
 
     # 4) 核销（绑定新用户）
     # consume_invite_code 仅 authenticated/service_role 可调，注册时用户尚未
     # 登录（anon），故必须由 service_role 客户端调用。
+    # 安全修复 SEC-09：返回 false 与抛异常同等对待。原实现只处理异常，
+    # 码在 claim 与 consume 之间被作废/过期时仍会建号，破坏「一码一账号」。
+    consume_error = None
     try:
-        sb_admin.rpc(
+        consume_res = sb_admin.rpc(
             "consume_invite_code", {"p_code": code_hash, "p_user_id": new_uid}
         ).execute()
+        consume_ok = getattr(consume_res, "data", None) is True
     except Exception as e:
+        consume_ok = False
+        consume_error = e
+    if not consume_ok:
         # 核销失败必须回滚：删除刚建的账号并释放认领，
         # 否则会留下一个没有消耗邀请码的孤儿账号，破坏「一码一账号」不变量。
         try:
@@ -447,8 +459,11 @@ def _register_with_invite(sb, email: str, password: str, code: str):
         except Exception:
             pass
         _release_invite_code(sb_admin, code)
+        detail = (_schema_error_msg(consume_error)
+                  if consume_error is not None
+                  else "邀请码已被使用、作废或过期")
         st.session_state["auth_error"] = (
-            "邀请码核销失败，本次注册已回滚：" + _schema_error_msg(e)
+            "邀请码核销失败，本次注册已回滚：" + detail
         )
         st.rerun()
         return

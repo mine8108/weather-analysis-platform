@@ -1,16 +1,24 @@
 """天气墙偏好持久化：城市列表 + 显示开关（刷新/重启后保留）。
 
 双通道（与 theme_aether 主题持久化同构）：
-- 未登录：本地文件 ~/.weather_wall_cities.json，结构 {"cities": [...], "show_wall": bool}
-  （兼容旧版 list 结构：读到 list 时按 cities=旧列表、show_wall=True 迁移）
-- 已登录：Supabase user_metadata.cities（JSON 字符串）+ show_wall（"0"/"1"），登录时读回
+- 未登录：本地文件 ``~/.weather_wall_cities.json``，结构
+  ``{"cities": [...], "show_wall": bool}``（兼容旧版 list 结构）
+- 已登录：``~/.weather_wall_cities.<uid>.json`` 与 Supabase
+  ``user_metadata.cities``（JSON 字符串）+ ``show_wall``（"0"/"1"），登录时读回
 
-城市条目只保留 JSON 安全最小字段（zh/en/lat/lon/region/capital）。
-云端写入使用当前会话的 `auth.get_supabase()` 客户端；调用前用
-`utils.supabase_secrets_ready()` 预检，避免缺密钥时 `st.stop()`。
+安全修复（2026-10-18 审计）：
+- SEC-05：城市名去掉控制字符并截断；HTML 转义在渲染层（weather_wall.card_html）
+- SEC-06：本地文件按 uid 分区，避免 Streamlit Cloud 单容器多会话共享串读；
+  ``save_show_wall`` 不再把共享文件里的城市列表写进当前用户的云端元数据
+- SEC-35：坐标校验有限性、范围与类型，非法条目直接丢弃
+
+云端写入使用当前会话的 ``auth.get_supabase()`` 客户端；调用前用
+``utils.supabase_secrets_ready()`` 预检，避免缺密钥时 ``st.stop()``。
 """
 
 import json
+import math
+import re
 from pathlib import Path
 
 import streamlit as st
@@ -20,6 +28,34 @@ from utils import supabase_secrets_ready
 _PREF_FILE = Path.home() / ".weather_wall_cities.json"
 
 _CITY_KEYS = ("zh", "en", "lat", "lon", "region", "capital")
+
+_UID_SAFE_RE = re.compile(r"[^0-9A-Za-z_-]")
+
+
+def _clean_text(value, limit=40):
+    """去控制字符并截断；只用于展示字段，不做 HTML 转义。"""
+    s = "".join(ch for ch in str(value or "") if ch.isprintable()).strip()
+    return s[:limit]
+
+
+def _current_uid() -> str:
+    """当前登录用户 id；未登录、测试环境或运行时缺失时返回空串。"""
+    try:
+        user = st.session_state.get("auth_user") or {}
+        return str(user.get("id") or "")
+    except Exception:
+        return ""
+
+
+def _pref_file(uid=None) -> Path:
+    """按 uid 分区的偏好文件；uid 为空时退回旧版共享路径（匿名/测试）。"""
+    if uid is None:
+        uid = _current_uid()
+    uid = str(uid or "")
+    if not uid:
+        return _PREF_FILE
+    safe = _UID_SAFE_RE.sub("", uid)[:64] or "user"
+    return _PREF_FILE.parent / ("%s.%s.json" % (_PREF_FILE.stem, safe))
 
 
 def sanitize_cities(cities) -> list[dict]:
@@ -32,15 +68,18 @@ def sanitize_cities(cities) -> list[dict]:
             lat, lon = float(c["lat"]), float(c["lon"])
         except (KeyError, TypeError, ValueError):
             continue
-        zh = str(c.get("zh", "")).strip()
+        if not (math.isfinite(lat) and math.isfinite(lon)
+                and -90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+            continue
+        zh = _clean_text(c.get("zh"))
         if not zh:
             continue
         out.append({
             "zh": zh,
-            "en": str(c.get("en", "")),
+            "en": _clean_text(c.get("en")),
             "lat": lat,
             "lon": lon,
-            "region": str(c.get("region", "自定义")),
+            "region": _clean_text(c.get("region") or "自定义", 20) or "自定义",
             "capital": bool(c.get("capital", False)),
         })
     return out
@@ -49,14 +88,16 @@ def sanitize_cities(cities) -> list[dict]:
 # ============================================================
 # 本地文件通道
 # ============================================================
-def _load_local() -> dict:
+def _load_local(uid=None) -> dict:
     """读取本地偏好，返回 {"cities": [...], "show_wall": bool}。
+
     兼容旧版 list 结构（迁移为 show_wall=True）；文件缺失/损坏返回默认值。
     """
     default = {"cities": [], "show_wall": True}
+    path = _pref_file(uid)
     try:
-        if _PREF_FILE.exists():
-            data = json.loads(_PREF_FILE.read_text(encoding="utf-8"))
+        if path.exists():
+            data = json.loads(path.read_text(encoding="utf-8"))
             if isinstance(data, list):  # 旧版结构迁移
                 return {"cities": sanitize_cities(data), "show_wall": True}
             if isinstance(data, dict):
@@ -69,15 +110,18 @@ def _load_local() -> dict:
     return default
 
 
-def _save_local(cities, show_wall: bool) -> None:
+def _save_local(cities, show_wall: bool, uid=None) -> None:
+    """原子写入本地偏好；失败只丢持久化，不影响本次会话。"""
+    path = _pref_file(uid)
     try:
-        _PREF_FILE.write_text(
-            json.dumps({"cities": sanitize_cities(cities),
-                        "show_wall": bool(show_wall)}, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        text = json.dumps({"cities": sanitize_cities(cities),
+                           "show_wall": bool(show_wall)}, ensure_ascii=False)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(text, encoding="utf-8")
+        tmp.replace(path)
     except Exception:
-        pass  # 写失败仅丢持久化，不影响本次会话
+        pass
 
 
 # ============================================================
@@ -96,12 +140,7 @@ def _cloud_available() -> bool:
 
 
 def _save_cloud(cities, show_wall: bool) -> None:
-    """登录用户：user_metadata.cities + show_wall。失败静默。
-
-    安全修复：改用 auth.get_supabase()，即当前会话专属且已完成登录的客户端。
-    原实现每次新建一个匿名客户端再调 update_user，客户端里没有会话，请求必然
-    被拒；异常又被静默吞掉，导致云端同步从未真正生效。
-    """
+    """登录用户：user_metadata.cities + show_wall。失败静默。"""
     if not _cloud_available():
         return
     try:
@@ -129,7 +168,7 @@ def save_cities(cities) -> None:
 
 
 def load_cities() -> list:
-    """初始化读回城市列表（云端值在登录时经 apply_cloud_prefs 注入会话）。"""
+    """初始化读回当前用户的本地城市列表。"""
     return _load_local()["cities"]
 
 
@@ -139,10 +178,12 @@ def load_show_wall() -> bool:
 
 
 def save_show_wall(show: bool) -> None:
-    """天气墙开关切换后调用：保留当前城市列表，双通道持久化。"""
-    cur = _load_local()
-    _save_local(cur["cities"], show)
-    _save_cloud(cur["cities"], show)
+    """天气墙开关切换后调用：只持久化当前用户的列表，绝不复制共享文件内容。"""
+    cities = st.session_state.get("wall_cities")
+    if cities is None:
+        cities = _load_local()["cities"]
+    _save_local(cities, show)
+    _save_cloud(cities, show)
 
 
 def apply_cloud_prefs(cities_raw: str | None, show_wall_raw: str | None) -> None:

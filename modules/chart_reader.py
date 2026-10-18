@@ -12,8 +12,10 @@
 """
 
 import base64
+import hashlib
 import io
 import time
+from collections import OrderedDict
 
 import streamlit as st
 
@@ -24,10 +26,16 @@ MAX_IMAGES = 3
 MAX_RAW_BYTES = 20 * 1024 * 1024      # 原始字节硬上限，超过直接拒绝，不解码
 MAX_IMAGE_BYTES = 5 * 1024 * 1024     # 提交单图上限
 MAX_TOTAL_BYTES = 12 * 1024 * 1024    # 提交合计上限
-MAX_PIXELS = 50 * 1000 * 1000         # 解码后的像素数上限
+# 安全修复（SEC-13）：5000 万像素在解码/转 RGB/LANCZOS 时峰值可达数百 MB，
+# 单张就足以在 1GB 实例上触发 OOM；收紧到 1600 万像素。
+MAX_PIXELS = 16 * 1000 * 1000         # 解码后的像素数上限
 MAX_EDGE_PX = 1600                    # 长边上限（保等值线数值与坐标标注可读）
 MIN_EDGE_PX = 200                     # 长边下限（低于此无解析价值）
 JPEG_QUALITY = 88
+
+# 处理结果缓存：按原始字节哈希，避免每次 rerun 重复解码/重编码（SEC-13）
+_PROCESS_CACHE = OrderedDict()
+_PROCESS_CACHE_MAX = 12
 
 ALLOWED_UPLOAD_TYPES = ["png", "jpg", "jpeg", "webp"]
 
@@ -95,7 +103,47 @@ def _encode_smallest(img):
     return png if len(png[0]) < len(jpeg[0]) else jpeg
 
 
+def _has_private_metadata(img) -> bool:
+    """图片是否带有 EXIF/文本块等可识别信息（SEC-14）。
+
+    ICC 色彩配置不属于隐私信息，不在此列；EXIF（含 GPS）、PNG 文本块
+    会被原样送第三方 LLM 并嵌入 docx，必须在提交前剥离。
+    """
+    try:
+        if len(img.getexif() or {}) > 0:
+            return True
+    except Exception:
+        pass
+    try:
+        if getattr(img, "text", None):
+            return True
+    except Exception:
+        pass
+    info = getattr(img, "info", {}) or {}
+    return any(key in info and info[key] for key in ("exif", "comment", "text"))
+
+
 def process_image(raw, name):
+    """带缓存的图片处理入口（SEC-13）：同一份字节只解码/重编码一次。"""
+    try:
+        key = hashlib.sha256(raw).hexdigest() + "|" + str(name or "")[:80]
+    except Exception:
+        key = None
+    if key is not None:
+        cached = _PROCESS_CACHE.get(key)
+        if cached is not None:
+            _PROCESS_CACHE.move_to_end(key)
+            return dict(cached)
+    result = _process_image_uncached(raw, name)
+    if key is not None:
+        _PROCESS_CACHE[key] = dict(result)
+        _PROCESS_CACHE.move_to_end(key)
+        while len(_PROCESS_CACHE) > _PROCESS_CACHE_MAX:
+            _PROCESS_CACHE.popitem(last=False)
+    return result
+
+
+def _process_image_uncached(raw, name):
     """校验并处理一张上传图片。
 
     返回 {"name", "ok", "error", "orig_kb", "new_kb", "width", "height",
@@ -145,7 +193,9 @@ def process_image(raw, name):
                 height = max(1, int(round(height * scale)))
                 img = img.resize((width, height), Image.LANCZOS)
 
-            if not resized and source_format in _PASSTHROUGH_MIMES:
+            if (not resized and source_format in _PASSTHROUGH_MIMES
+                    and not _has_private_metadata(img)):
+                # 安全修复（SEC-14）：无隐私元数据才原样透传；否则走重编码剥离
                 data = raw
                 mime = _PASSTHROUGH_MIMES[source_format]
                 kept_original = True
@@ -252,10 +302,10 @@ def quota_allows(state, user_key=""):
     return False, "配额服务不可用，临时额度已用完，请稍后重试。"
 
 
-def quota_budget(state, default):
+def quota_budget(state, default, prompt_tokens=0):
     """本次调用的输出预算。
 
-    取单次上限与当日剩余额度两者较小值，并留 SAFETY_MARGIN_TOKENS 余量。
+    取单次上限与当日剩余额度两者较小值，并预留 prompt token 与安全余量。
     返回 0 表示当日剩余不足以再发起一次调用，调用方必须拒绝。
     """
     if not state:
@@ -272,7 +322,11 @@ def quota_budget(state, default):
         remaining = int(remaining)
     except (TypeError, ValueError):
         return limit
-    cap = remaining - SAFETY_MARGIN_TOKENS
+    try:
+        reserve = max(int(prompt_tokens or 0), 0)
+    except (TypeError, ValueError):
+        reserve = 0
+    cap = remaining - SAFETY_MARGIN_TOKENS - reserve
     if cap <= 0:
         return 0
     return min(limit, cap)
@@ -444,7 +498,9 @@ def _generate(cfg, images, note):
         (st.warning if allowed else st.error)(notice)
     if not allowed:
         return
-    budget = quota_budget(quota_state, VISION_MAX_TOKENS)
+    # 安全修复（SEC-24）：预算要预留本次图片 prompt 的开销，否则实际总量会超配额
+    budget = quota_budget(quota_state, VISION_MAX_TOKENS,
+                          estimate_image_tokens(images) + 800)
     if budget <= 0:
         st.warning("今日 token 剩余额度不足以再生成一次，"
                    "请次日再试或联系管理员调整配额。")

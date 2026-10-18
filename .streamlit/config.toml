@@ -5,6 +5,12 @@ port = 8501
 # 借访客浏览器访问本应用接口；XSRF 保护保持开启。
 enableCORS = true
 enableXsrfProtection = true
+# 安全修复（SEC-03/31）：与业务层 20MB 上限对齐，作为服务器层兜底
+maxUploadSize = 20
+
+[client]
+# 安全修复（SEC-12）：不把未捕获异常的完整 traceback 渲染到浏览器
+showErrorDetails = "none"
 
 [theme]
 primaryColor = "#2563eb"

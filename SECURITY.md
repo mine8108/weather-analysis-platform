@@ -32,6 +32,20 @@ RLS 策略定义于 `sql/schema.sql`，需在 Supabase 控制台 SQL Editor 执�
 - 仓库内 `docs/Supabase基本操作说明.docx` 仅含占位符说明（`https://xxxx.supabase.co`），无真实 URL / key。
 - RLS 策略经代码审阅确认正确。
 
+## 2026-10-18 审计修复（代码侧）
+- 邀请码验码 / 认领 / 核销 / 释放改为仅 `service_role` 可执行，注册流程由服务端代调；注册失败不再区分「邮箱已注册」。
+- 新增出站请求配额（`outbound_usage` + `begin_outbound_call()`，默认每人每日 200 次），覆盖 GFS 预报、实况、空气质量、历史 API 与天气墙批量请求。
+- `save_dataset` 改为先取 `profiles` 行锁、再统计配额与数量，修复并发 TOCTOU。
+- 天气墙城市名 HTML 转义，城市结构统一归一化（控制字符、长度、坐标有限性/范围）；本地偏好文件按 uid 分区。
+- 上传 CSV/Excel 增加行 / 列 / 单元格上限与解析缓存；读图像素上限收紧到 1600 万并剥离 EXIF/PNG 文本块。
+- GFS 缓存读取收归 `service_role`，一级会话缓存加 1 小时 TTL；第三方错误文本不再回显给用户。
+- 管理员失败计数按会话隔离 + 全局滑动窗口限速；调试输出需 Secrets 中 `DEBUG_MODE = true` 才生效。
+- `search_path` 统一补 `pg_temp`，收回触发器函数与 `invite_codes` 表权限，`security_selfcheck` 判定改为「缺失即失败」。
+
+注意：`st.markdown(unsafe_allow_html=True)` 在 1.59.1 走 rehype-raw，**不经过 DOMPurify**；任何数据字符串必须先 `html.escape`。DOMPurify 只对 `st.html` 生效。
+
+**部署后必须重跑 `sql/schema.sql`**（新增表 / 函数 / 列与多项执行权变更），否则出站配额与邀请码注册会失败。完整变更与验证见 `research/audit-2026-10-18/修复记录.md`。
+
 ## 公开库部署须知
 - 源码与 anon key 对所有人可见，安全性由 RLS 承担。
 - `service_role` key 仅存在于服务端（Streamlit Cloud Secrets），绝不进入前端或代码。

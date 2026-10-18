@@ -38,7 +38,7 @@ KEYS = {}
 _register((
     "auth_user", "auth_error", "admin_unlocked", "admin_unlock_time",
     "invite_codes_out", "dark_mode", "_theme_cloud", "debug_mode",
-    "_custom_thresholds", "_nav_stack",
+    "_custom_thresholds", "_nav_stack", "_admin_sid",
 ), "keep")
 
 _register(("active_tab", "import_step", "import_method"), "keep")
@@ -111,7 +111,8 @@ WIDGET_KEYS = {
         "invite_revoke", "jump_alert", "jump_export", "jump_viz", "logout_btn",
         "manual_back", "manual_chapter_pick", "manual_download",
         "manual_open_btn", "ms_all", "ms_invert", "ms_none", "ms_select",
-        "multi_station_field", "onboard_quick", "quota_mb", "quota_save",
+        "multi_station_field", "onboard_quick", "oq_calls", "oq_save",
+        "quota_mb", "quota_save",
         "report_download_docx", "report_download_md", "report_style", "rs_b",
         "rs_o", "rs_r", "rs_y", "save_cloud", "sb_wall_cover",
         "sidebar_reset_current_tab", "skip_wizard", "th_h", "ts_picker",

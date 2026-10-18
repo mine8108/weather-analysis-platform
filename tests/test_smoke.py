@@ -42,3 +42,19 @@ def test_modules_import():
     ]
     for name in modules:
         importlib.import_module(name)
+
+
+def test_response_size_guard():
+    """SEC-34：声明了超大 Content-Length 的响应必须拒绝解析。"""
+    import pytest
+
+    from utils import check_response_size
+
+    class _Resp:
+        def __init__(self, length):
+            self.headers = {"Content-Length": str(length)}
+
+    check_response_size(_Resp(1024))  # 小响应放行
+    with pytest.raises(ValueError):
+        check_response_size(_Resp(6 * 1024 * 1024))
+    check_response_size(object())  # 无 headers 的测试替身不应报错

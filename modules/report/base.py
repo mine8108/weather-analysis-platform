@@ -185,7 +185,10 @@ def _sanitize_cell_for_csv(val):
     if val is None:
         return val
     s = str(val)
-    if s[:1] in ("=", "+", "-", "@", "\t", "\r"):
+    # 安全修复（SEC-36）：Excel/WPS 会忽略前导空白后再解释公式，
+    # 因此先剥掉空白/制表/换行再判断危险前缀。
+    probe = s.lstrip(" \t\r\n")
+    if probe[:1] in ("=", "+", "-", "@", "\t", "\r"):
         return "'" + s
     return val
 

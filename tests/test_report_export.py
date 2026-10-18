@@ -58,6 +58,15 @@ def test_plain_report_generates_docx():
     assert len(blob) > 4000
 
 
+def test_csv_export_prefixes_formula_like_cells():
+    """SEC-36：公式注入清洗要覆盖前导空白/制表符后的危险前缀。"""
+    df = pd.DataFrame({
+        "note": ["=1+1", " =2+2", "\t=3+3", "normal"],
+    })
+    text = export_data_csv(df).decode("utf-8-sig")
+    assert text.count("'") == 3
+
+
 def test_report_without_data_still_returns_docx():
     blob = export_report_word(pd.DataFrame(), [], 0.0, source="")
     assert blob and blob[:2] == b"PK"

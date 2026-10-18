@@ -37,7 +37,8 @@ from modules.chart_reader import render_chart_reader_tab
 from modules.codec import render_codec_tab
 from modules.reporter import render_export_tab
 from modules.nwp_forecast import render_forecast_tab
-from utils import df_fingerprint as _df_fingerprint, go_back as _go_back, _safe_toast
+from utils import (df_fingerprint as _df_fingerprint, go_back as _go_back,
+                   _safe_toast, safe_error_text)
 from auth import render_auth_page, is_authenticated, sign_out_user, ensure_session
 from modules import theme_aether
 from modules import warn_rules
@@ -354,8 +355,10 @@ def _render_onboarding_page():
             st.info("☁️ 天气墙已隐藏。可在侧边栏勾选「[显示] 天气墙」重新开启。")
     except Exception as _wall_exc:
         st.warning("⚠️ 天气墙加载异常，已降级显示。点击下方按钮可正常使用平台功能。")
-        with st.expander("查看错误详情"):
-            st.exception(_wall_exc)
+        # 安全修复（SEC-12）：完整堆栈只在调试模式展示，且不写入默认路径
+        if get_debug_mode():
+            with st.expander("查看错误详情"):
+                st.exception(_wall_exc)
 
     # ---- 快速开始入口（保留原跳转逻辑） ----
     st.write("")
@@ -607,7 +610,8 @@ with st.sidebar:
 
     st.divider()
     st.checkbox("[调试] 显示详细错误信息", value=False, key="debug_mode",
-                help="开启后，图表渲染失败时会展示完整的 Python 报错堆栈，便于排查问题。")
+                help="需同时在 Secrets 中设置 DEBUG_MODE=true 才会生效；"
+                     "开启后图表/报告渲染失败时会展示完整 Python 报错堆栈。")
     # 老用户回封面入口：有数据时仍可随时回到天气墙封面（_wall_cover 控制主区分支）
     if st.session_state.get("df") is not None:
         if st.button("☁️ 天气墙封面", key="sb_wall_cover",
@@ -897,7 +901,10 @@ if st.session_state["active_tab"] == 3:
                 try:
                     all_w += fn(st.session_state["df"])
                 except Exception as e:
-                    st.warning(f"{name}检测因数据问题跳过: {e}")
+                    st.warning(
+                        f"{name}检测因数据问题跳过："
+                        + safe_error_text(e, "该检测项的数据格式不满足要求")
+                    )
             st.session_state["warnings_list"] = all_w
             st.session_state["_warn_fp"] = fp
     # 读图解析不依赖已导入数据，无条件渲染（详见 modules/chart_reader）
