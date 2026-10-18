@@ -90,6 +90,8 @@ def test_requirements_declare_image_and_markdown_deps():
     text = _read("requirements.txt")
     assert "Pillow" in text
     assert "markdown-it-py" in text
+    # S17：supabase 曾是 >=2.0.0 的浮动范围，现锁定到已验证版本。
+    assert "supabase==2.33.0" in text
 
 
 def test_era5_variable_check_is_documented_and_present():

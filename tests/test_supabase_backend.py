@@ -13,7 +13,6 @@ import os
 import sys
 import logging
 import types
-from datetime import datetime, timezone
 from unittest import mock
 
 _APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -96,9 +95,18 @@ def _healthy_report():
             "vision_usage.authenticated.INSERT": False,
             "vision_usage.authenticated.UPDATE": False,
             "vision_usage.authenticated.DELETE": False,
+            "gfs_cache.authenticated.SELECT": False,
             "gfs_cache.authenticated.INSERT": False,
             "gfs_cache.authenticated.UPDATE": False,
             "gfs_cache.authenticated.DELETE": False,
+            "admin_audit_log.authenticated.SELECT": False,
+            "admin_audit_log.authenticated.INSERT": False,
+            "admin_audit_log.authenticated.UPDATE": False,
+            "admin_audit_log.authenticated.DELETE": False,
+            "schema_version.authenticated.SELECT": False,
+            "schema_version.authenticated.INSERT": False,
+            "schema_version.authenticated.UPDATE": False,
+            "schema_version.authenticated.DELETE": False,
         },
     }
 
@@ -135,10 +143,15 @@ def test_selfcheck_detects_function_grant_problems():
 
 
 def test_selfcheck_detects_table_write_privilege():
-    report = _healthy_report()
-    report["table_privileges"]["gfs_cache.authenticated.INSERT"] = True
-    problems = backend.selfcheck_problems(report)
-    assert any("gfs_cache" in p and "INSERT" in p for p in problems), problems
+    for key, table, priv in (
+        ("gfs_cache.authenticated.INSERT", "gfs_cache", "INSERT"),
+        ("gfs_cache.authenticated.SELECT", "gfs_cache", "SELECT"),
+        ("admin_audit_log.authenticated.INSERT", "admin_audit_log", "INSERT"),
+    ):
+        report = _healthy_report()
+        report["table_privileges"][key] = True
+        problems = backend.selfcheck_problems(report)
+        assert any(table in p and priv in p for p in problems), (key, problems)
 
 
 def test_selfcheck_rejects_non_dict_report():
@@ -169,18 +182,13 @@ def test_write_params_matches_rpc_arguments():
     assert params["p_data"] == [{"timestamp": "2026-10-18T00:00"}]
 
 
-def test_read_from_filters_on_updated_at_and_returns_records():
-    client = _FakeClient([{"data_json": [{"timestamp": "2026-10-18T00:00"}]}])
-    rows = gfs_cache.read_from(
-        client, "gfs_fc_cache_v3_1.0000_2.0000_d7_blend",
-        now=datetime(2026, 10, 18, 12, tzinfo=timezone.utc),
-    )
+def test_read_from_uses_exact_key_rpc():
+    client = _FakeClient([{"timestamp": "2026-10-18T00:00"}])
+    key = "gfs_fc_cache_v3_1.0000_2.0000_d7_blend"
+    rows = gfs_cache.read_from(client, key)
     assert rows == [{"timestamp": "2026-10-18T00:00"}]
-    assert client.calls[0] == ("table", "gfs_cache")
-    assert client.calls[1] == ("select", "data_json")
-    assert client.calls[2][0] == "eq" and client.calls[2][1] == "cache_key"
-    assert client.calls[3][0] == "gte" and client.calls[3][1] == "updated_at"
-    assert client.calls[4] == ("execute",)
+    assert client.calls[0] == ("get_gfs_cache", {"p_key": key})
+    assert client.calls[1] == ("execute",)
 
 
 def test_read_from_returns_none_on_miss():
@@ -231,9 +239,9 @@ def test_nwp_cache_write_uses_rpc():
     assert client.calls[0][0] == "put_gfs_cache", client.calls
 
 
-def test_nwp_cache_read_filters_updated_at():
+def test_nwp_cache_read_uses_rpc():
     client = _FakeClient([
-        {"data_json": [{"timestamp": "2026-10-18T00:00", "temperature": 20.0}]}
+        {"timestamp": "2026-10-18T00:00", "temperature": 20.0}
     ])
     key = "gfs_fc_cache_v3_1.0000_2.0000_d7_blend"
     with mock.patch.object(nwp_forecast, "st", _fake_streamlit_secrets()), \
@@ -241,8 +249,7 @@ def test_nwp_cache_read_filters_updated_at():
             mock.patch("auth.get_supabase", return_value=client):
         df = nwp_forecast._load_gfs_from_cache(key)
     assert df is not None and len(df) == 1
-    filters = [call for call in client.calls if call and call[0] == "gte"]
-    assert filters and filters[0][1] == "updated_at", client.calls
+    assert ("get_gfs_cache", {"p_key": key}) in client.calls
 
 
 def test_list_users_paginates_until_short_page():
@@ -321,11 +328,13 @@ def test_invite_code_is_128_bit():
 # 四、schema.sql 与错误文案
 # ============================================================
 def test_schema_defines_cache_rpc_and_updated_at():
-    sql = _read("supabase/schema.sql")
+    sql = _read("sql/schema.sql")
     for needle in (
         "add column if not exists updated_at",
         "gfs_cache_updated_idx",
         "create or replace function public.put_gfs_cache",
+        "create or replace function public.get_gfs_cache",
+        "revoke select on public.gfs_cache",
         "revoke insert, update, delete on public.gfs_cache",
         "create or replace function public.security_selfcheck",
         "grant execute on function public.security_selfcheck() to service_role",
@@ -342,6 +351,11 @@ def test_schema_defines_cache_rpc_and_updated_at():
         "revoked_at is null",
         "expires_at is null or expires_at > now()",
         "schema_version",
+        "admin_audit_log",
+        "revoke all on public.admin_audit_log",
+        "profiles_role_check",
+        "gfs_cache_lat_check",
+        "vision_usage_total_check",
     ):
         assert needle in sql, needle
     # save_dataset 与 begin_vision_call 两处都要先补行再锁
@@ -352,7 +366,7 @@ def test_schema_defines_cache_rpc_and_updated_at():
 
 
 def test_schema_counts_dataset_name_against_quota():
-    sql = _read("supabase/schema.sql")
+    sql = _read("sql/schema.sql")
     assert "octet_length(p_name)" in sql
     assert "char_length(p_name) > 200" in sql
     assert "数据集数量已达上限" in sql
@@ -386,6 +400,31 @@ def test_admin_selfcheck_returns_none_on_error():
             raise RuntimeError("function does not exist")
 
     assert auth._run_security_selfcheck(_Boom()) is None
+
+
+def test_admin_audit_writes_log():
+    class _Client:
+        def __init__(self):
+            self.calls = []
+
+        def table(self, name):
+            self.calls.append(("table", name))
+            return self
+
+        def insert(self, payload):
+            self.calls.append(("insert", payload))
+            return self
+
+        def execute(self):
+            self.calls.append(("execute",))
+            return types.SimpleNamespace(data=[])
+
+    client = _Client()
+    auth._audit_admin(client, "quota.storage.update", "uid-1", {"mb": 20})
+    assert client.calls[0] == ("table", "admin_audit_log")
+    assert client.calls[1][0] == "insert"
+    assert client.calls[1][1]["action"] == "quota.storage.update"
+    assert client.calls[1][1]["target_user"] == "uid-1"
 
 
 if __name__ == "__main__":

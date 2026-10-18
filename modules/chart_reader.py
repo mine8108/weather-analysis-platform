@@ -208,7 +208,7 @@ def format_usage(usage):
 
 
 # ============================================================
-# 服务端每日配额（见 supabase/schema.sql 第 9 节）
+# 服务端每日配额（见 sql/schema.sql 第 9 节）
 # 三个纯函数把「服务不可用」与「配额已用完」分开处置：
 # 前者是故障，后者是正常拒绝。把故障当放行会静默绕过配额，当拒绝又会因为一次
 # 数据库抖动把功能整体锁死，所以故障时放行并明确告知。
@@ -218,7 +218,7 @@ def quota_allows(state):
     """(是否放行, 提示文本)。state 为 None 表示配额服务不可用。"""
     if not state:
         return True, ("⚠️ 配额服务不可用（若刚升级版本，请先重跑 "
-                      "supabase/schema.sql），本次按会话级限制放行。")
+                      "sql/schema.sql），本次按会话级限制放行。")
     if state.get("allowed"):
         return True, ""
     return False, str(state.get("message") or "今日读图配额已用完。")

@@ -9,12 +9,10 @@
 `updated_at`，由 RPC 在每次写入时刷新。
 """
 import logging
-from datetime import datetime, timedelta, timezone
 
 LOG = logging.getLogger(__name__)
 
 TABLE = "gfs_cache"
-TTL_HOURS = 1
 
 
 def write_params(cache_key, lat, lon, days, model, records):
@@ -29,27 +27,21 @@ def write_params(cache_key, lat, lon, days, model, records):
     }
 
 
-def read_from(client, cache_key, ttl_hours=TTL_HOURS, now=None):
-    """按 key 读取未过期缓存，返回 records 列表；未命中或失败返回 None。
+def read_from(client, cache_key):
+    """按精确 key 读取未过期缓存，返回 records 列表；未命中或失败返回 None。
 
-    只取 `data_json` 一列，避免把 `created_by` 等元数据一并传到客户端。
+    S13：不再 select 整表，改为调用 ``get_gfs_cache(key)``，服务端按
+    ``updated_at`` 判断 1 小时 TTL。登录用户因此无法枚举他人的缓存行。
     """
     if client is None:
         return None
-    now = now or datetime.now(timezone.utc)
-    cutoff = (now - timedelta(hours=ttl_hours)).isoformat()
     try:
-        res = (
-            client.table(TABLE)
-            .select("data_json")
-            .eq("cache_key", cache_key)
-            .gte("updated_at", cutoff)
-            .execute()
-        )
+        res = client.rpc("get_gfs_cache", {"p_key": cache_key}).execute()
         data = getattr(res, "data", None)
-        if data:
-            row = data[0] or {}
-            return row.get("data_json")
+        if isinstance(data, dict):
+            data = data.get("data_json")
+        if isinstance(data, list):
+            return data or None
     except Exception:
         LOG.warning("读取 GFS 缓存失败 key=%s", cache_key, exc_info=True)
     return None

@@ -1,7 +1,7 @@
 """读图配额回归测试：schema 安全契约、数据访问层、页面侧纯函数。
 
 为什么要有 schema 契约测试：配额是**安全边界**，它的正确性不在 Python 里，
-而在 supabase/schema.sql 的 SQL 里。改错一个 revoke，登录用户就能自己清空计数，
+而在 sql/schema.sql 的 SQL 里。改错一个 revoke，登录用户就能自己清空计数，
 而所有 Python 测试依然全绿。因此这里直接对 SQL 文本做断言，把三条底线锁住：
 
 1. 函数内部以 auth.uid() 判定身份，**不得接受调用方传入的 user_id**；
@@ -29,7 +29,7 @@ def _read(rel):
 
 def _quota_section():
     """schema.sql 里读图配额那一节（避免断言误命中其他章节的同名字样）。"""
-    sql = _read("supabase/schema.sql")
+    sql = _read("sql/schema.sql")
     marker = "9. 读图配额"
     assert marker in sql, "schema.sql 缺少读图配额章节"
     return sql.split(marker, 1)[1]

@@ -4,7 +4,7 @@
 直接测试。它只回答一个问题：`security_selfcheck()` 返回的线上事实，是否满足
 仓库里声明的安全边界。
 
-判定项来自 `supabase/schema.sql` 的授权设计：
+判定项来自 `sql/schema.sql` 的授权设计：
 
 1. public 下五张业务表必须启用 RLS；
 2. 一组函数绝不能对 anon 开放执行权；
@@ -12,7 +12,8 @@
 4. 客户端角色不能对业务表持有 insert/update/delete 权限。
 """
 
-RLS_TABLES = ("datasets", "profiles", "invite_codes", "gfs_cache", "vision_usage")
+RLS_TABLES = ("datasets", "profiles", "invite_codes", "gfs_cache",
+              "vision_usage", "admin_audit_log", "schema_version")
 
 # 这些函数一旦对匿名角色开放，未登录访客就能绕过应用直接调后端。
 ANON_FORBIDDEN_FUNCTIONS = (
@@ -20,6 +21,7 @@ ANON_FORBIDDEN_FUNCTIONS = (
     "put_gfs_cache",
     "get_storage_usage",
     "get_storage_quota",
+    "get_gfs_cache",
     "begin_vision_call",
     "record_vision_usage",
     "consume_invite_code",
@@ -42,7 +44,9 @@ FORBIDDEN_TABLE_PRIVILEGES = {
     "datasets": {"authenticated": ("INSERT", "UPDATE")},
     "profiles": {"authenticated": ("UPDATE",)},
     "vision_usage": {"authenticated": ("INSERT", "UPDATE", "DELETE")},
-    "gfs_cache": {"authenticated": ("INSERT", "UPDATE", "DELETE")},
+    "gfs_cache": {"authenticated": ("SELECT", "INSERT", "UPDATE", "DELETE")},
+    "admin_audit_log": {"authenticated": ("SELECT", "INSERT", "UPDATE", "DELETE")},
+    "schema_version": {"authenticated": ("SELECT", "INSERT", "UPDATE", "DELETE")},
 }
 
 

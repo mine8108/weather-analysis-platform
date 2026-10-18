@@ -3,7 +3,7 @@
 设计要点：
 - 使用 Supabase 匿名密钥 (anon key) + 行级安全 (RLS) 即可安全做客户端登录，
   无需自建后端。匿名密钥可安全暴露在前端。
-- 所有用户数据按 user_id 隔离，由数据库 RLS 强制保证（见 supabase/schema.sql）。
+- 所有用户数据按 user_id 隔离，由数据库 RLS 强制保证（见 sql/schema.sql）。
 - 密钥从 Streamlit Secrets 读取：SUPABASE_URL / SUPABASE_ANON_KEY。
 - 注册采用「邀请码」授权模式：关闭了 Supabase 公开注册，仅持有效邀请码、
   并经服务端 service_role 建账号后方可注册（见 _register_with_invite）。
@@ -565,7 +565,7 @@ def _render_admin_panel():
             st.error(
                 f"⚠️ 数据库表未创建：{', '.join(missing)}\n\n"
                 "请前往 **Supabase 控制台 → SQL Editor**，"
-                "粘贴并运行 `supabase/schema.sql` 中的全部内容，然后刷新本页面。"
+                "粘贴并运行 `sql/schema.sql` 中的全部内容，然后刷新本页面。"
             )
             return
 
@@ -577,7 +577,7 @@ def _render_admin_panel():
         if report is None:
             st.error(
                 "⚠️ 无法执行数据库安全自检，已停止管理操作。若刚升级代码，"
-                "请先重跑 `supabase/schema.sql`，然后刷新本页面。"
+                "请先重跑 `sql/schema.sql`，然后刷新本页面。"
             )
             return
         problems = selfcheck_problems(report)
@@ -585,7 +585,7 @@ def _render_admin_panel():
             st.error(
                 "⚠️ 数据库安全自检未通过，已停止管理操作：\n\n- "
                 + "\n- ".join(problems)
-                + "\n\n请重跑 `supabase/schema.sql` 或到 Supabase 控制台核对策略。"
+                + "\n\n请重跑 `sql/schema.sql` 或到 Supabase 控制台核对策略。"
             )
             return
         _schema_ver = report.get("schema_version")
@@ -609,6 +609,8 @@ def _render_admin_panel():
                         [{"code": _hash_invite_code(c)} for c in codes]
                     ).execute()
                     st.session_state["invite_codes_out"] = codes
+                    _audit_admin(sb_admin, "invite.generate",
+                                 detail={"count": int(n)})
                     st.success("已生成，请复制下方邀请码（仅本次显示，之后无法再查看）。")
                 except Exception as e:
                     st.error(_schema_error_msg(e))
@@ -622,6 +624,7 @@ def _render_admin_panel():
                 sb_admin.table("invite_codes").update(
                     {"revoked_at": datetime.now(timezone.utc).isoformat()}
                 ).is_("used_by", "null").is_("revoked_at", "null").execute()
+                _audit_admin(sb_admin, "invite.revoke_all")
                 st.success("已作废全部未使用邀请码。")
             except Exception as e:
                 st.error(_schema_error_msg(e))
@@ -664,13 +667,15 @@ def _render_admin_panel():
                     sb_admin.table("profiles").update(
                         {"storage_quota_bytes": int(new_mb) * 1048576}
                     ).eq("user_id", uid).execute()
+                    _audit_admin(sb_admin, "quota.storage.update", uid,
+                                 {"mb": int(new_mb)})
                     st.success("配额已更新。")
                 except Exception as e:
                     st.error(safe_error_text(e, "更新失败。"))
 
             st.divider()
 
-            # --- 5.3 读图配额（supabase/schema.sql 第 9 节）---
+            # --- 5.3 读图配额（sql/schema.sql 第 9 节）---
             # 读图用的是部署方的 API 密钥，任何用户的每次调用都计费在部署方账上，
             # 因此这三项是成本控制的唯一旋钮。每日次数给 0 即等于停用该用户的读图。
             st.subheader("读图配额（每日）")
@@ -700,7 +705,7 @@ def _render_admin_panel():
                        prof_row.get("vision_tokens_per_day", 100000))
                 )
             except Exception:
-                st.caption("读图用量查询失败。若刚升级代码，请先重跑 supabase/schema.sql。")
+                st.caption("读图用量查询失败。若刚升级代码，请先重跑 sql/schema.sql。")
 
             vc1, vc2, vc3 = st.columns(3)
             with vc1:
@@ -725,9 +730,28 @@ def _render_admin_panel():
                         "vision_tokens_per_day": int(tokens_day),
                         "vision_max_tokens_per_call": int(max_call),
                     }).eq("user_id", uid).execute()
+                    _audit_admin(sb_admin, "quota.vision.update", uid, {
+                        "calls": int(calls_day),
+                        "tokens": int(tokens_day),
+                        "max_call": int(max_call),
+                    })
                     st.success("读图配额已更新（对该用户的下一次生成生效）。")
                 except Exception as e:
                     st.error(safe_error_text(e, "更新失败。"))
+
+
+def _audit_admin(sb_admin, action, target_user=None, detail=None):
+    """写管理员审计日志；失败只记日志，不影响管理操作。"""
+    if sb_admin is None:
+        return
+    try:
+        sb_admin.table("admin_audit_log").insert({
+            "action": action,
+            "target_user": target_user,
+            "detail": detail or {},
+        }).execute()
+    except Exception:
+        _LOG.warning("写管理员审计日志失败 action=%s", action, exc_info=True)
 
 
 def _gen_code() -> str:
@@ -839,12 +863,12 @@ def _schema_error_msg(e) -> str:
     if "could not find the table" in msg or "pgrst205" in msg:
         return (
             "数据库表未创建：请在 Supabase 控制台 → SQL Editor 中，"
-            "运行 `supabase/schema.sql` 全部内容，然后刷新页面。"
+            "运行 `sql/schema.sql` 全部内容，然后刷新页面。"
         )
     if "could not find the function" in msg or "pgrst201" in msg:
         return (
             "数据库函数未创建：请在 Supabase 控制台 → SQL Editor 中，"
-            "运行 `supabase/schema.sql` 全部内容，然后刷新页面。"
+            "运行 `sql/schema.sql` 全部内容，然后刷新页面。"
         )
     return safe_error_text(e, "操作失败，请检查数据库配置或联系管理员。")
 

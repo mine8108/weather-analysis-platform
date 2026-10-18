@@ -4,7 +4,7 @@
 
 **Goal:** 让线上安全边界可自证，让 GFS 二级缓存恢复跨用户、跨重启可用，堵住存储配额绕过。
 
-**Architecture:** `supabase/schema.sql` 仍是唯一部署脚本，新增 `security_selfcheck()` 与 `put_gfs_cache()` 两个 `SECURITY DEFINER` RPC，客户端对 `gfs_cache` 的直写权限全部收回。缓存读写下沉到不依赖 Streamlit 的纯模块，管理面板每次解锁先跑自检，自检不通过就停止管理操作。
+**Architecture:** `sql/schema.sql` 仍是唯一部署脚本，新增 `security_selfcheck()` 与 `put_gfs_cache()` 两个 `SECURITY DEFINER` RPC，客户端对 `gfs_cache` 的直写权限全部收回。缓存读写下沉到不依赖 Streamlit 的纯模块，管理面板每次解锁先跑自检，自检不通过就停止管理操作。
 
 **Tech Stack:** PostgreSQL / Supabase、Python 3.14（本机测试解释器）、Streamlit、supabase-py。
 
@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- `supabase/schema.sql` 必须可重复执行，新增对象一律用 `if not exists` 或 `create or replace`。
+- `sql/schema.sql` 必须可重复执行，新增对象一律用 `if not exists` 或 `create or replace`。
 - `APP_VERSION` 保持 `2.3.8`，发布时统一升版；本批次不碰版本声明。
 - 不新增运行时依赖，不引入 `pytest` 之外的开发依赖。
 - 所有测试文件必须能 `python -B tests/<file>.py` 直跑。
@@ -112,7 +112,7 @@ Expected: PASS
 ### Task 3: schema.sql 的四组改动
 
 **Files:**
-- Modify: `supabase/schema.sql`
+- Modify: `sql/schema.sql`
 
 **Interfaces:**
 - Produces: `gfs_cache.updated_at`、`gfs_cache_updated_idx`、`put_gfs_cache(...) returns boolean`、`security_selfcheck() returns jsonb`、`datasets_name_len_check`。
@@ -122,7 +122,7 @@ Expected: PASS
 
 ```python
 def test_schema_defines_cache_rpc_and_updated_at():
-    sql = _read("supabase/schema.sql")
+    sql = _read("sql/schema.sql")
     for needle in ("updated_at timestamptz", "gfs_cache_updated_idx",
                    "create or replace function public.put_gfs_cache",
                    "revoke insert, update, delete on public.gfs_cache",
@@ -240,10 +240,10 @@ Expected: PASS
 
 - Task 1-8 全部完成，代码在 `fix/supabase-hardening` 分支。
 - 新增文件：`modules/supabase_backend.py`、`modules/gfs_cache.py`、`tests/test_supabase_backend.py`。
-- 修改文件：`supabase/schema.sql`、`modules/nwp_forecast.py`、`db.py`、`auth.py`、`README.md`、`SECURITY.md`、`.github/workflows/tests.yml`。
+- 修改文件：`sql/schema.sql`、`modules/nwp_forecast.py`、`db.py`、`auth.py`、`README.md`、`SECURITY.md`、`.github/workflows/tests.yml`。
 - 本机测试解释器：Python 3.14。十一个 CI 门禁脚本全部通过；新测试 18 条全绿。
 - `pytest tests` 共收集 421 项，410 通过、11 失败。11 条失败在修改前就存在，全部由本机沙箱的临时目录权限导致（7 条 `test_auth_session` 的 AppTest 临时目录、4 条 `test_weather_wall` 的本地偏好文件），已在 `main` 基线上复现，与本批次改动无关。
-- 线上执行（2026-10-18）：`supabase/schema.sql` 已在 Supabase SQL Editor 执行成功；`security_selfcheck()`、`put_gfs_cache` 的权限与写入行为已通过 SQL 核验。
+- 线上执行（2026-10-18）：`sql/schema.sql` 已在 Supabase SQL Editor 执行成功；`security_selfcheck()`、`put_gfs_cache` 的权限与写入行为已通过 SQL 核验。
 - 执行中发现并修复：`security_selfcheck` 的 `bool_or` 嵌套聚合（42803）；Supabase 默认函数权限需要显式 revoke anon/authenticated。
 - 线上 Streamlit 应用仍是旧部署，新代码尚未推送；管理员面板自检需发布后验证。
 
@@ -270,3 +270,12 @@ Expected: PASS
 - S11：`schema_version` 表 + `security_selfcheck()` 返回版本 + 管理员面板显示。
 - S12：keep-alive 增加 Supabase REST ping；README 补 GitHub Secrets 与备份说明。
 - 测试：`test_supabase_backend.py` 增至 23 条，总数 426；线上 schema 重跑后 `schema_version=2026-10-18`。
+
+### 批次 4（S10/S13/S16/S17）
+
+- S13：新增 `get_gfs_cache(key)` RPC，收回 `gfs_cache` 的客户端 select；`gfs_cache.read_from` 改走 RPC。
+- S16：新增 16 条 CHECK 约束，`NOT VALID` 添加后逐条验证；覆盖角色、配额、缓存坐标/大小、读图计数、邀请码有效期。
+- S10：新增 `admin_audit_log` 表与 `_audit_admin()`；邀请码生成/作废、两类配额调整都写审计。
+- S17：`supabase==2.33.0` 锁定，发布面测试断言。
+- 测试：`test_supabase_backend.py` 增至 24 条，总数 427；线上 schema 已重跑并核验权限与约束。
+- S18：`supabase/` 重命名为 `sql/`，同步所有代码、测试与文档路径；本地 427 项测试通过。

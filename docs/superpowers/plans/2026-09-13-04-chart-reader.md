@@ -740,7 +740,7 @@ if not text:
 
 ### 安全边界（三条底线，已用测试锁死）
 
-配额的正确性不在 Python 里，而在 SQL 里。改错一个 `revoke`，登录用户就能自己清空计数，而所有 Python 测试依然全绿。因此新增 `tests/test_vision_quota.py`，直接对 `supabase/schema.sql` 的文本做断言：
+配额的正确性不在 Python 里，而在 SQL 里。改错一个 `revoke`，登录用户就能自己清空计数，而所有 Python 测试依然全绿。因此新增 `tests/test_vision_quota.py`，直接对 `sql/schema.sql` 的文本做断言：
 
 1. **函数一律以 `auth.uid()` 判定身份，不得接受调用方传入的 `p_user_id`**——否则可伪造或清空他人计数。测试断言该节内不出现 `p_user_id`。
 2. **token 增量钳到非负**（`greatest(coalesce(...,0),0)`）——否则登录用户传负数即可反向冲销自己的用量来绕过每日上限。
@@ -750,7 +750,7 @@ if not text:
 
 ### 服务不可用时选择放行并告知
 
-`quota_allows(None)` 放行并显示「配额服务不可用（若刚升级版本，请先重跑 supabase/schema.sql），本次按会话级限制放行」。取舍理由：静默放行等于绕过配额，而因为一次数据库抖动（或尚未重跑 schema）就把功能整体锁死也不合理。选择「放行 + 明确告知」，并把恢复动作写在提示里。`db._vision_rpc` 用 `None` 表示服务不可用、用 `{"allowed": False}` 表示正常拒绝，两者在调用方分开处置。
+`quota_allows(None)` 放行并显示「配额服务不可用（若刚升级版本，请先重跑 sql/schema.sql），本次按会话级限制放行」。取舍理由：静默放行等于绕过配额，而因为一次数据库抖动（或尚未重跑 schema）就把功能整体锁死也不合理。选择「放行 + 明确告知」，并把恢复动作写在提示里。`db._vision_rpc` 用 `None` 表示服务不可用、用 `{"allowed": False}` 表示正常拒绝，两者在调用方分开处置。
 
 ### 探测过程中的一个坑（值得记住）
 
@@ -760,7 +760,7 @@ if not text:
 
 ### 升级要求
 
-新增了 `vision_usage` 表、三个函数与三个 `profiles` 列，**升级后必须重跑一次 `supabase/schema.sql`**（脚本可重复执行，不丢数据）。未重跑时的表现有两处提示：管理员面板的 schema 健康检查会直接报「数据库表未创建」并给出该指引（`_missing_tables` 已加入 `vision_usage`）；读图页会显示配额服务不可用并按会话级放行。
+新增了 `vision_usage` 表、三个函数与三个 `profiles` 列，**升级后必须重跑一次 `sql/schema.sql`**（脚本可重复执行，不丢数据）。未重跑时的表现有两处提示：管理员面板的 schema 健康检查会直接报「数据库表未创建」并给出该指引（`_missing_tables` 已加入 `vision_usage`）；读图页会显示配额服务不可用并按会话级放行。
 
 ### 验收
 

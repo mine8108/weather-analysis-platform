@@ -99,7 +99,7 @@ def _gfs_forecast_cache_key(lat, lon, days, model, window=None):
 
     window: 形如 'YYYYmmdd_YYYYmmdd' 的过去窗口标识（hindcast 验证用）。
 
-    这个格式与 `supabase/schema.sql` 中 `put_gfs_cache` 的正则校验绑定：
+    这个格式与 `sql/schema.sql` 中 `put_gfs_cache` 的正则校验绑定：
     `^gfs_fc_cache_[^_]+_{lat:.4f}_{lon:.4f}_..._{model}$`。改动键格式时
     必须同步改 SQL，否则缓存写入会被服务端拒绝。
     """
@@ -110,8 +110,7 @@ def _gfs_forecast_cache_key(lat, lon, days, model, window=None):
             f"{cache_lon:.4f}_{wpart}_{model_part}")
 
 
-# TTL：缓存 1 小时内有效（GFS 约每小时更新一次）
-_GFS_CACHE_TTL_HOURS = 1
+# 缓存 TTL 由数据库 get_gfs_cache / put_gfs_cache 统一控制（1 小时）。
 
 
 def _gfs_df_to_records(df):
@@ -154,8 +153,7 @@ def _load_gfs_from_cache(cache_key):
         sb = _cache_client()
         if sb is None:
             return None
-        records = gfs_cache.read_from(
-            sb, cache_key, ttl_hours=_GFS_CACHE_TTL_HOURS)
+        records = gfs_cache.read_from(sb, cache_key)
         if records:
             return _gfs_records_to_df(records)
     except Exception:

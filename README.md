@@ -43,12 +43,12 @@ weather_app/
 ├── db.py                       # 用户数据集云端持久化（按 user_id 隔离）
 ├── utils.py                    # DataFrame 指纹、API 重试、预加载缓存
 ├── config.py                   # 国家预警阈值、字段映射、风力等级表、防御指南
-├── requirements.txt            # 运行依赖（supabase 未锁版本，其余固定）
+├── requirements.txt            # 运行依赖（版本固定，含 supabase==2.33.0）
 ├── requirements-dev.txt        # 开发依赖（pytest，不参与线上部署）
 ├── runtime.txt                 # Streamlit Cloud Python 版本声明
 ├── LICENSE                     # MIT
 ├── SECURITY.md                 # 安全说明
-├── supabase/
+├── sql/
 │   └── schema.sql              # datasets 表建表脚本 + RLS 策略
 ├── .streamlit/
 │   ├── config.toml             # 部署配置（headless / 主题）
@@ -70,7 +70,7 @@ weather_app/
 │   ├── test_chart_reader.py    # 读图管线 / 编码策略 / 用量记账 / prompt / 接线 41 条
 │   ├── test_ai_narrative.py    # 多模态请求体、空正文诊断、用量回传与报告导出 27 条
 │   ├── test_vision_quota.py    # 读图配额：schema 安全契约 / 数据层 / 纯函数 23 条
-│   ├── test_supabase_backend.py # Supabase 后端契约：自检 / 缓存 RPC / 配额 / 会话 / 邀请码 23 条
+│   ├── test_supabase_backend.py # Supabase 后端契约：自检 / 缓存 RPC / 配额 / 会话 / 邀请码 24 条
 │   ├── test_release_surface.py # 版本 / 依赖 / Secrets / CI 契约 18 条
 │   ├── test_weather_wall.py    # 天气墙（依赖 pytest；单跑需登录态）
 │   └── test_smoke.py           # 导入冒烟检查
@@ -151,11 +151,11 @@ python -B tests/test_era5_guide.py       # ERA5 catalogue 与 payload 26 条
 python -B tests/test_manual.py           # 手册结构与内容契约 25 条
 python -B tests/test_chart_reader.py     # 读图管线、编码策略与用量记账 41 条
 python -B tests/test_vision_quota.py     # 读图配额与 schema 安全契约 23 条
-python -B tests/test_supabase_backend.py # Supabase 后端契约 23 条
+python -B tests/test_supabase_backend.py # Supabase 后端契约 24 条
 python -B tests/test_release_surface.py  # 版本/依赖/Secrets/CI 契约 18 条
 ```
 
-其余用例用 pytest 运行全部（当前共 **426** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
+其余用例用 pytest 运行全部（当前共 **427** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
 
 ```bash
 pip install -r requirements-dev.txt
@@ -256,7 +256,7 @@ Streamlit Cloud 已经重建容器：v2.3.0 发布时就遇到过推送十余分
 - 复制 `service_role` 密钥（Settings → API，标记为 secret，**切勿在前端暴露**），用于服务端管理操作。
 
 ### 2. 建表与行级安全
-- Supabase → SQL Editor → 新建查询 → 粘贴 `supabase/schema.sql` 并执行。
+- Supabase → SQL Editor → 新建查询 → 粘贴 `sql/schema.sql` 并执行。
 - 该脚本创建 `datasets` / `profiles` / `invite_codes` / `gfs_cache` /
   `vision_usage` 五张业务表、`schema_version` 版本表与配套 RLS、函数，保证用户只能读写自己的数据。
 - **升级到 2.3.7 及以后必须重跑一次该脚本**：新增了读图配额所需的
