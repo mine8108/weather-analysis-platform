@@ -41,6 +41,14 @@ MIN_INTERVAL_SECONDS = 60
 # 不是成本控制——真正的硬配额需要服务端状态（见计划文档的配额设计讨论）。
 MAX_GENERATIONS_PER_SESSION = 5
 
+# 配额服务不可用时的进程级兜底额度（每人每日）。单进程部署下它跨会话生效，
+# 刷新页面无法重置，故障不再把成本约束退化为零。
+LOCAL_FALLBACK_CALLS = 3
+_LOCAL_QUOTA = {}
+
+# 单次输出预算要留给 prompt 与估算误差的余量
+SAFETY_MARGIN_TOKENS = 2000
+
 # 用量记账字段。与 ai_narrative._normalize_usage 的键保持一致。
 USAGE_KEYS = ("prompt", "completion", "reasoning", "total")
 
@@ -210,29 +218,64 @@ def format_usage(usage):
 # ============================================================
 # 服务端每日配额（见 sql/schema.sql 第 9 节）
 # 三个纯函数把「服务不可用」与「配额已用完」分开处置：
-# 前者是故障，后者是正常拒绝。把故障当放行会静默绕过配额，当拒绝又会因为一次
-# 数据库抖动把功能整体锁死，所以故障时放行并明确告知。
+# 前者是故障，后者是正常拒绝。故障时启用进程级临时额度，既不静默绕过配额，
+# 也不因为一次数据库抖动把功能整体锁死；临时额度跨会话有效，刷新无法重置。
 # ============================================================
 
-def quota_allows(state):
-    """(是否放行, 提示文本)。state 为 None 表示配额服务不可用。"""
-    if not state:
-        return True, ("⚠️ 配额服务不可用（若刚升级版本，请先重跑 "
-                      "sql/schema.sql），本次按会话级限制放行。")
-    if state.get("allowed"):
-        return True, ""
-    return False, str(state.get("message") or "今日读图配额已用完。")
+def _local_quota_take(user_key):
+    """进程级兜底额度：同一用户当日累计计数，跨会话生效。"""
+    from datetime import datetime
+    today = datetime.now().strftime("%Y-%m-%d")
+    entry = _LOCAL_QUOTA.get(user_key)
+    if not entry or entry["day"] != today:
+        entry = {"day": today, "calls": 0}
+        _LOCAL_QUOTA[user_key] = entry
+    if entry["calls"] >= LOCAL_FALLBACK_CALLS:
+        return False
+    entry["calls"] += 1
+    return True
+
+
+def quota_allows(state, user_key=""):
+    """(是否放行, 提示文本)。state 为 None 表示配额服务不可用。
+
+    故障时不再无条件放行。改为进程级临时额度后，成本上限从「无限」变成
+    「每人每日 LOCAL_FALLBACK_CALLS 次」，且刷新页面无法重置。
+    """
+    if state:
+        if state.get("allowed"):
+            return True, ""
+        return False, str(state.get("message") or "今日读图配额已用完。")
+    if _local_quota_take(user_key or "anonymous"):
+        return True, ("⚠️ 配额服务不可用，已启用进程级临时额度"
+                      "（每人每日 %d 次）。" % LOCAL_FALLBACK_CALLS)
+    return False, "配额服务不可用，临时额度已用完，请稍后重试。"
 
 
 def quota_budget(state, default):
-    """本次调用的输出预算：以服务端下发的单次上限为准，取不到则用默认值。"""
+    """本次调用的输出预算。
+
+    取单次上限与当日剩余额度两者较小值，并留 SAFETY_MARGIN_TOKENS 余量。
+    返回 0 表示当日剩余不足以再发起一次调用，调用方必须拒绝。
+    """
     if not state:
         return default
     try:
-        value = int(state.get("max_tokens_per_call") or 0)
+        per_call = int(state.get("max_tokens_per_call") or 0)
     except (TypeError, ValueError):
         return default
-    return value if value > 0 else default
+    limit = per_call if per_call > 0 else default
+    remaining = state.get("tokens_remaining")
+    if remaining is None:
+        return limit
+    try:
+        remaining = int(remaining)
+    except (TypeError, ValueError):
+        return limit
+    cap = remaining - SAFETY_MARGIN_TOKENS
+    if cap <= 0:
+        return 0
+    return min(limit, cap)
 
 
 def format_daily_quota(state):
@@ -395,12 +438,17 @@ def _generate(cfg, images, note):
 
     # 服务端每日配额：先占后用，避免并发下多个标签同时穿透
     quota_state = begin_vision_call()
-    allowed, notice = quota_allows(quota_state)
+    _uid = (st.session_state.get("auth_user") or {}).get("id") or "anonymous"
+    allowed, notice = quota_allows(quota_state, _uid)
     if notice:
         (st.warning if allowed else st.error)(notice)
     if not allowed:
         return
     budget = quota_budget(quota_state, VISION_MAX_TOKENS)
+    if budget <= 0:
+        st.warning("今日 token 剩余额度不足以再生成一次，"
+                   "请次日再试或联系管理员调整配额。")
+        return
 
     prompt = build_chart_prompt(images, note)
     data_urls = [image_to_data_url(item["data_bytes"], item["mime"])

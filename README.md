@@ -59,17 +59,20 @@ weather_app/
 │   └── 用户使用手册.md          # 手册唯一真相源（应用内阅读 + 现场导出 HTML）
 ├── tests/                      # 自测脚本（无 pytest 亦可直接运行）
 │   ├── conftest.py
-│   ├── test_analyzer.py        # 预警检测与耦合分析 92 条
+│   ├── test_analyzer.py        # 预警检测与耦合分析 95 条
 │   ├── test_aqi.py             # AQI 断点表结构 / 分指数 / 综合指数 35 条
+│   ├── test_app_state.py       # 会话重置作用域（保留客户端与登录态）4 条
 │   ├── test_data_quality.py    # 数据质控 9 条
 │   ├── test_auth_session.py    # 登录会话 8 条
 │   ├── test_codec.py           # 报文解码回归
+│   ├── test_codec_render.py    # 解码结果跨 rerun 持久化 3 条
 │   ├── test_era5_guide.py      # ERA5 catalogue 与 payload 26 条
 │   ├── test_era5_script_pack.py # ERA5 脚本包 ZIP 与换算函数 29 条
+│   ├── test_import_merge.py    # 手动录入合并幂等 6 条
 │   ├── test_manual.py          # 手册结构与内容契约 25 条
 │   ├── test_chart_reader.py    # 读图管线 / 编码策略 / 用量记账 / prompt / 接线 41 条
 │   ├── test_ai_narrative.py    # 多模态请求体、空正文诊断、用量回传与报告导出 27 条
-│   ├── test_vision_quota.py    # 读图配额：schema 安全契约 / 数据层 / 纯函数 23 条
+│   ├── test_vision_quota.py    # 读图配额：schema 安全契约 / 数据层 / 纯函数 26 条
 │   ├── test_supabase_backend.py # Supabase 后端契约：自检 / 缓存 RPC / 配额 / 会话 / 邀请码 24 条
 │   ├── test_release_surface.py # 版本 / 依赖 / Secrets / CI 契约 18 条
 │   ├── test_weather_wall.py    # 天气墙（依赖 pytest；单跑需登录态）
@@ -142,7 +145,7 @@ streamlit run app.py
 `tests/` 下为自测脚本。其中十一个可直接运行，无需安装 pytest（CI 的门禁就是用这种方式跑的）：
 
 ```bash
-python -B tests/test_analyzer.py         # 预警检测与耦合分析 92 条
+python -B tests/test_analyzer.py         # 预警检测与耦合分析 95 条
 python -B tests/test_data_quality.py     # 数据质控 9 条
 python -B tests/test_auth_session.py     # 登录会话 8 条
 python -B tests/test_codec.py            # 报文解码
@@ -150,12 +153,12 @@ python -B tests/test_aqi.py              # AQI 断点表 / 分指数 / 综合指
 python -B tests/test_era5_guide.py       # ERA5 catalogue 与 payload 26 条
 python -B tests/test_manual.py           # 手册结构与内容契约 25 条
 python -B tests/test_chart_reader.py     # 读图管线、编码策略与用量记账 41 条
-python -B tests/test_vision_quota.py     # 读图配额与 schema 安全契约 23 条
+python -B tests/test_vision_quota.py     # 读图配额与 schema 安全契约 26 条
 python -B tests/test_supabase_backend.py # Supabase 后端契约 24 条
 python -B tests/test_release_surface.py  # 版本/依赖/Secrets/CI 契约 18 条
 ```
 
-其余用例用 pytest 运行全部（当前共 **427** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
+其余用例用 pytest 运行全部（当前共 **446** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
 
 ```bash
 pip install -r requirements-dev.txt

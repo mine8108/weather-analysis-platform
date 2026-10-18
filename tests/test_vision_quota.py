@@ -186,14 +186,28 @@ def test_record_vision_usage_tolerates_empty_usage():
 # 三、页面侧纯函数：故障放行、正常拒绝
 # ============================================================
 
-def test_quota_allows_fails_open_with_explicit_notice():
-    """配额服务不可用时放行，但必须明确提示。
+def test_quota_allows_fails_closed_after_local_budget():
+    """配额服务不可用时启用进程级临时额度，用尽即拒绝。
 
-    静默放行等于绕过配额；而因为一次数据库抖动就把功能整体锁死也不合理。
+    静默放行等于绕过配额；无条件拒绝又会让一次数据库抖动锁死功能。
+    兜底额度按用户计数、跨会话生效，刷新页面无法重置。
     """
-    allowed, notice = chart_reader.quota_allows(None)
-    assert allowed is True
-    assert notice and "不可用" in notice
+    chart_reader._LOCAL_QUOTA.clear()
+    for _ in range(chart_reader.LOCAL_FALLBACK_CALLS):
+        allowed, notice = chart_reader.quota_allows(None, "u1")
+        assert allowed is True
+        assert notice and "临时额度" in notice
+    allowed, notice = chart_reader.quota_allows(None, "u1")
+    assert allowed is False
+    assert "临时额度" in notice
+
+
+def test_quota_allows_local_budget_isolated_per_user():
+    chart_reader._LOCAL_QUOTA.clear()
+    for _ in range(chart_reader.LOCAL_FALLBACK_CALLS):
+        chart_reader.quota_allows(None, "u1")
+    assert chart_reader.quota_allows(None, "u2")[0] is True
+    chart_reader._LOCAL_QUOTA.clear()
 
 
 def test_quota_allows_blocks_when_server_says_no():
@@ -215,6 +229,16 @@ def test_quota_budget_prefers_server_value_then_falls_back():
     assert chart_reader.quota_budget({"max_tokens_per_call": "x"}, 20000) == 20000
     assert chart_reader.quota_budget({"max_tokens_per_call": 0}, 20000) == 20000
     assert chart_reader.quota_budget({"max_tokens_per_call": None}, 20000) == 20000
+
+
+def test_quota_budget_capped_by_remaining_tokens():
+    state = {"max_tokens_per_call": 20000, "tokens_remaining": 5000}
+    assert chart_reader.quota_budget(state, 20000) == 3000
+
+
+def test_quota_budget_zero_when_remaining_below_margin():
+    state = {"max_tokens_per_call": 20000, "tokens_remaining": 1000}
+    assert chart_reader.quota_budget(state, 20000) == 0
 
 
 def test_daily_quota_text_and_exhaustion():

@@ -842,3 +842,27 @@ def render_template_download():
         st.caption("模板包含 timestamp, temperature, pressure, humidity, wind_speed, wind_direction, cloud_cover, visibility, weather_code, precipitation, station_id 等标准字段（下载文件名仍为「气象数据模板.csv」）")
     except FileNotFoundError:
         st.warning("模板文件未找到")
+
+
+def merge_manual_rows(df, manual_df):
+    """把手动录入并入现有数据集，按时间与站点去重，可重复调用。
+
+    修复：旧流程每次渲染导入向导都把 session_state 里的全部手动记录重新
+    concat 进 df，用户返回上一步再前进就会得到重复行。这里以
+    (timestamp, station_id) 为键保留最新一条，重复调用结果不变。
+    """
+    if manual_df is None or manual_df.empty:
+        return df
+    if df is None or df.empty:
+        merged = manual_df.copy()
+    else:
+        merged = pd.concat([df, manual_df], ignore_index=True)
+    if "timestamp" in merged.columns:
+        subset = ["timestamp"]
+        if "station_id" in merged.columns:
+            subset.append("station_id")
+        merged = merged.drop_duplicates(subset=subset, keep="last")
+        merged = merged.sort_values("timestamp")
+    else:
+        merged = merged.drop_duplicates(keep="last")
+    return merged.reset_index(drop=True)

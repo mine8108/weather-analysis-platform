@@ -52,6 +52,13 @@ Thumbs.db
 htmlcov/
 .tox/
 
+# ===== 工具运行期临时目录 =====
+# pip 在部分环境下会把解包目录建在工作区；Streamlit AppTest 会留下 tmp* 脚本目录
+pip-unpack-*/
+pip-install-*/
+pip-metadata-*/
+tmp*/
+
 # ===== 数据集（可选保留示例，忽略大文件） =====
 data/raw/
 *.parquet

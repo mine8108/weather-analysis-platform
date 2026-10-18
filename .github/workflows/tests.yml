@@ -58,7 +58,6 @@ jobs:
       - name: 发布面契约（版本/依赖/Secrets/CI）
         run: python -B tests/test_release_surface.py
 
-      # 其余 pytest 用例（含天气墙）作为补充信号，失败不阻断门禁
-      - name: pytest 全量收集
-        continue-on-error: true
+      # 全量回归：批次 0 起改为阻断。含 AppTest 启动冒烟与天气墙用例。
+      - name: 全量回归（阻断）
         run: python -m pytest tests -q

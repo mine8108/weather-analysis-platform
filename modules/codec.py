@@ -310,38 +310,47 @@ def render_codec_tab():
             with st.spinner("正在解码 METAR 报文..."):
                 result, errors = decode_metar(report_text)
 
-        if errors:
-            for err in errors:
-                st.error(err)
+        # 结果落会话状态：否则任何一次 rerun 都会丢掉结果，写在点击分支里的
+        # 「添加到手动录入区」按钮也就永远渲染不出来，点击事件无法命中。
+        st.session_state["codec_result"] = result or None
+        st.session_state["codec_errors"] = list(errors or [])
 
-        # 显示解码结果
-        if result:
-            st.success(f"[OK] 解码成功 | 站点: {result.get('station_id', 'N/A')}")
+    result = st.session_state.get("codec_result")
+    errors = st.session_state.get("codec_errors") or []
 
-            cols = st.columns(4)
-            field_config = [
-                ("temperature", "气温", "℃"),
-                ("pressure", "气压", "hPa"),
-                ("dewpoint", "露点温度", "℃"),
-                ("wind_speed", "风速", "m/s"),
-                ("wind_direction", "风向", "°"),
-                ("visibility", "能见度", "km"),
-                ("cloud_cover", "云量", "成"),
-                ("weather_code", "天气码", ""),
-                ("precipitation", "降水量", "mm"),
-            ]
+    for err in errors:
+        st.error(err)
 
-            for i, (key, label, unit) in enumerate(field_config):
-                if key in result and result[key] is not None:
-                    val = result[key]
-                    cols[i % 4].metric(
-                        label,
-                        f"{val:.1f} {unit}" if isinstance(val, (int, float)) else str(val)
-                    )
+    if not result:
+        return
 
-            # 提供"添加到当前数据"按钮
-            if st.button("[+] 将此记录添加到手动录入区", use_container_width=True):
-                if "manual_data" not in st.session_state:
-                    st.session_state["manual_data"] = []
-                st.session_state["manual_data"].append(result)
-                st.success("已添加！请切换到数据导入 Tab 查看")
+    st.success(f"[OK] 解码成功 | 站点: {result.get('station_id', 'N/A')}")
+
+    cols = st.columns(4)
+    field_config = [
+        ("temperature", "气温", "℃"),
+        ("pressure", "气压", "hPa"),
+        ("dewpoint", "露点温度", "℃"),
+        ("wind_speed", "风速", "m/s"),
+        ("wind_direction", "风向", "°"),
+        ("visibility", "能见度", "km"),
+        ("cloud_cover", "云量", "成"),
+        ("weather_code", "天气码", ""),
+        ("precipitation", "降水量", "mm"),
+    ]
+
+    for i, (key, label, unit) in enumerate(field_config):
+        if key in result and result[key] is not None:
+            val = result[key]
+            cols[i % 4].metric(
+                label,
+                f"{val:.1f} {unit}" if isinstance(val, (int, float)) else str(val)
+            )
+
+    # 提供"添加到当前数据"按钮。它必须渲染在点击分支之外，才能被点中。
+    if st.button("[+] 将此记录添加到手动录入区",
+                 use_container_width=True, key="codec_add_manual"):
+        if "manual_data" not in st.session_state:
+            st.session_state["manual_data"] = []
+        st.session_state["manual_data"].append(result)
+        st.success("已添加！请切换到数据导入 Tab 查看")
