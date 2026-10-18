@@ -70,6 +70,7 @@ weather_app/
 │   ├── test_chart_reader.py    # 读图管线 / 编码策略 / 用量记账 / prompt / 接线 41 条
 │   ├── test_ai_narrative.py    # 多模态请求体、空正文诊断、用量回传与报告导出 27 条
 │   ├── test_vision_quota.py    # 读图配额：schema 安全契约 / 数据层 / 纯函数 23 条
+│   ├── test_supabase_backend.py # Supabase 后端契约：自检 / 缓存 RPC / 配额 18 条
 │   ├── test_release_surface.py # 版本 / 依赖 / Secrets / CI 契约 18 条
 │   ├── test_weather_wall.py    # 天气墙（依赖 pytest；单跑需登录态）
 │   └── test_smoke.py           # 导入冒烟检查
@@ -85,6 +86,8 @@ weather_app/
     ├── aqi.py                  # AQI 分指数与综合指数唯一实现
     ├── codec.py                # SYNOP/METAR 解码
     ├── nwp_forecast.py         # GFS 数值预报接入 + 时间图/空气质量/风玫瑰/预报验证
+    ├── gfs_cache.py            # GFS 二级缓存读写契约（updated_at / put_gfs_cache RPC）
+    ├── supabase_backend.py     # 安全自检判定（纯逻辑，不依赖 Streamlit）
     ├── verify.py               # GFS 预报 vs 实况 的定量验证
     ├── reporter.py             # Word/CSV 报告导出
     ├── chart_reader.py         # AI 读图解析（图片校验压缩 + 读图 prompt + 页面）
@@ -136,7 +139,7 @@ streamlit run app.py
 
 ## 🧪 测试
 
-`tests/` 下为自测脚本。其中十个可直接运行，无需安装 pytest（CI 的门禁就是用这种方式跑的）：
+`tests/` 下为自测脚本。其中十一个可直接运行，无需安装 pytest（CI 的门禁就是用这种方式跑的）：
 
 ```bash
 python -B tests/test_analyzer.py         # 预警检测与耦合分析 92 条
@@ -148,10 +151,11 @@ python -B tests/test_era5_guide.py       # ERA5 catalogue 与 payload 26 条
 python -B tests/test_manual.py           # 手册结构与内容契约 25 条
 python -B tests/test_chart_reader.py     # 读图管线、编码策略与用量记账 41 条
 python -B tests/test_vision_quota.py     # 读图配额与 schema 安全契约 23 条
+python -B tests/test_supabase_backend.py # Supabase 后端契约 18 条
 python -B tests/test_release_surface.py  # 版本/依赖/Secrets/CI 契约 18 条
 ```
 
-其余用例用 pytest 运行全部（当前共 **403** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
+其余用例用 pytest 运行全部（当前共 **421** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
 
 ```bash
 pip install -r requirements-dev.txt
@@ -253,11 +257,15 @@ Streamlit Cloud 已经重建容器：v2.3.0 发布时就遇到过推送十余分
 
 ### 2. 建表与行级安全
 - Supabase → SQL Editor → 新建查询 → 粘贴 `supabase/schema.sql` 并执行。
-- 该脚本创建 `datasets` 表并启用 RLS，保证用户只能读写自己的数据。
+- 该脚本创建 `datasets` / `profiles` / `invite_codes` / `gfs_cache` /
+  `vision_usage` 五张表与配套 RLS、函数，保证用户只能读写自己的数据。
 - **升级到 2.3.7 及以后必须重跑一次该脚本**：新增了读图配额所需的
   `vision_usage` 表与三个配额函数（`get_vision_quota` / `begin_vision_call` /
   `record_vision_usage`），以及 `profiles` 上的三个配额列。脚本可重复执行，
   重跑不会丢数据；未重跑时管理员面板会直接提示「数据库表未创建」并给出该指引。
+- **本次（2026-10-18）升级同样必须重跑**：`gfs_cache` 新增 `updated_at` 与写入
+  RPC `put_gfs_cache`，客户端直写权限已收回；新增 `security_selfcheck()` 自检
+  函数。未重跑时缓存会静默回退到实时请求，管理员面板会提示「无法执行数据库安全自检」。
 
 ### 3. 配置密钥
 - 本地：复制 `.streamlit/secrets.toml.example` 为 `.streamlit/secrets.toml` 并填入。

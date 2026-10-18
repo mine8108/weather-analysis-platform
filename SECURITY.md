@@ -19,9 +19,10 @@ RLS 策略定义于 `supabase/schema.sql`，需在 Supabase 控制台 SQL Editor
 - `vision_usage`：仅本人可 select 自己那行；insert/update/delete 对客户端全部撤销，计数只能经下面三个函数改动。
 - `get_vision_quota` / `begin_vision_call` / `record_vision_usage`：SECURITY DEFINER 且默认 PUBLIC 执行权已收回，仅授予 authenticated 与 service_role。三个函数**一律以 `auth.uid()` 判定身份、不接受调用方传入 user_id**（否则可伪造或清空他人计数），`record_vision_usage` 的 token 增量钳到非负（否则可传负数反向冲销用量绕过每日上限）。
 - `invite_codes`：启用 RLS 且不开任何 anon / authenticated policy，仅经 SECURITY DEFINER 函数访问。
-- `gfs_cache`：读仅限 authenticated（避免匿名访客读到他人查询过的经纬度），写与改限自己创建的行，单行数据上限 100KB。
+- `gfs_cache`：读仅限 authenticated；写与删除只经 SECURITY DEFINER 函数 `put_gfs_cache`。函数内校验 key 与经纬度自洽、数据形状与单行 100KB 上限，写入时刷新 `updated_at` 并清理 6 小时前的旧行。客户端对表的 insert/update/delete 权限已收回。
+- `security_selfcheck()`：仅 service_role 可调，返回各表 RLS 状态、public 函数对 anon/authenticated/service_role 的执行权、以及五张表的表级写权限。管理员面板每次解锁先跑一次，自检不通过即停止管理操作。
 
-公开库与公开 anon key 架构下，RLS 是唯一的信任边界。请确认线上库已执行上述 schema.sql；**升级到 2.3.7 及以后必须重跑一次**以建出读图配额相关对象。
+公开库与公开 anon key 架构下，RLS 是唯一的信任边界。请确认线上库已执行上述 schema.sql；**升级到 2.3.7 及以后必须重跑一次**以建出读图配额相关对象；**2026-10-18 的缓存与自检改动同样必须重跑一次**，否则管理员面板会提示「无法执行数据库安全自检」，GFS 二级缓存会静默回退到实时请求。
 
 ## 已落实的安全核查（2026-07-26）
 - git 历史扫描：从未提交真实 `.streamlit/secrets.toml`，无密钥泄露。

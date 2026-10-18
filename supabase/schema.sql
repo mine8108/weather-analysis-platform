@@ -20,6 +20,27 @@ create table if not exists public.datasets (
 
 create index if not exists datasets_user_idx on public.datasets (user_id);
 
+-- 安全修复（S4）：名称也占用存储，必须有长度上限，否则可以用 name 字段
+-- 绕过 save_dataset 的配额（配额此前只统计 csv_text）。
+do $$
+begin
+    if not exists (
+        select 1 from pg_constraint
+        where conname = 'datasets_name_len_check'
+          and conrelid = 'public.datasets'::regclass
+    ) then
+        alter table public.datasets
+            add constraint datasets_name_len_check
+            check (char_length(name) between 1 and 200) not valid;
+    end if;
+    begin
+        alter table public.datasets validate constraint datasets_name_len_check;
+    exception when others then
+        -- 历史超长行会让验证失败；约束保持 NOT VALID，仍然约束新写入。
+        raise warning 'datasets.name 长度约束未能验证：%', sqlerrm;
+    end;
+end $$;
+
 alter table public.datasets enable row level security;
 
 drop policy if exists "datasets_owner_only" on public.datasets;
@@ -255,7 +276,8 @@ begin
         return 0;
     end if;
     return coalesce(
-        (select sum(octet_length(csv_text)) from public.datasets
+        (select sum(octet_length(csv_text) + octet_length(name))
+           from public.datasets
           where user_id = p_user_id), 0);
 end;
 $$;
@@ -304,11 +326,18 @@ create table if not exists public.gfs_cache (
     created_at  timestamptz not null default now()
 );
 
--- 归属列：记录写入者，用于「只能改自己那行」的策略
+-- 归属列：记录写入者，仅供审计；写入权限已收回，不再作为策略依据
 alter table public.gfs_cache
     add column if not exists created_by uuid default auth.uid();
 
+-- 安全修复（S2）：刷新时间戳。旧实现按 created_at 过滤，而 upsert 不刷新
+-- created_at，导致首次写入一小时后缓存对所有人永久失效。写入只经
+-- put_gfs_cache，由函数在每次写入时刷新 updated_at。
+alter table public.gfs_cache
+    add column if not exists updated_at timestamptz not null default now();
+
 create index if not exists gfs_cache_created_idx on public.gfs_cache (created_at);
+create index if not exists gfs_cache_updated_idx on public.gfs_cache (updated_at);
 
 alter table public.gfs_cache enable row level security;
 
@@ -320,34 +349,117 @@ create policy "gfs_cache_auth_read"
     to authenticated
     using (true);
 
--- 写：仅 authenticated 可插入，且 created_by 必须是自己；行大小上限 100KB
+-- 安全修复（S3）：写与删除全部收回。旧策略只校验 created_by 与 100KB，
+-- 不校验 key 与坐标、数据内容，任意登录用户都能给别人的键投毒；而且
+-- 他人无法更新自己创建的行，缓存过期后永远刷新不了。现在写入只经
+-- put_gfs_cache，函数内校验 key 自洽、数据形状与大小，并清理过期行。
 drop policy if exists "gfs_cache_auth_write" on public.gfs_cache;
-create policy "gfs_cache_auth_write"
-    on public.gfs_cache for insert
-    to authenticated
-    with check (
-        created_by = auth.uid()
-        and octet_length(data_json::text) <= 100000
-    );
-
--- 更新：只能更新自己创建的行（配合 cache_key 的小时桶轮换，
--- 他人旧行不会被阻塞刷新，因为新窗口使用新的 key）
 drop policy if exists "gfs_cache_auth_update" on public.gfs_cache;
-create policy "gfs_cache_auth_update"
-    on public.gfs_cache for update
-    to authenticated
-    using (created_by = auth.uid())
-    with check (
-        created_by = auth.uid()
-        and octet_length(data_json::text) <= 100000
-    );
-
--- 过期清理：登录用户可删除 24 小时前的缓存行（key 每小时轮换，旧行不再被读）
 drop policy if exists "gfs_cache_prune" on public.gfs_cache;
-create policy "gfs_cache_prune"
-    on public.gfs_cache for delete
-    to authenticated
-    using (created_at < now() - interval '24 hours');
+revoke insert, update, delete on public.gfs_cache from authenticated, anon;
+
+-- 残余风险：RPC 能阻止任意键、跨坐标与畸形数据，但无法阻止已登录用户为
+-- 真实坐标伪造一份看起来合理的缓存。当前信任边界是邀请码准入；若要彻底
+-- 防投毒，需要在写入时附服务端密钥的 HMAC，并在函数内用 pgcrypto 校验。
+
+-- 7.1 缓存写入 RPC（SECURITY DEFINER，可刷新他人创建的行）
+create or replace function public.put_gfs_cache(
+    p_key text,
+    p_lat double precision,
+    p_lon double precision,
+    p_days integer,
+    p_model text,
+    p_data jsonb
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+    v_uid uuid := auth.uid();
+    v_match text[];
+    v_lat_key numeric;
+    v_lon_key numeric;
+begin
+    if v_uid is null then
+        return false;
+    end if;
+    if p_key is null or left(p_key, 13) <> 'gfs_fc_cache_'
+       or length(p_key) > 200 then
+        return false;
+    end if;
+    if p_lat is null or p_lon is null
+       or p_lat < -90 or p_lat > 90
+       or p_lon < -180 or p_lon > 180 then
+        return false;
+    end if;
+    -- 预报时效 1..16 天；历史验证窗口可能更长，这里只做安全范围限制。
+    if p_days is null or p_days < 1 or p_days > 366 then
+        return false;
+    end if;
+    if p_model is null or length(p_model) = 0 or length(p_model) > 40 then
+        return false;
+    end if;
+    if p_data is null or jsonb_typeof(p_data) <> 'array' then
+        return false;
+    end if;
+    if jsonb_array_length(p_data) < 1 or jsonb_array_length(p_data) > 1000 then
+        return false;
+    end if;
+    if octet_length(p_data::text) > 100000 then
+        return false;
+    end if;
+    -- key 形如 gfs_fc_cache_{version}_{lat:.4f}_{lon:.4f}_{window}_{model}
+    -- 经纬度必须与入参一致，杜绝任意键与跨坐标投毒。
+    begin
+        v_match := regexp_match(
+            p_key,
+            '^gfs_fc_cache_[^_]+_(-?[0-9]+\.[0-9]+)_(-?[0-9]+\.[0-9]+)_');
+        if v_match is null then
+            return false;
+        end if;
+        v_lat_key := v_match[1]::numeric;
+        v_lon_key := v_match[2]::numeric;
+    exception when others then
+        return false;
+    end;
+    if abs(v_lat_key - p_lat::numeric) > 0.0001
+       or abs(v_lon_key - p_lon::numeric) > 0.0001 then
+        return false;
+    end if;
+    if right(p_key, length(p_model) + 1) <> ('_' || p_model) then
+        return false;
+    end if;
+    if exists (
+        select 1
+          from jsonb_array_elements(p_data) as elem(value)
+         where jsonb_typeof(elem.value) <> 'object'
+            or elem.value ->> 'timestamp' is null
+    ) then
+        return false;
+    end if;
+    -- 清理过期行：读取只认 1 小时内的 updated_at，6 小时前的行不会再被读到。
+    delete from public.gfs_cache
+     where updated_at < now() - interval '6 hours';
+    insert into public.gfs_cache
+        (cache_key, lat, lon, days, model, data_json,
+         created_by, created_at, updated_at)
+    values
+        (p_key, p_lat, p_lon, p_days, p_model, p_data,
+         v_uid, now(), now())
+    on conflict (cache_key) do update
+        set data_json = excluded.data_json,
+            updated_at = now();
+    return true;
+end;
+$$;
+
+revoke execute on function public.put_gfs_cache(
+    text, double precision, double precision, integer, text, jsonb) from public;
+grant execute on function public.put_gfs_cache(
+    text, double precision, double precision, integer, text, jsonb)
+    to authenticated, service_role;
 
 -- ============================================================
 -- 8. save_dataset：带配额强制的数据集写入函数（SECURITY DEFINER）
@@ -371,6 +483,7 @@ declare
     v_quota bigint := 10485760;
     v_new_bytes bigint;
     v_row_id uuid;
+    v_count int;
 begin
     if v_uid is null then
         return jsonb_build_object('ok', false, 'error', '未登录');
@@ -378,13 +491,26 @@ begin
     if p_name is null or length(p_name) = 0 or p_csv is null then
         return jsonb_build_object('ok', false, 'error', '参数缺失');
     end if;
-    v_new_bytes := octet_length(p_csv);
-    -- 已用量（更新场景排除自身旧数据）
+    if char_length(p_name) > 200 then
+        return jsonb_build_object('ok', false, 'error', '名称过长');
+    end if;
+    -- 插入场景限制数据集数量；更新不设限，避免历史超额用户无法修改已有数据。
     if p_dataset_id is null then
-        select coalesce(sum(octet_length(csv_text)), 0) into v_used
+        select count(*) into v_count
+          from public.datasets where user_id = v_uid;
+        if v_count >= 200 then
+            return jsonb_build_object('ok', false, 'error', '数据集数量已达上限');
+        end if;
+    end if;
+    v_new_bytes := octet_length(p_csv) + octet_length(p_name);
+    -- 已用量（更新场景排除自身旧数据），名称字节同样计入配额
+    if p_dataset_id is null then
+        select coalesce(sum(octet_length(csv_text) + octet_length(name)), 0)
+          into v_used
           from public.datasets where user_id = v_uid;
     else
-        select coalesce(sum(octet_length(csv_text)), 0) into v_used
+        select coalesce(sum(octet_length(csv_text) + octet_length(name)), 0)
+          into v_used
           from public.datasets
          where user_id = v_uid and id <> p_dataset_id;
     end if;
@@ -624,3 +750,60 @@ grant execute on function public.record_vision_usage(bigint, bigint, bigint, big
 
 -- 管理员按用户调配额：profiles 的 update 权限此前已从 authenticated 撤销
 -- （见第 2 节的 P0-3 修复），因此只有 service_role（管理员面板）能改这三列。
+
+-- ============================================================
+-- 9. 安全自检：把线上 RLS、函数执行权、表级写权限汇总成 jsonb
+--    管理员面板解锁后调用，与仓库声明的边界逐项比对。只授予 service_role，
+--    避免把安全配置暴露给普通登录用户。
+-- ============================================================
+create or replace function public.security_selfcheck()
+returns jsonb
+language sql
+security definer
+set search_path = public
+as $$
+    select jsonb_build_object(
+        'rls', (
+            select coalesce(
+                       jsonb_object_agg(c.relname, c.relrowsecurity),
+                       '{}'::jsonb)
+              from pg_class c
+              join pg_namespace n on n.oid = c.relnamespace
+             where n.nspname = 'public' and c.relkind = 'r'
+        ),
+        'functions', (
+            select coalesce(
+                       jsonb_object_agg(
+                           proname,
+                           jsonb_build_object(
+                               'anon', bool_or(anon_exec),
+                               'authenticated', bool_or(auth_exec),
+                               'service_role', bool_or(sr_exec))),
+                       '{}'::jsonb)
+              from (
+                  select p.proname,
+                         has_function_privilege('anon', p.oid, 'EXECUTE') as anon_exec,
+                         has_function_privilege('authenticated', p.oid, 'EXECUTE') as auth_exec,
+                         has_function_privilege('service_role', p.oid, 'EXECUTE') as sr_exec
+                    from pg_proc p
+                    join pg_namespace n on n.oid = p.pronamespace
+                   where n.nspname = 'public' and p.prokind = 'f'
+              ) fn
+             group by proname
+        ),
+        'table_privileges', (
+            select coalesce(
+                       jsonb_object_agg(
+                           t || '.' || r || '.' || pv,
+                           has_table_privilege(r::name, 'public.' || t, pv)),
+                       '{}'::jsonb)
+              from (values ('datasets'), ('profiles'), ('invite_codes'),
+                           ('gfs_cache'), ('vision_usage')) as tabs(t)
+             cross join (values ('anon'), ('authenticated')) as roles(r)
+             cross join (values ('INSERT'), ('UPDATE'), ('DELETE')) as privs(pv)
+        )
+    );
+$$;
+
+revoke execute on function public.security_selfcheck() from public;
+grant execute on function public.security_selfcheck() to service_role;

@@ -20,6 +20,7 @@ from urllib.parse import urlparse
 
 import streamlit as st
 
+from modules.supabase_backend import selfcheck_problems
 from utils import safe_error_text
 
 
@@ -496,7 +497,7 @@ def _render_admin_panel():
         # --- schema 健康检查 ---
         missing = _missing_tables(sb_admin,
                                   ["invite_codes", "profiles", "datasets",
-                                   "vision_usage"])
+                                   "gfs_cache", "vision_usage"])
         if missing:
             st.error(
                 f"⚠️ 数据库表未创建：{', '.join(missing)}\n\n"
@@ -504,6 +505,27 @@ def _render_admin_panel():
                 "粘贴并运行 `supabase/schema.sql` 中的全部内容，然后刷新本页面。"
             )
             return
+
+        # --- 安全自检（S1）---
+        # 表存在不等于安全边界成立：RLS 可能被关、函数执行权可能被重新授给
+        # anon、写权限可能被加回来。自检不通过就停止管理操作，避免在边界已破
+        # 的情况下继续改配额或生成邀请码。
+        report = _run_security_selfcheck(sb_admin)
+        if report is None:
+            st.error(
+                "⚠️ 无法执行数据库安全自检，已停止管理操作。若刚升级代码，"
+                "请先重跑 `supabase/schema.sql`，然后刷新本页面。"
+            )
+            return
+        problems = selfcheck_problems(report)
+        if problems:
+            st.error(
+                "⚠️ 数据库安全自检未通过，已停止管理操作：\n\n- "
+                + "\n- ".join(problems)
+                + "\n\n请重跑 `supabase/schema.sql` 或到 Supabase 控制台核对策略。"
+            )
+            return
+        st.caption("✅ 数据库安全自检通过（RLS、函数执行权、写权限）。")
 
         # --- 5.1 生成邀请码 ---
         st.subheader("生成邀请码")
@@ -687,6 +709,24 @@ def _missing_tables(sb_admin, tables: list) -> list:
         except Exception:
             missing.append(t)
     return missing
+
+
+def _run_security_selfcheck(sb_admin):
+    """调用数据库自检函数，返回 dict；函数缺失或调用失败时返回 None。
+
+    旧库没有这个函数时，管理面板会提示重跑 schema.sql，而不是把“查不到”
+    误判成“自检通过”。
+    """
+    if sb_admin is None:
+        return None
+    try:
+        res = sb_admin.rpc("security_selfcheck").execute()
+        data = res.data if hasattr(res, "data") else res
+        if isinstance(data, list):
+            data = data[0] if data else None
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
 
 
 def _schema_error_msg(e) -> str:

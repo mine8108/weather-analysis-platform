@@ -13,6 +13,7 @@ Streamlit Cloud 的标签编码要求。
 import sys
 import os
 import json
+import logging
 import time
 from datetime import datetime, timezone, timedelta
 
@@ -36,6 +37,9 @@ from modules.design_tokens import (
     warn_token,
 )
 from modules.aqi import comprehensive_aqi
+from modules import gfs_cache
+
+_LOG = logging.getLogger(__name__)
 
 
 def _sev(token: str) -> str:
@@ -80,7 +84,12 @@ _GFS_FC_SCHEMA_VERSION = "v3"
 
 def _gfs_forecast_cache_key(lat, lon, days, model, window=None):
     """基于请求参数生成短周期缓存 key（避免同一参数反复触发限流）。
+
     window: 形如 'YYYYmmdd_YYYYmmdd' 的过去窗口标识（hindcast 验证用）。
+
+    这个格式与 `supabase/schema.sql` 中 `put_gfs_cache` 的正则校验绑定：
+    `^gfs_fc_cache_[^_]+_{lat:.4f}_{lon:.4f}_..._{model}$`。改动键格式时
+    必须同步改 SQL，否则缓存写入会被服务端拒绝。
     """
     model_part = model if model else "blend"
     wpart = window if window else f"d{int(days)}"
@@ -105,7 +114,11 @@ def _gfs_records_to_df(records):
 
 
 def _load_gfs_from_cache(cache_key):
-    """从 Supabase 读取二级缓存（跨用户 / 跨重启共享）。失败返回 None。"""
+    """从 Supabase 读取二级缓存（跨用户 / 跨重启共享）。失败返回 None。
+
+    过滤字段改用 ``updated_at``：旧实现按 ``created_at`` 过滤，而 upsert 不会
+    刷新 ``created_at``，缓存会在首次写入一小时后对所有人永久失效。
+    """
     try:
         if not st.secrets.get("SUPABASE_URL") or not st.secrets.get("SUPABASE_ANON_KEY"):
             return None
@@ -113,23 +126,23 @@ def _load_gfs_from_cache(cache_key):
         sb = get_supabase()
         if sb is None:
             return None
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=_GFS_CACHE_TTL_HOURS)).isoformat()
-        res = (
-            sb.table("gfs_cache")
-            .select("*")
-            .eq("cache_key", cache_key)
-            .gte("created_at", cutoff)
-            .execute()
-        )
-        if res.data:
-            return _gfs_records_to_df(res.data[0]["data_json"])
+        records = gfs_cache.read_from(
+            sb, cache_key, ttl_hours=_GFS_CACHE_TTL_HOURS)
+        if records:
+            return _gfs_records_to_df(records)
     except Exception:
-        return None
+        _LOG.warning("读取 GFS 二级缓存失败 cache_key=%s", cache_key,
+                     exc_info=True)
     return None
 
 
 def _save_gfs_to_cache(cache_key, lat, lon, days, model, df):
-    """写入 Supabase 二级缓存（失败静默忽略，不影响返回）。"""
+    """写入 Supabase 二级缓存（失败只记日志，不影响返回）。
+
+    写入统一经 ``put_gfs_cache`` RPC。表级 insert/update 已从客户端角色收回，
+    因此这里不能再直接 upsert；RPC 会校验键与坐标自洽、刷新 ``updated_at``，
+    并顺带清理过期行。
+    """
     try:
         if not st.secrets.get("SUPABASE_URL") or not st.secrets.get("SUPABASE_ANON_KEY"):
             return
@@ -137,16 +150,11 @@ def _save_gfs_to_cache(cache_key, lat, lon, days, model, df):
         sb = get_supabase()
         if sb is None:
             return
-        sb.table("gfs_cache").upsert({
-            "cache_key": cache_key,
-            "lat": float(lat),
-            "lon": float(lon),
-            "days": int(days),
-            "model": model or "blend",
-            "data_json": _gfs_df_to_records(df),
-        }).execute()
+        gfs_cache.save_to(
+            sb, cache_key, lat, lon, days, model, _gfs_df_to_records(df))
     except Exception:
-        pass
+        _LOG.warning("写入 GFS 二级缓存失败 cache_key=%s", cache_key,
+                     exc_info=True)
 
 
 @retry_with_backoff(max_retries=3, base_delay=3, backoff_factor=2)

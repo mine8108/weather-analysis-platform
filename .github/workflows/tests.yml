@@ -52,6 +52,9 @@ jobs:
       - name: 读图配额与 schema 安全契约（2.3.8）
         run: python -B tests/test_vision_quota.py
 
+      - name: Supabase 后端契约（自检/缓存 RPC/配额）
+        run: python -B tests/test_supabase_backend.py
+
       - name: 发布面契约（版本/依赖/Secrets/CI）
         run: python -B tests/test_release_surface.py
 

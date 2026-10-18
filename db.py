@@ -18,6 +18,28 @@ def _user_id() -> str | None:
     return user["id"] if user else None
 
 
+# ============================================================
+# save_dataset 错误码到用户文案的映射（见 supabase/schema.sql 第 8 节）
+# 数据库函数只返回短错误码，文案留在应用层，便于测试与统一措辞。
+# ============================================================
+_SAVE_ERROR_TEXT = {
+    "配额不足": (
+        "❌ 存储配额不足，本次保存被拒绝。"
+        "请删除部分数据集或联系管理员提升配额。"
+    ),
+    "名称过长": "❌ 数据集名称过长（上限 200 字符），本次保存被拒绝。",
+    "数据集数量已达上限": (
+        "❌ 数据集数量已达上限（200 个），请先删除不再需要的数据集。"
+    ),
+}
+
+
+def save_error_message(error: str) -> str:
+    """把 save_dataset 返回的错误码翻译成用户文案。"""
+    code = str(error or "写入失败")
+    return _SAVE_ERROR_TEXT.get(code, "保存失败：%s" % code)
+
+
 def save_dataset(df: pd.DataFrame, name: str, dataset_id: str | None = None) -> bool:
     """保存/更新一个数据集。df 序列化为 CSV 文本存入 csv_text 字段。
 
@@ -43,12 +65,7 @@ def save_dataset(df: pd.DataFrame, name: str, dataset_id: str | None = None) -> 
         if isinstance(data, dict) and data.get("ok"):
             return True
         err = (data or {}).get("error", "写入失败") if isinstance(data, dict) else "写入失败"
-        if err == "配额不足":
-            st.error(
-                "❌ 存储配额不足，本次保存被拒绝。请删除部分数据集或联系管理员提升配额。"
-            )
-        else:
-            st.error(f"保存失败：{err}")
+        st.error(save_error_message(err))
         return False
     except Exception as e:
         st.error(safe_error_text(e, "保存失败，请稍后重试。"))
