@@ -386,7 +386,7 @@ def _make_app_test(monkeypatch, with_df: bool):
     # 侧边栏云端调用与真实 Supabase 解耦
     monkeypatch.setattr(db_mod, "get_storage_usage_bytes", lambda *a, **k: 0)
     monkeypatch.setattr(db_mod, "get_storage_quota_bytes", lambda *a, **k: 10485760)
-    monkeypatch.setattr(db_mod, "list_datasets", lambda: [])
+    monkeypatch.setattr(db_mod, "list_datasets", lambda *a, **k: [])
     # 城市列表持久化隔离到临时文件，避免测试写入真实用户 ~/.weather_wall_cities.json
     import tempfile
     from modules import city_prefs as cp_mod

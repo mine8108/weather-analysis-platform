@@ -82,6 +82,18 @@ _FC_HOURLY = [
 _GFS_FC_SCHEMA_VERSION = "v3"
 
 
+# 缓存网格 0.01°（约 1 km）。GFS/Open-Meteo 的网格本身是公里级，四舍五入
+# 到 0.01° 不会改变可用性，却能把“同城不同坐标”收敛到同一个键，显著提升
+# 跨用户命中率，也限制用户换坐标刷缓存的空间。
+_GFS_CACHE_GRID = 0.01
+
+
+def _gfs_cache_coords(lat, lon):
+    """把坐标归一到缓存网格，返回 (lat, lon)。"""
+    step = _GFS_CACHE_GRID
+    return (round(lat / step) * step, round(lon / step) * step)
+
+
 def _gfs_forecast_cache_key(lat, lon, days, model, window=None):
     """基于请求参数生成短周期缓存 key（避免同一参数反复触发限流）。
 
@@ -93,7 +105,9 @@ def _gfs_forecast_cache_key(lat, lon, days, model, window=None):
     """
     model_part = model if model else "blend"
     wpart = window if window else f"d{int(days)}"
-    return f"gfs_fc_cache_{_GFS_FC_SCHEMA_VERSION}_{lat:.4f}_{lon:.4f}_{wpart}_{model_part}"
+    cache_lat, cache_lon = _gfs_cache_coords(lat, lon)
+    return (f"gfs_fc_cache_{_GFS_FC_SCHEMA_VERSION}_{cache_lat:.4f}_"
+            f"{cache_lon:.4f}_{wpart}_{model_part}")
 
 
 # TTL：缓存 1 小时内有效（GFS 约每小时更新一次）
@@ -191,6 +205,7 @@ def fetch_gfs_forecast(lat, lon, days=7, model="gfs_seamless",
         window = None
         _days_key = days
     cache_key = _gfs_forecast_cache_key(lat, lon, _days_key, model, window)
+    cache_lat, cache_lon = _gfs_cache_coords(lat, lon)
     # 第一层：同一会话内同参数直接命中
     cached = st.session_state.get(cache_key)
     if cached is not None:
@@ -243,7 +258,8 @@ def fetch_gfs_forecast(lat, lon, days=7, model="gfs_seamless",
 
     st.session_state[cache_key] = df
     # 第三层落地后写入二级缓存（失败静默忽略）
-    _save_gfs_to_cache(cache_key, lat, lon, _days_key, model, df)
+    _save_gfs_to_cache(
+        cache_key, cache_lat, cache_lon, _days_key, model, df)
     return df, None
 
 

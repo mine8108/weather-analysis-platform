@@ -1,8 +1,10 @@
-name: Keep Streamlit App Alive
+name: Keep Streamlit App and Supabase Alive
 
 # 修复 R-23：原为每 5 分钟一次（月均约 8640 次运行），远超实际需要。
 # Streamlit Community Cloud 的休眠阈值是数小时级空闲，每 6 小时 ping 一次
 # 足以避免休眠，同时把 Actions 用量降到约 1/72。
+# 同时 ping 一次 Supabase REST，避免 Free 计划长期无数据库活动被暂停。
+# 需要在仓库 Secrets 里配置 SUPABASE_URL 与 SUPABASE_ANON_KEY（anon key 可公开）。
 on:
   schedule:
     - cron: "0 */6 * * *"
@@ -18,3 +20,17 @@ jobs:
           echo "Pinging $URL"
           curl -sS -m 30 -o /dev/null -w "HTTP=%{http_code} TIME=%{time_total}s\n" "$URL" \
             || echo "ping failed (app may be sleeping, will retry next cycle)"
+
+      - name: Ping Supabase database
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "Supabase secrets not configured; skipping."
+            exit 0
+          fi
+          curl -sS -m 30 -o /dev/null -w "SUPABASE_HTTP=%{http_code}\n" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            "$SUPABASE_URL/rest/v1/datasets?select=id&limit=0" \
+            || echo "supabase ping failed (will retry next cycle)"

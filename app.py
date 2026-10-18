@@ -493,17 +493,18 @@ with st.sidebar:
             sign_out_user()
             st.rerun()
 
-        # 云存储用量
+        # 云存储用量（30 秒缓存，按 uid 隔离）
         from db import get_storage_usage_bytes, get_storage_quota_bytes
-        _used = get_storage_usage_bytes()
-        _quota = get_storage_quota_bytes()
+        _uid = _auth_user.get("id")
+        _used = get_storage_usage_bytes(_uid)
+        _quota = get_storage_quota_bytes(_uid)
         _ratio = (_used / _quota) if _quota else 0.0
         st.progress(min(1.0, _ratio),
                     text=f"☁️ 云存储 {_used / 1048576:.1f} / {_quota / 1048576:.0f} MB")
 
         with st.expander("📂 我的数据集", expanded=False):
             from db import list_datasets, load_dataset, delete_dataset
-            _my_ds = list_datasets()
+            _my_ds = list_datasets(_uid)
             if not _my_ds:
                 st.caption("暂无保存的数据，导入后可点「保存到云端」。")
             for _d in _my_ds:

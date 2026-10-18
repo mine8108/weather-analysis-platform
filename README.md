@@ -70,7 +70,7 @@ weather_app/
 │   ├── test_chart_reader.py    # 读图管线 / 编码策略 / 用量记账 / prompt / 接线 41 条
 │   ├── test_ai_narrative.py    # 多模态请求体、空正文诊断、用量回传与报告导出 27 条
 │   ├── test_vision_quota.py    # 读图配额：schema 安全契约 / 数据层 / 纯函数 23 条
-│   ├── test_supabase_backend.py # Supabase 后端契约：自检 / 缓存 RPC / 配额 / 会话 21 条
+│   ├── test_supabase_backend.py # Supabase 后端契约：自检 / 缓存 RPC / 配额 / 会话 / 邀请码 23 条
 │   ├── test_release_surface.py # 版本 / 依赖 / Secrets / CI 契约 18 条
 │   ├── test_weather_wall.py    # 天气墙（依赖 pytest；单跑需登录态）
 │   └── test_smoke.py           # 导入冒烟检查
@@ -151,11 +151,11 @@ python -B tests/test_era5_guide.py       # ERA5 catalogue 与 payload 26 条
 python -B tests/test_manual.py           # 手册结构与内容契约 25 条
 python -B tests/test_chart_reader.py     # 读图管线、编码策略与用量记账 41 条
 python -B tests/test_vision_quota.py     # 读图配额与 schema 安全契约 23 条
-python -B tests/test_supabase_backend.py # Supabase 后端契约 21 条
+python -B tests/test_supabase_backend.py # Supabase 后端契约 23 条
 python -B tests/test_release_surface.py  # 版本/依赖/Secrets/CI 契约 18 条
 ```
 
-其余用例用 pytest 运行全部（当前共 **424** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
+其余用例用 pytest 运行全部（当前共 **426** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
 
 ```bash
 pip install -r requirements-dev.txt
@@ -258,15 +258,16 @@ Streamlit Cloud 已经重建容器：v2.3.0 发布时就遇到过推送十余分
 ### 2. 建表与行级安全
 - Supabase → SQL Editor → 新建查询 → 粘贴 `supabase/schema.sql` 并执行。
 - 该脚本创建 `datasets` / `profiles` / `invite_codes` / `gfs_cache` /
-  `vision_usage` 五张表与配套 RLS、函数，保证用户只能读写自己的数据。
+  `vision_usage` 五张业务表、`schema_version` 版本表与配套 RLS、函数，保证用户只能读写自己的数据。
 - **升级到 2.3.7 及以后必须重跑一次该脚本**：新增了读图配额所需的
   `vision_usage` 表与三个配额函数（`get_vision_quota` / `begin_vision_call` /
   `record_vision_usage`），以及 `profiles` 上的三个配额列。脚本可重复执行，
   重跑不会丢数据；未重跑时管理员面板会直接提示「数据库表未创建」并给出该指引。
 - **本次（2026-10-18）升级同样必须重跑**：`gfs_cache` 新增 `updated_at` 与写入
   RPC `put_gfs_cache`，客户端直写权限已收回，RPC 仅授予 `service_role`；新增
-  `security_selfcheck()` 自检函数。未重跑时缓存会静默回退到实时请求，管理员
-  面板会提示「无法执行数据库安全自检」。
+  `security_selfcheck()` 自检函数、`schema_version` 版本表、邀请码
+  `expires_at` / `revoked_at` 列，以及 `profiles` 历史用户补行。未重跑时缓存会
+  静默回退到实时请求，管理员面板会提示「无法执行数据库安全自检」。
 
 ### 3. 配置密钥
 - 本地：复制 `.streamlit/secrets.toml.example` 为 `.streamlit/secrets.toml` 并填入。
@@ -284,9 +285,13 @@ Streamlit Cloud 已经重建容器：v2.3.0 发布时就遇到过推送十余分
 - 未配置密钥时页面会提示如何设置，不会崩溃。
 
 ### 5. 邀请码注册与存储配额
-- **注册授权**：公开注册已关闭。管理员在登录页底部「🔧 管理员入口」输入 `ADMIN_PASSWORD` 解锁后，可生成邀请码（每码一次性）发给用户；用户注册时填邀请码 → 服务端校验并建账号 → 自动登录。
-- **存储配额**：每位用户默认 10 MB（数据以 CSV 文本存于 `datasets.csv_text`）。保存数据集前按 `OCTET_LENGTH(csv_text)` 累计校验，超额拒绝并提示。管理员可在面板内按用户调整配额（MB）。
-- 侧边栏实时显示「☁️ 云存储 已用 / 配额 MB」进度条。
+- **注册授权**：公开注册已关闭。管理员在登录页底部「🔧 管理员入口」输入 `ADMIN_PASSWORD` 解锁后，可生成邀请码（128 bit、每码一次性、默认 7 天有效）发给用户；管理员可一键作废全部未使用邀请码。用户注册时填邀请码 → 服务端校验并建账号 → 自动登录。
+- **存储配额**：每位用户默认 10 MB（数据以 CSV 文本存于 `datasets.csv_text`，名称字节也计入）。保存数据集前按 `OCTET_LENGTH(csv_text) + OCTET_LENGTH(name)` 累计校验，超额拒绝并提示。管理员可在面板内按用户调整配额（MB）。
+- 侧边栏实时显示「☁️ 云存储 已用 / 配额 MB」进度条，30 秒缓存，保存/删除后自动失效。
+
+### 6. 保活与备份
+- `.github/workflows/keep-alive.yml` 每 6 小时 ping 一次 Streamlit 与 Supabase REST。需要在 GitHub 仓库 Settings → Secrets 配置 `SUPABASE_URL` 与 `SUPABASE_ANON_KEY`（anon key 可公开）；未配置时 Supabase ping 会自动跳过。
+- 备份按 Supabase 当前计划的保留策略执行。重要数据建议定期 `pg_dump` 或升级计划，并至少做一次恢复演练。
 
 ### 使用说明
 - 未登录只显示登录/注册页；登录后进入主程序。

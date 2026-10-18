@@ -588,7 +588,11 @@ def _render_admin_panel():
                 + "\n\n请重跑 `supabase/schema.sql` 或到 Supabase 控制台核对策略。"
             )
             return
-        st.caption("✅ 数据库安全自检通过（RLS、函数执行权、写权限）。")
+        _schema_ver = report.get("schema_version")
+        st.caption(
+            "✅ 数据库安全自检通过（RLS、函数执行权、写权限）。"
+            + (f" schema 版本：{_schema_ver}" if _schema_ver else "")
+        )
 
         # --- 5.1 生成邀请码 ---
         st.subheader("生成邀请码")
@@ -611,7 +615,16 @@ def _render_admin_panel():
         codes_out = st.session_state.get("invite_codes_out")
         if codes_out:
             st.code("\n".join(codes_out), language="text")
-            st.caption("将上面任一行发给用户即可授权其注册（每码仅用一次）。")
+            st.caption("将上面任一行发给用户即可授权其注册（每码仅用一次，7 天内有效）。")
+        st.caption("邀请码默认 7 天有效；作废后未使用的码立即失效。")
+        if st.button("作废全部未使用邀请码", key="invite_revoke"):
+            try:
+                sb_admin.table("invite_codes").update(
+                    {"revoked_at": datetime.now(timezone.utc).isoformat()}
+                ).is_("used_by", "null").is_("revoked_at", "null").execute()
+                st.success("已作废全部未使用邀请码。")
+            except Exception as e:
+                st.error(_schema_error_msg(e))
 
         st.divider()
 
@@ -718,8 +731,8 @@ def _render_admin_panel():
 
 
 def _gen_code() -> str:
-    """生成 12 位可读大写邀请码。"""
-    return secrets.token_hex(6).upper()
+    """生成 128 bit 可读大写邀请码（32 个十六进制字符）。"""
+    return secrets.token_hex(16).upper()
 
 
 def _hash_invite_code(code: str) -> str:

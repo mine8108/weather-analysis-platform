@@ -106,8 +106,16 @@ create table if not exists public.invite_codes (
     created_by uuid references auth.users(id) on delete cascade,
     used_by    uuid references auth.users(id) on delete cascade,
     used_at    timestamptz,
+    expires_at timestamptz not null default (now() + interval '7 days'),
+    revoked_at timestamptz,
     created_at timestamptz not null default now()
 );
+
+-- 旧表升级：补有效期与作废时间。已有码统一从本次迁移起算 7 天。
+alter table public.invite_codes
+    add column if not exists expires_at timestamptz not null
+        default (now() + interval '7 days'),
+    add column if not exists revoked_at timestamptz;
 
 -- 已有旧表的外键可能是 ON DELETE RESTRICT（默认），删除用户时会阻塞；
 -- 以下把现存的两个外键约束重建为 ON DELETE CASCADE，
@@ -161,6 +169,22 @@ insert into public.profiles (user_id)
 select id from auth.users
 on conflict (user_id) do nothing;
 
+-- 2.1 schema 版本：轻量迁移标记，管理员面板与自检会显示。
+create table if not exists public.schema_version (
+    id         integer primary key default 1 check (id = 1),
+    version    text not null,
+    applied_at timestamptz not null default now()
+);
+
+alter table public.schema_version enable row level security;
+-- 不建客户端策略：只有 service_role 与函数 owner 能读。
+
+insert into public.schema_version (id, version)
+values (1, '2026-10-18')
+on conflict (id) do update
+    set version = excluded.version,
+        applied_at = now();
+
 -- ============================================================
 -- 5. 邀请码校验 / 认领 / 核销函数（SECURITY DEFINER）
 -- ============================================================
@@ -177,6 +201,8 @@ as $$
         select 1 from public.invite_codes
         where code = p_code
           and used_by is null
+          and revoked_at is null
+          and (expires_at is null or expires_at > now())
           and (used_at is null or used_at < now() - interval '15 minutes')
     );
 $$;
@@ -201,6 +227,8 @@ begin
        set used_at = now()
      where code = p_code
        and used_by is null
+       and revoked_at is null
+       and (expires_at is null or expires_at > now())
        and (used_at is null or used_at < now() - interval '15 minutes');
     get diagnostics v_count = row_count;
     return v_count > 0;
@@ -246,7 +274,9 @@ begin
     update public.invite_codes
        set used_by = p_user_id
      where code = p_code
-       and used_by is null;
+       and used_by is null
+       and revoked_at is null
+       and (expires_at is null or expires_at > now());
     get diagnostics v_count = row_count;
     return v_count > 0;
 end;
@@ -778,6 +808,7 @@ security definer
 set search_path = public
 as $$
     select jsonb_build_object(
+        'schema_version', (select version from public.schema_version where id = 1),
         'rls', (
             select coalesce(
                        jsonb_object_agg(c.relname, c.relrowsecurity),

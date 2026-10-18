@@ -261,3 +261,12 @@ Expected: PASS
 - S14：`auth._list_users` 按 100 条/页翻页，老版本 API 回退单页。
 - S15：两个 `SECURITY DEFINER` 函数在 `for update` 前幂等补 `profiles` 行，schema 增加历史用户补行。
 - 测试：`test_supabase_backend.py` 新增会话错误、分页、日志三条，总数 424；全量通过。
+
+### 批次 3（S7/S8/S9/S11/S12）
+
+- S7：侧边栏三个读取改为 30 秒 `st.cache_data`，按 uid 隔离，保存/删除后 `invalidate_dataset_cache()`。
+- S8：`_gfs_cache_coords()` 归一到 0.01° 网格，键与写入坐标同时归一。
+- S9：`_gen_code` 升到 128 bit；schema 增加 `expires_at` / `revoked_at`，三条校验路径过滤；管理员可一键作废。
+- S11：`schema_version` 表 + `security_selfcheck()` 返回版本 + 管理员面板显示。
+- S12：keep-alive 增加 Supabase REST ping；README 补 GitHub Secrets 与备份说明。
+- 测试：`test_supabase_backend.py` 增至 23 条，总数 426；线上 schema 重跑后 `schema_version=2026-10-18`。

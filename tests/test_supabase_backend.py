@@ -294,12 +294,27 @@ def test_scalar_rpc_logs_failure_and_returns_default():
     db._LOG.addHandler(handler)
     db._LOG.setLevel(logging.WARNING)
     try:
+        db.get_storage_usage_bytes.clear()
         with mock.patch.object(db, "get_supabase", return_value=_Client()):
             assert db.get_storage_usage_bytes("uid-1") == 0
     finally:
         db._LOG.removeHandler(handler)
         db._LOG.setLevel(old_level)
     assert any("get_storage_usage" in r.getMessage() for r in handler.records)
+
+
+def test_gfs_cache_key_rounds_coordinates():
+    a = nwp_forecast._gfs_forecast_cache_key(39.941, 116.851, 7, "gfs_seamless")
+    b = nwp_forecast._gfs_forecast_cache_key(39.94, 116.85, 7, "gfs_seamless")
+    assert a == b
+    assert "39.9400_116.8500" in a
+
+
+def test_invite_code_is_128_bit():
+    code = auth._gen_code()
+    assert len(code) == 32
+    assert all(ch in "0123456789ABCDEF" for ch in code)
+    assert auth._hash_invite_code(code) == auth._hash_invite_code(code.lower())
 
 
 # ============================================================
@@ -322,10 +337,18 @@ def test_schema_defines_cache_rpc_and_updated_at():
         "datasets_name_len_check",
         "insert into public.profiles (user_id) values (v_uid)",
         "select id from auth.users",
+        "expires_at timestamptz not null",
+        "revoked_at timestamptz",
+        "revoked_at is null",
+        "expires_at is null or expires_at > now()",
+        "schema_version",
     ):
         assert needle in sql, needle
     # save_dataset 与 begin_vision_call 两处都要先补行再锁
     assert sql.count("insert into public.profiles (user_id) values (v_uid)") >= 2
+    # 验码、认领、核销三条路径都要过滤作废与过期
+    assert sql.count("revoked_at is null") >= 3
+    assert sql.count("expires_at is null or expires_at > now()") >= 3
 
 
 def test_schema_counts_dataset_name_against_quota():

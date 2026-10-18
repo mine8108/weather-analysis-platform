@@ -66,6 +66,7 @@ def save_dataset(df: pd.DataFrame, name: str, dataset_id: str | None = None) -> 
         ).execute()
         data = res.data if hasattr(res, "data") else res
         if isinstance(data, dict) and data.get("ok"):
+            invalidate_dataset_cache()
             return True
         err = (data or {}).get("error", "写入失败") if isinstance(data, dict) else "写入失败"
         st.error(save_error_message(err))
@@ -96,20 +97,22 @@ def _scalar_rpc(name: str, default: int, uid: str | None = None) -> int:
         return default
 
 
-def get_storage_usage_bytes(uid: str | None = None) -> int:
-    """返回指定用户（默认当前登录用户）已用存储字节数。"""
+@st.cache_data(ttl=30, show_spinner=False)
+def get_storage_usage_bytes(uid: str) -> int:
+    """返回指定用户已用存储字节数（30 秒缓存，按 uid 隔离）。"""
     return _scalar_rpc("get_storage_usage", 0, uid)
 
 
-def get_storage_quota_bytes(uid: str | None = None) -> int:
-    """返回指定用户（默认当前登录用户）的存储配额字节数。"""
+@st.cache_data(ttl=30, show_spinner=False)
+def get_storage_quota_bytes(uid: str) -> int:
+    """返回指定用户的存储配额字节数（30 秒缓存，按 uid 隔离）。"""
     return _scalar_rpc("get_storage_quota", 10485760, uid)
 
 
-def list_datasets():
-    """返回当前用户的数据集元信息列表（不含 csv_text）。"""
-    uid = _user_id()
-    if uid is None:
+@st.cache_data(ttl=30, show_spinner=False)
+def list_datasets(uid: str):
+    """返回指定用户的数据集元信息列表（30 秒缓存，不含 csv_text）。"""
+    if not uid:
         return []
     sb = get_supabase()
     if sb is None:
@@ -128,6 +131,13 @@ def list_datasets():
         if is_session_error(exc):
             expire_session()
         return []
+
+
+def invalidate_dataset_cache() -> None:
+    """保存/删除后清掉侧边栏缓存，下一次 rerun 重新拉取。"""
+    get_storage_usage_bytes.clear()
+    get_storage_quota_bytes.clear()
+    list_datasets.clear()
 
 
 def load_dataset(dataset_id: str):
@@ -163,7 +173,10 @@ def load_dataset(dataset_id: str):
 
 def load_latest_dataset():
     """登录后自动载入用户最近一次保存的数据集。"""
-    datasets = list_datasets()
+    uid = _user_id()
+    if uid is None:
+        return None, None
+    datasets = list_datasets(uid)
     if datasets:
         return load_dataset(datasets[0]["id"])
     return None, None
@@ -180,6 +193,7 @@ def delete_dataset(dataset_id: str) -> bool:
         sb.table("datasets").delete().eq("id", dataset_id).eq(
             "user_id", uid
         ).execute()
+        invalidate_dataset_cache()
         return True
     except Exception as exc:
         _LOG.warning("删除数据集失败 dataset_id=%s", dataset_id, exc_info=True)
