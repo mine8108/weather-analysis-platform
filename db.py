@@ -4,7 +4,6 @@
 配合数据库 RLS 策略，即使客户端越权也读不到他人数据。
 """
 
-import io
 import logging
 
 import pandas as pd
@@ -44,10 +43,11 @@ def save_error_message(error: str) -> str:
 
 
 def save_dataset(df: pd.DataFrame, name: str, dataset_id: str | None = None) -> bool:
-    """保存/更新一个数据集。df 序列化为 CSV 文本存入 csv_text 字段。
+    """保存/更新一个数据集。df 序列化为带 schema 版本的 CSV 文本。
 
     安全修复（P-12）：写入改经数据库函数 save_dataset（SECURITY DEFINER），
     配额校验由服务端强制执行，客户端无法绕过配额直插大 CSV。
+    批次 2：序列化走 modules/dataset，读回时可识别版本并迁移。
     """
     uid = _user_id()
     if uid is None or df is None or df.empty:
@@ -56,7 +56,8 @@ def save_dataset(df: pd.DataFrame, name: str, dataset_id: str | None = None) -> 
     if sb is None:
         return False
 
-    csv_text = df.to_csv(index=False)
+    from modules import dataset as dataset_contract
+    csv_text = dataset_contract.to_text(df)
 
     # 配额校验与写入均由数据库函数 save_dataset 原子完成（服务端强制）
     try:
@@ -109,14 +110,13 @@ def get_storage_quota_bytes(uid: str) -> int:
     return _scalar_rpc("get_storage_quota", 10485760, uid)
 
 
-@st.cache_data(ttl=30, show_spinner=False)
-def list_datasets(uid: str):
-    """返回指定用户的数据集元信息列表（30 秒缓存，不含 csv_text）。"""
+def list_datasets_result(uid: str):
+    """返回 (列表, error|None)。后端故障与「没有数据集」不再共用 []。"""
     if not uid:
-        return []
+        return [], "未登录"
     sb = get_supabase()
     if sb is None:
-        return []
+        return [], "存储不可用"
     try:
         res = (
             sb.table("datasets")
@@ -125,12 +125,18 @@ def list_datasets(uid: str):
             .order("updated_at", desc=True)
             .execute()
         )
-        return res.data or []
+        return (res.data or []), None
     except Exception as exc:
         _LOG.warning("列出数据集失败", exc_info=True)
         if is_session_error(exc):
             expire_session()
-        return []
+        return [], "读取失败"
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def list_datasets(uid: str):
+    """返回指定用户的数据集元信息列表（30 秒缓存，不含 csv_text）。"""
+    return list_datasets_result(uid)[0]
 
 
 def invalidate_dataset_cache() -> None:
@@ -140,14 +146,18 @@ def invalidate_dataset_cache() -> None:
     list_datasets.clear()
 
 
-def load_dataset(dataset_id: str):
-    """按 id 载入数据集，返回 (DataFrame, name)。"""
+def load_dataset_result(dataset_id: str):
+    """按 id 载入数据集，返回 (Dataset|None, error|None)。
+
+    与旧接口的区别：后端故障与「没有这条数据」不再共用同一个空值。
+    调用方据此决定是提示用户还是静默跳过。
+    """
     uid = _user_id()
     if uid is None:
-        return None, None
+        return None, "未登录"
     sb = get_supabase()
     if sb is None:
-        return None, None
+        return None, "存储不可用"
     try:
         res = (
             sb.table("datasets")
@@ -156,27 +166,40 @@ def load_dataset(dataset_id: str):
             .eq("user_id", uid)
             .execute()
         )
-        if res.data:
-            row = res.data[0]
-            df = pd.read_csv(io.StringIO(row["csv_text"]))
-            # 回复时间列类型
-            if "timestamp" in df.columns:
-                df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
-            return df, row["name"]
+        if not res.data:
+            return None, None
+        row = res.data[0]
+        from modules import dataset as dataset_contract
+        return dataset_contract.from_text(row["csv_text"], source=row["name"]), None
     except Exception as e:
         _LOG.warning("载入数据集失败 dataset_id=%s", dataset_id, exc_info=True)
         if is_session_error(e):
             expire_session()
-        st.error(safe_error_text(e, "载入失败，请稍后重试。"))
+        return None, "读取失败"
+
+
+def load_dataset(dataset_id: str):
+    """按 id 载入数据集，返回 (DataFrame, name)。保留旧调用契约。"""
+    loaded, error = load_dataset_result(dataset_id)
+    if loaded is not None:
+        return loaded.df, loaded.source
+    if error == "读取失败":
+        st.error("载入失败，请稍后重试。")
     return None, None
 
 
 def load_latest_dataset():
-    """登录后自动载入用户最近一次保存的数据集。"""
+    """登录后自动载入用户最近一次保存的数据集。
+
+    后端故障时记录日志并放弃本次自动载入，不把故障伪装成「没有数据」。
+    """
     uid = _user_id()
     if uid is None:
         return None, None
-    datasets = list_datasets(uid)
+    datasets, error = list_datasets_result(uid)
+    if error:
+        _LOG.warning("自动载入跳过，数据集列表不可用：%s", error)
+        return None, None
     if datasets:
         return load_dataset(datasets[0]["id"])
     return None, None

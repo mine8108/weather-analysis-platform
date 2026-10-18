@@ -227,3 +227,12 @@ python -m pytest tests -q
 - `research/check_state_registry.py` 接入 CI，未登记的字面量键直接失败。
 - 新增测试：`test_state_registry.py`(5)、`test_session_isolation.py`(2)，全量 453 项通过。
 
+### 批次 2（2026-10-18，已完成）
+
+- 新增 `modules/dataset.py`：`Dataset` 契约、`canonicalize` 归一、版本化序列化（注释头 + CSV）、v1 历史数据自动迁移。
+- `app.py` 新增 `_adopt_dataset`，文件 / 手动 / API / 云端载入四条路径统一走它，`df` 的写入点只剩这一处与显式清空。
+- `db.py` 保存改用 `dataset.to_text`，读回识别版本；新增 `load_dataset_result`、`list_datasets_result`，故障与空结果分离，自动载入失败只记日志不再伪装成「没有数据」。
+- 新增测试：`test_dataset.py`(9)，含 db 级保存读回往返；全量 462 项通过。
+- 残留：`get_storage_usage_bytes` 等标量 RPC 仍以默认值兜底，留到批次 3 的错误契约收敛一并处理。
+
+

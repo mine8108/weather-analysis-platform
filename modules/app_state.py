@@ -51,6 +51,7 @@ _register((
 _register((
     # 数据导入
     "df", "source", "quality_score", "warnings_list", "manual_data",
+    "_dataset_schema_version", "_dataset_created_at",
     "api_df", "api_source", "api_fetched_weather", "api_fetched_pollution",
     "api_weather_source", "api_aq_source",
     "era5_product", "era5_preset_pick", "_era5_preset_applied",

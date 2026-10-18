@@ -400,6 +400,27 @@ def _record_import(source, df):
     st.session_state["_import_history"] = history[-5:]
 
 
+def _adopt_dataset(df, *, source=None, quality_score=None):
+    """导入或载入数据的唯一入口：归一化并记录数据集元信息。
+
+    批次 2 的核心接线。所有写入 st.session_state["df"] 的路径都必须经过
+    这里，否则列名归一与 schema 版本会分叉。
+    """
+    from modules.dataset import prepare_import
+    ds = prepare_import(
+        df,
+        source=(st.session_state.get("source", "") if source is None else source),
+        quality_score=(st.session_state.get("quality_score", 0.0)
+                       if quality_score is None else quality_score),
+        warnings=st.session_state.get("warnings_list", []),
+    )
+    st.session_state["df"] = ds.df
+    st.session_state["source"] = ds.source
+    st.session_state["_dataset_schema_version"] = ds.schema_version
+    st.session_state["_dataset_created_at"] = ds.created_at
+    return ds
+
+
 # 页面配置
 st.set_page_config(**PAGE_CONFIG)
 
@@ -461,8 +482,7 @@ if st.session_state.get("df") is None and not st.session_state.get("_auto_load_d
     from db import load_latest_dataset
     _auto_df, _auto_name = load_latest_dataset()
     if _auto_df is not None:
-        st.session_state["df"] = _auto_df
-        st.session_state["source"] = _auto_name or "云端数据"
+        _adopt_dataset(_auto_df, source=_auto_name or "云端数据")
 
 # ============================================================
 # 侧边栏：自定义检测阈值
@@ -497,8 +517,7 @@ with st.sidebar:
                                  use_container_width=True):
                         _ldf, _lname = load_dataset(_d["id"])
                         if _ldf is not None:
-                            st.session_state["df"] = _ldf
-                            st.session_state["source"] = _lname
+                            _adopt_dataset(_ldf, source=_lname)
                             st.rerun()
                 with _dc2:
                     if st.button("🗑", key=f"del_{_d['id']}"):
@@ -730,8 +749,7 @@ if st.session_state["active_tab"] == 0:
             df_file, source_file = _safe_render("导入-文件", render_file_upload_section) or (None, None)
             _safe_render("导入-模板", render_template_download)
             if df_file is not None:
-                st.session_state["df"] = df_file
-                st.session_state["source"] = source_file
+                _adopt_dataset(df_file, source=source_file)
                 st.session_state["import_step"] = 2
                 st.rerun()
         elif method == "manual":
@@ -739,16 +757,15 @@ if st.session_state["active_tab"] == 0:
             if df_manual is not None:
                 df_manual["timestamp"] = pd.to_datetime(
                     df_manual["timestamp"], errors="coerce")
-                st.session_state["df"] = merge_manual_rows(
-                    st.session_state.get("df"), df_manual)
+                _adopt_dataset(merge_manual_rows(
+                    st.session_state.get("df"), df_manual),
+                    source=st.session_state.get("source") or "手动录入")
                 st.session_state["import_step"] = 2
                 st.rerun()
         elif method == "api":
             df_api, source_api = _safe_render("导入-API", render_api_section) or (None, None)
             if df_api is not None:
-                st.session_state["df"] = df_api
-                if source_api:
-                    st.session_state["source"] = source_api
+                _adopt_dataset(df_api, source=source_api or "Open-Meteo API")
                 st.session_state["import_step"] = 2
                 st.rerun()
 
@@ -802,6 +819,8 @@ if st.session_state["active_tab"] == 0:
                     st.session_state["import_method"] = None
                     st.session_state["df"] = None
                     st.session_state["source"] = ""
+                    st.session_state["_dataset_schema_version"] = None
+                    st.session_state["_dataset_created_at"] = None
                     st.session_state["warnings_list"] = []
                     st.session_state["quality_score"] = 0.0
                     st.session_state["climate_data"] = None
@@ -823,21 +842,20 @@ if st.session_state["active_tab"] == 0:
         with sub_tab1:
             df_file, source_file = _safe_render("导入-文件", render_file_upload_section) or (None, None)
             if df_file is not None:
-                st.session_state["df"] = df_file
-                st.session_state["source"] = source_file
+                _adopt_dataset(df_file, source=source_file)
             _safe_render("导入-模板", render_template_download)
         with sub_tab2:
             df_manual = _safe_render("导入-手动", render_manual_input_section)
             if df_manual is not None:
                 df_manual["timestamp"] = pd.to_datetime(
                     df_manual["timestamp"], errors="coerce")
-                st.session_state["df"] = merge_manual_rows(
-                    st.session_state.get("df"), df_manual)
+                _adopt_dataset(merge_manual_rows(
+                    st.session_state.get("df"), df_manual),
+                    source=st.session_state.get("source") or "手动录入")
         with sub_tab3:
             df_api, source_api = _safe_render("导入-API", render_api_section) or (None, None)
             if df_api is not None:
-                st.session_state["df"] = df_api
-                st.session_state["source"] = source_api
+                _adopt_dataset(df_api, source=source_api or "Open-Meteo API")
 
         if st.session_state["df"] is not None:
             st.divider()

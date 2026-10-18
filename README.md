@@ -68,6 +68,7 @@ weather_app/
 │   ├── test_codec_render.py    # 解码结果跨 rerun 持久化 3 条
 │   ├── test_era5_guide.py      # ERA5 catalogue 与 payload 26 条
 │   ├── test_era5_script_pack.py # ERA5 脚本包 ZIP 与换算函数 29 条
+│   ├── test_dataset.py         # 数据集归一 / 版本化序列化 / 云端往返 9 条
 │   ├── test_import_merge.py    # 手动录入合并幂等 6 条
 │   ├── test_session_isolation.py # 自定义阈值跨会话隔离 2 条
 │   ├── test_state_registry.py  # 会话状态注册表完整性 5 条
@@ -160,7 +161,7 @@ python -B tests/test_supabase_backend.py # Supabase 后端契约 24 条
 python -B tests/test_release_surface.py  # 版本/依赖/Secrets/CI 契约 18 条
 ```
 
-其余用例用 pytest 运行全部（当前共 **453** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
+其余用例用 pytest 运行全部（当前共 **462** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
 
 ```bash
 pip install -r requirements-dev.txt
