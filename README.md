@@ -74,6 +74,7 @@ weather_app/
 │   ├── test_state_registry.py  # 会话状态注册表完整性 5 条
 │   ├── test_manual.py          # 手册结构与内容契约 25 条
 │   ├── test_nwp_calc.py        # GFS 预报纯计算层 7 条
+│   ├── test_report_export.py   # Word / CSV 报告导出 4 条
 │   ├── test_warn_rules.py      # 预警阈值与等级串单一出口 7 条
 │   ├── test_chart_reader.py    # 读图管线 / 编码策略 / 用量记账 / prompt / 接线 41 条
 │   ├── test_ai_narrative.py    # 多模态请求体、空正文诊断、用量回传与报告导出 27 条
@@ -99,6 +100,7 @@ weather_app/
     ├── warn_rules.py           # 预警阈值解析与等级串（观测侧与预报侧共用）
     ├── nwp/                    # GFS 预报纯计算层（calc.py，不依赖 Streamlit）
     ├── admin/                  # 管理员面板（邀请码 / 用户 / 配额 / 安全自检）
+    ├── report/                 # 报告排版与专业版 / 通俗版正文（base/professional/plain）
     ├── supabase_backend.py     # 安全自检判定（纯逻辑，不依赖 Streamlit）
     ├── verify.py               # GFS 预报 vs 实况 的定量验证
     ├── reporter.py             # Word/CSV 报告导出
@@ -167,7 +169,7 @@ python -B tests/test_supabase_backend.py # Supabase 后端契约 24 条
 python -B tests/test_release_surface.py  # 版本/依赖/Secrets/CI 契约 18 条
 ```
 
-其余用例用 pytest 运行全部（当前共 **476** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
+其余用例用 pytest 运行全部（当前共 **480** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
 
 ```bash
 pip install -r requirements-dev.txt

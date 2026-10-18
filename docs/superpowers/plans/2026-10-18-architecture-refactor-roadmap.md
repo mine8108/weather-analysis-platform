@@ -265,5 +265,12 @@ python -m pytest tests -q
 - CI 增加三条静态检查：CSS 变量引用完整性、图表颜色、Plotly CSS 变量，全部阻断。
 - 全量 476 项通过。
 
+切片 3 完成：`reporter.py` 拆分为 `modules/report/`。
+
+- `base.py`（304 行）排版、表格、字段解析与 CSV 导出；`professional.py`（467 行）专业版；`plain.py`（297 行）通俗版。
+- `reporter.py` 从 1219 行降到 153 行，只保留 `export_report_word` 与 `render_export_tab`，并 re-export 对外名称。
+- 拆分同时补齐了报告导出的行为测试：此前 `export_report_word` 没有任何测试覆盖。新增 `test_report_export.py`(4)，验证专业版包含预警章节、通俗版可生成、空数据不崩、CSV 表头正确。
+- 全量 480 项通过。
+
 
 
