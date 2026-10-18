@@ -238,6 +238,9 @@ def test_schema_defines_cache_rpc_and_updated_at():
         "revoke insert, update, delete on public.gfs_cache",
         "create or replace function public.security_selfcheck",
         "grant execute on function public.security_selfcheck() to service_role",
+        "revoke execute on function public.security_selfcheck() from public, anon, authenticated;",
+        "revoke execute on function public.save_dataset(uuid, text, text) from public, anon;",
+        "revoke execute on function public.consume_invite_code(text, uuid) from public, anon;",
         "datasets_name_len_check",
     ):
         assert needle in sql, needle

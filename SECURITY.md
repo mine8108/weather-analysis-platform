@@ -21,6 +21,7 @@ RLS 策略定义于 `supabase/schema.sql`，需在 Supabase 控制台 SQL Editor
 - `invite_codes`：启用 RLS 且不开任何 anon / authenticated policy，仅经 SECURITY DEFINER 函数访问。
 - `gfs_cache`：读仅限 authenticated；写与删除只经 SECURITY DEFINER 函数 `put_gfs_cache`。函数内校验 key 与经纬度自洽、数据形状与单行 100KB 上限，写入时刷新 `updated_at` 并清理 6 小时前的旧行。客户端对表的 insert/update/delete 权限已收回。
 - `security_selfcheck()`：仅 service_role 可调，返回各表 RLS 状态、public 函数对 anon/authenticated/service_role 的执行权、以及五张表的表级写权限。管理员面板每次解锁先跑一次，自检不通过即停止管理操作。
+- 函数执行权：Supabase 的默认权限会把 anon/authenticated 直接授予新函数，只 `revoke ... FROM public` 收不干净。`schema.sql` 因此对每个函数显式收回 anon/authenticated，再按需授予。
 
 公开库与公开 anon key 架构下，RLS 是唯一的信任边界。请确认线上库已执行上述 schema.sql；**升级到 2.3.7 及以后必须重跑一次**以建出读图配额相关对象；**2026-10-18 的缓存与自检改动同样必须重跑一次**，否则管理员面板会提示「无法执行数据库安全自检」，GFS 二级缓存会静默回退到实时请求。
 

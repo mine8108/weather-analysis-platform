@@ -243,4 +243,6 @@ Expected: PASS
 - 修改文件：`supabase/schema.sql`、`modules/nwp_forecast.py`、`db.py`、`auth.py`、`README.md`、`SECURITY.md`、`.github/workflows/tests.yml`。
 - 本机测试解释器：Python 3.14。十一个 CI 门禁脚本全部通过；新测试 18 条全绿。
 - `pytest tests` 共收集 421 项，410 通过、11 失败。11 条失败在修改前就存在，全部由本机沙箱的临时目录权限导致（7 条 `test_auth_session` 的 AppTest 临时目录、4 条 `test_weather_wall` 的本地偏好文件），已在 `main` 基线上复现，与本批次改动无关。
-- 未执行：线上 Supabase 的 `schema.sql`。部署顺序必须是先重跑 SQL，再发布应用代码，否则管理员面板会按设计停止管理操作。
+- 线上执行（2026-10-18）：`supabase/schema.sql` 已在 Supabase SQL Editor 执行成功；`security_selfcheck()`、`put_gfs_cache` 的权限与写入行为已通过 SQL 核验。
+- 执行中发现并修复：`security_selfcheck` 的 `bool_or` 嵌套聚合（42803）；Supabase 默认函数权限需要显式 revoke anon/authenticated。
+- 线上 Streamlit 应用仍是旧部署，新代码尚未推送；管理员面板自检需发布后验证。

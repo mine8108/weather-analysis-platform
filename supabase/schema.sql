@@ -246,12 +246,13 @@ begin
 end;
 $$;
 
--- 安全修复（P2-2）：Postgres 函数默认对 PUBLIC 授 EXECUTE，只 grant 不会收回
--- 既有权限，因此显式 revoke 后再按需 grant，让声明与真实权限一致。
+-- 安全修复（P2-2）：Postgres 函数默认对 PUBLIC 授 EXECUTE，Supabase 还会通过
+-- 默认权限把 anon/authenticated 直接授给新函数。只 revoke FROM public 收不干净，
+-- 因此按函数用途显式收回 anon/authenticated，再按需 grant。
 revoke execute on function public.is_invite_code_valid(text) from public;
 revoke execute on function public.claim_invite_code(text) from public;
-revoke execute on function public.consume_invite_code(text, uuid) from public;
-revoke execute on function public.release_invite_code(text) from public;
+revoke execute on function public.consume_invite_code(text, uuid) from public, anon;
+revoke execute on function public.release_invite_code(text) from public, anon, authenticated;
 
 -- 验码与认领必须允许未登录用户调用（注册发生在登录之前）
 grant execute on function public.is_invite_code_valid(text) to anon, authenticated, service_role;
@@ -303,8 +304,8 @@ end;
 $$;
 
 -- 安全修复（P2-2）：先收回默认的 PUBLIC 执行权，再按需授予
-revoke execute on function public.get_storage_usage(uuid) from public;
-revoke execute on function public.get_storage_quota(uuid) from public;
+revoke execute on function public.get_storage_usage(uuid) from public, anon;
+revoke execute on function public.get_storage_quota(uuid) from public, anon;
 grant execute on function public.get_storage_usage(uuid) to authenticated, service_role;
 grant execute on function public.get_storage_quota(uuid) to authenticated, service_role;
 
@@ -456,7 +457,7 @@ end;
 $$;
 
 revoke execute on function public.put_gfs_cache(
-    text, double precision, double precision, integer, text, jsonb) from public;
+    text, double precision, double precision, integer, text, jsonb) from public, anon;
 grant execute on function public.put_gfs_cache(
     text, double precision, double precision, integer, text, jsonb)
     to authenticated, service_role;
@@ -541,7 +542,7 @@ end;
 $$;
 
 -- 安全修复（P2-2）：先收回默认的 PUBLIC 执行权，再按需授予
-revoke execute on function public.save_dataset(uuid, text, text) from public;
+revoke execute on function public.save_dataset(uuid, text, text) from public, anon;
 grant execute on function public.save_dataset(uuid, text, text) to authenticated, service_role;
 
 -- 配额强制的关键：撤销 authenticated 对 datasets 的直插/直改权限
@@ -740,9 +741,9 @@ end;
 $$;
 
 -- 安全修复（沿用 P2-2 的做法）：先收回默认的 PUBLIC 执行权，再按需授予
-revoke execute on function public.get_vision_quota() from public;
-revoke execute on function public.begin_vision_call() from public;
-revoke execute on function public.record_vision_usage(bigint, bigint, bigint, bigint) from public;
+revoke execute on function public.get_vision_quota() from public, anon;
+revoke execute on function public.begin_vision_call() from public, anon;
+revoke execute on function public.record_vision_usage(bigint, bigint, bigint, bigint) from public, anon;
 grant execute on function public.get_vision_quota() to authenticated, service_role;
 grant execute on function public.begin_vision_call() to authenticated, service_role;
 grant execute on function public.record_vision_usage(bigint, bigint, bigint, bigint)
@@ -772,24 +773,24 @@ as $$
              where n.nspname = 'public' and c.relkind = 'r'
         ),
         'functions', (
-            select coalesce(
-                       jsonb_object_agg(
-                           proname,
-                           jsonb_build_object(
-                               'anon', bool_or(anon_exec),
-                               'authenticated', bool_or(auth_exec),
-                               'service_role', bool_or(sr_exec))),
-                       '{}'::jsonb)
+            select coalesce(jsonb_object_agg(proname, grants), '{}'::jsonb)
               from (
-                  select p.proname,
-                         has_function_privilege('anon', p.oid, 'EXECUTE') as anon_exec,
-                         has_function_privilege('authenticated', p.oid, 'EXECUTE') as auth_exec,
-                         has_function_privilege('service_role', p.oid, 'EXECUTE') as sr_exec
-                    from pg_proc p
-                    join pg_namespace n on n.oid = p.pronamespace
-                   where n.nspname = 'public' and p.prokind = 'f'
-              ) fn
-             group by proname
+                  select proname,
+                         jsonb_build_object(
+                             'anon', bool_or(anon_exec),
+                             'authenticated', bool_or(auth_exec),
+                             'service_role', bool_or(sr_exec)) as grants
+                    from (
+                        select p.proname,
+                               has_function_privilege('anon', p.oid, 'EXECUTE') as anon_exec,
+                               has_function_privilege('authenticated', p.oid, 'EXECUTE') as auth_exec,
+                               has_function_privilege('service_role', p.oid, 'EXECUTE') as sr_exec
+                          from pg_proc p
+                          join pg_namespace n on n.oid = p.pronamespace
+                         where n.nspname = 'public' and p.prokind = 'f'
+                    ) fn
+                   group by proname
+              ) grouped
         ),
         'table_privileges', (
             select coalesce(
@@ -805,5 +806,5 @@ as $$
     );
 $$;
 
-revoke execute on function public.security_selfcheck() from public;
+revoke execute on function public.security_selfcheck() from public, anon, authenticated;
 grant execute on function public.security_selfcheck() to service_role;

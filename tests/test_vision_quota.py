@@ -49,11 +49,15 @@ def test_schema_defines_per_user_vision_quota():
 
 
 def test_schema_revokes_public_execute_and_grants_authenticated():
-    """默认 PUBLIC 执行权必须收回，否则匿名角色也能调用这些函数。"""
+    """默认 PUBLIC 执行权必须收回，否则匿名角色也能调用这些函数。
+
+    Supabase 的默认函数权限还会把 anon/authenticated 直接授给新函数，
+    因此 revoke 必须显式带上 anon，只收 public 不够。
+    """
     section = _quota_section()
     for fn in ("get_vision_quota()", "begin_vision_call()",
                "record_vision_usage(bigint, bigint, bigint, bigint)"):
-        assert "revoke execute on function public.%s from public;" % fn in section, fn
+        assert "revoke execute on function public.%s from public, anon;" % fn in section, fn
         assert "grant execute on function public.%s" % fn in section, fn
     assert "to authenticated, service_role" in section
 
