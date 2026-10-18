@@ -365,19 +365,28 @@ def test_app_tab_names_and_reset_keys_updated():
 
 
 def test_app_renders_chart_tab_without_data():
-    """读图不依赖已导入数据：渲染调用在 Tab 3 块内无条件执行。
+    """读图不依赖已导入数据：无 df 时切到读图 Tab 仍能渲染且不抛异常。
 
-    注意不能直接搜 "df is not None"——Tab 3 块内确实有一段检测守卫
-    （数据指纹缓存，用于喂报告导出），它合法地判断 df。判据改为：
-    渲染调用必须出现在该守卫块结束之后。
+    批次 5 把原来的源码切片断言改成真实 AppTest 行为断言，避免重构时
+    被「代码必须写在某个位置」钉死。
     """
-    source = _source("app.py")
-    start = source.index('if st.session_state["active_tab"] == 3:')
-    end = source.index("# ---- Tab 4", start)
-    block = source[start:end]
-    call = block.index("render_chart_reader_tab")
-    guard_end = block.index('st.session_state["_warn_fp"] = fp')
-    assert call > guard_end, "读图渲染必须位于检测守卫块之后，无条件执行"
+    try:
+        from streamlit.testing.v1 import AppTest
+    except ImportError:
+        return  # 无 Streamlit 环境（本文件的直跑模式）跳过
+
+    at = AppTest.from_file(os.path.join(_APP_DIR, "app.py"),
+                           default_timeout=60)
+    at.secrets["ADMIN_PASSWORD"] = "test-admin"
+    at.secrets["SUPABASE_URL"] = "https://example.supabase.co"
+    at.secrets["SUPABASE_ANON_KEY"] = "test-anon-key"
+    at.session_state["auth_user"] = {"id": "u1", "email": "t@example.com"}
+    at.session_state["active_tab"] = 3
+    at.session_state["_auto_load_done"] = True
+    at.run()
+    assert not at.exception
+    text = "\n".join(m.value for m in at.markdown)
+    assert "AI 读图解析" in text
 
 
 def test_analyzer_dropped_dead_renderers():

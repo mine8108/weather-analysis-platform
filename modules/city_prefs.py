@@ -84,7 +84,15 @@ def _save_local(cities, show_wall: bool) -> None:
 # Supabase 云端通道
 # ============================================================
 def _cloud_available() -> bool:
-    return supabase_secrets_ready() and bool(st.session_state.get("auth_user"))
+    """只有已登录且当前会话已有客户端时才走云端。
+
+    偏好保存是高频且非关键的路径。会话里没有客户端时（例如测试构造的登录态，
+    或刚过期尚未重建），get_supabase(fatal=True) 会因网络/DNS 失败触发
+    st.stop，把整页渲染打断；这里提前判定，缺客户端时只写本地。
+    """
+    return (supabase_secrets_ready()
+            and bool(st.session_state.get("auth_user"))
+            and st.session_state.get("_sb_client") is not None)
 
 
 def _save_cloud(cities, show_wall: bool) -> None:

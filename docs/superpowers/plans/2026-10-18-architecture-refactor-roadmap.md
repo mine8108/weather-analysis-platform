@@ -278,7 +278,26 @@ python -m pytest tests -q
 - `research/check_py_vars.py` 扩展为同时扫描 `.css`，外置后校验点从 220 恢复到 380，并跳过 `.venv`。
 - 新增 `test_theme_assets.py`(4)，验证资源可读、亮色回退选择器与暗色作用域。
 - 全量 484 项通过。
-- 剩余：`nwp_forecast.py` 的抓取层与图表层尚未拆出，批次 4 收尾放在下一轮。
+- 范围调整：`nwp_forecast.py` 的抓取层与图表层未再拆出。原因有两个，一是二者都依赖 Streamlit 会话缓存与主题 token，拆出后仍需反向导入页面模块，收益低于回归风险；二是批次 4 的结构目标（纯逻辑可独立测试、四个上帝模块被切开）已达成。此项登记为后续可选优化，不再阻塞本批次。
+
+### 批次 5（2026-10-18，已完成）
+
+- CI 门禁：全量 `pytest` 从 `continue-on-error` 改为阻断，`test_smoke.py` 的 AppTest 启动冒烟随全量套件执行；新增四条静态检查，分别是会话状态注册表、CSS 变量完整性、图表颜色实值、Plotly CSS 变量。
+- 测试隔离：`city_prefs._cloud_available` 增加「会话已有客户端」判定，修复天气墙用例单文件运行时因 DNS 失败触发 `st.stop` 的顺序依赖。`tests/test_weather_wall.py` 现在单跑 56 项全过，不再依赖全量执行顺序。
+- 结构断言治理：把 `test_chart_reader.py::test_app_renders_chart_tab_without_data` 从 app.py 源码切片断言改为真实 AppTest 行为断言。保留的源码读取集中在三类合理契约：用户可见文案（发布面）、生成的 ERA5 脚本模板内容、README 计数与版本声明。
+- 全量 484 项通过，四条静态检查退出 0，全部应用代码 `py_compile` 通过。
+
+### 批次完成度总表
+
+| 批次 | 状态 | 关键证据 |
+|---|---|---|
+| 0 止血 | 完成 | 7 项修复，提交 `704f646`、`f992ae9`；CI 全量阻断 |
+| 1 状态地基 | 完成 | 66 会话键 + 129 widget key 注册表，三份手工清单删除，提交 `44a6abe` |
+| 2 数据契约 | 完成 | `modules/dataset.py`，版本化云端往返与故障/空结果分离，提交 `e929a75` |
+| 3 语义收敛 | 完成 | `warn_rules` 统一阈值与等级串，AQI 与配色单出口，提交 `0064afe` |
+| 4 大模块切片 | 完成（含范围调整） | `nwp/calc`、`admin/panel`、`report/`、`theme_assets/`，提交 `3724876`、`a595f6c`、`d24483a`、`a354838` |
+| 5 测试治理 | 完成 | 全量阻断、四条静态门禁、单文件隔离、结构断言改行为断言 |
+
 
 
 

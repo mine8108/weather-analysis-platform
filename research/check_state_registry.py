@@ -66,7 +66,8 @@ def main():
     sys.path.insert(0, ROOT)
     from modules import app_state
 
-    known = set(app_state.KEYS) | set(app_state.WIDGET_KEYS)
+    known = (set(app_state.KEYS) | set(app_state.WIDGET_KEYS)
+             | set(app_state.SESSION_CLIENT_KEYS))
     prefixes = tuple(app_state.KNOWN_PREFIXES)
     missing = []
     for path in iter_py_files():
