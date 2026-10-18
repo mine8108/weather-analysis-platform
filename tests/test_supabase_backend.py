@@ -22,6 +22,7 @@ if _APP_DIR not in sys.path:
 from modules import gfs_cache  # noqa: E402
 from modules import supabase_backend as backend  # noqa: E402
 import auth  # noqa: E402
+from modules.admin import panel as admin_panel  # noqa: E402
 import db  # noqa: E402
 from modules import nwp_forecast  # noqa: E402
 
@@ -278,7 +279,7 @@ def test_list_users_paginates_until_short_page():
             self.auth = _Auth()
 
     client = _Client()
-    users = auth._list_users(client)
+    users = admin_panel._list_users(client)
     assert len(users) == 101
     assert client.auth.admin.calls == [(1, 100), (2, 100)]
 
@@ -318,7 +319,7 @@ def test_gfs_cache_key_rounds_coordinates():
 
 
 def test_invite_code_is_128_bit():
-    code = auth._gen_code()
+    code = admin_panel._gen_code()
     assert len(code) == 32
     assert all(ch in "0123456789ABCDEF" for ch in code)
     assert auth._hash_invite_code(code) == auth._hash_invite_code(code.lower())
@@ -390,7 +391,7 @@ def test_admin_selfcheck_reads_rpc():
             return types.SimpleNamespace(execute=lambda: _Resp(self.data))
 
     client = _Client({"rls": {"datasets": True}})
-    assert auth._run_security_selfcheck(client)["rls"]["datasets"] is True
+    assert admin_panel._run_security_selfcheck(client)["rls"]["datasets"] is True
     assert client.calls == ["security_selfcheck"]
 
 
@@ -399,7 +400,7 @@ def test_admin_selfcheck_returns_none_on_error():
         def rpc(self, name, params=None):
             raise RuntimeError("function does not exist")
 
-    assert auth._run_security_selfcheck(_Boom()) is None
+    assert admin_panel._run_security_selfcheck(_Boom()) is None
 
 
 def test_admin_audit_writes_log():
@@ -420,7 +421,7 @@ def test_admin_audit_writes_log():
             return types.SimpleNamespace(data=[])
 
     client = _Client()
-    auth._audit_admin(client, "quota.storage.update", "uid-1", {"mb": 20})
+    admin_panel._audit_admin(client, "quota.storage.update", "uid-1", {"mb": 20})
     assert client.calls[0] == ("table", "admin_audit_log")
     assert client.calls[1][0] == "insert"
     assert client.calls[1][1]["action"] == "quota.storage.update"

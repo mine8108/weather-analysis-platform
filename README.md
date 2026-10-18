@@ -98,6 +98,7 @@ weather_app/
     ├── dataset.py              # 数据集契约：列名归一 / 版本化序列化 / 云端往返
     ├── warn_rules.py           # 预警阈值解析与等级串（观测侧与预报侧共用）
     ├── nwp/                    # GFS 预报纯计算层（calc.py，不依赖 Streamlit）
+    ├── admin/                  # 管理员面板（邀请码 / 用户 / 配额 / 安全自检）
     ├── supabase_backend.py     # 安全自检判定（纯逻辑，不依赖 Streamlit）
     ├── verify.py               # GFS 预报 vs 实况 的定量验证
     ├── reporter.py             # Word/CSV 报告导出

@@ -256,5 +256,14 @@ python -m pytest tests -q
 - 新增测试：`test_nwp_calc.py`(7)，全量 476 项通过。
 - 待做切片：`auth.py` 管理员面板拆到 `modules/admin/`、`reporter.py` 按报告类型拆、`theme_css.py` 的 CSS 字符串外置。
 
+切片 2 完成：`auth.py` 管理员面板拆出。
+
+- 新增 `modules/admin/panel.py`（393 行），承载邀请码生成/核销、用户分页、配额调整、安全自检与审计写入；`auth.py` 从 877 行降到 539 行，只保留鉴权与会话。
+- `auth` 与 `admin` 之间保持单向惰性依赖：`render_auth_page` 在渲染时导入面板，面板在顶层导入 auth 的客户端工厂与摘要函数。
+- 邀请码摘要与 schema 错误文案仍留在 auth，因为注册流程也使用它们。
+- `test_supabase_backend.py` 的面板用例改指 `modules.admin.panel`。
+- CI 增加三条静态检查：CSS 变量引用完整性、图表颜色、Plotly CSS 变量，全部阻断。
+- 全量 476 项通过。
+
 
 

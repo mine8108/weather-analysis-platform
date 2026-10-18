@@ -61,6 +61,14 @@ jobs:
       - name: 会话状态注册表校验
         run: python -B research/check_state_registry.py
 
+      - name: CSS 变量引用完整性
+        run: python -B research/check_py_vars.py
+
+      - name: 图表颜色与 Plotly CSS 变量检查
+        run: |
+          python -B research/check_chart_colors.py
+          python -B research/check_plotly_cssvar.py
+
       # 全量回归：批次 0 起改为阻断。含 AppTest 启动冒烟与天气墙用例。
       - name: 全量回归（阻断）
         run: python -m pytest tests -q
