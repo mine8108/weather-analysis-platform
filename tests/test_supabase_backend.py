@@ -11,6 +11,7 @@
 """
 import os
 import sys
+import logging
 import types
 from datetime import datetime, timezone
 from unittest import mock
@@ -144,6 +145,13 @@ def test_selfcheck_rejects_non_dict_report():
     assert backend.selfcheck_problems(None) != []
 
 
+def test_is_session_error_recognizes_expired_tokens():
+    for text in ("JWT expired", "invalid JWT", "PGRST301",
+                 "refresh token not found", "401 Unauthorized"):
+        assert auth.is_session_error(Exception(text)), text
+    assert not auth.is_session_error(Exception("network timeout"))
+
+
 # ============================================================
 # 二、GFS 缓存读写契约
 # ============================================================
@@ -237,6 +245,63 @@ def test_nwp_cache_read_filters_updated_at():
     assert filters and filters[0][1] == "updated_at", client.calls
 
 
+def test_list_users_paginates_until_short_page():
+    class _Admin:
+        def __init__(self):
+            self.calls = []
+
+        def list_users(self, page=None, per_page=None):
+            self.calls.append((page, per_page))
+            if page == 1:
+                return [
+                    types.SimpleNamespace(
+                        id="u%d" % i, email="u%d@example.com" % i, created_at=""
+                    )
+                    for i in range(100)
+                ]
+            return [types.SimpleNamespace(
+                id="last", email="last@example.com", created_at="")]
+
+    class _Auth:
+        def __init__(self):
+            self.admin = _Admin()
+
+    class _Client:
+        def __init__(self):
+            self.auth = _Auth()
+
+    client = _Client()
+    users = auth._list_users(client)
+    assert len(users) == 101
+    assert client.auth.admin.calls == [(1, 100), (2, 100)]
+
+
+def test_scalar_rpc_logs_failure_and_returns_default():
+    class _Client:
+        def rpc(self, name, params=None):
+            raise RuntimeError("storage down")
+
+    class _Handler(logging.Handler):
+        def __init__(self):
+            super().__init__()
+            self.records = []
+
+        def emit(self, record):
+            self.records.append(record)
+
+    handler = _Handler()
+    old_level = db._LOG.level
+    db._LOG.addHandler(handler)
+    db._LOG.setLevel(logging.WARNING)
+    try:
+        with mock.patch.object(db, "get_supabase", return_value=_Client()):
+            assert db.get_storage_usage_bytes("uid-1") == 0
+    finally:
+        db._LOG.removeHandler(handler)
+        db._LOG.setLevel(old_level)
+    assert any("get_storage_usage" in r.getMessage() for r in handler.records)
+
+
 # ============================================================
 # 四、schema.sql 与错误文案
 # ============================================================
@@ -255,8 +320,12 @@ def test_schema_defines_cache_rpc_and_updated_at():
         "from public, anon, authenticated;",
         "to service_role;",
         "datasets_name_len_check",
+        "insert into public.profiles (user_id) values (v_uid)",
+        "select id from auth.users",
     ):
         assert needle in sql, needle
+    # save_dataset 与 begin_vision_call 两处都要先补行再锁
+    assert sql.count("insert into public.profiles (user_id) values (v_uid)") >= 2
 
 
 def test_schema_counts_dataset_name_against_quota():

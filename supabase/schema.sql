@@ -155,6 +155,12 @@ create trigger on_auth_user_created
     after insert on auth.users
     for each row execute function public.handle_new_user();
 
+-- 安全修复（S15）：触发器只覆盖新用户，升级前创建的账号可能没有 profiles
+-- 行。这里幂等补行，保证后续的行锁一定锁得到。
+insert into public.profiles (user_id)
+select id from auth.users
+on conflict (user_id) do nothing;
+
 -- ============================================================
 -- 5. 邀请码校验 / 认领 / 核销函数（SECURITY DEFINER）
 -- ============================================================
@@ -517,6 +523,9 @@ begin
           from public.datasets
          where user_id = v_uid and id <> p_dataset_id;
     end if;
+    -- 老用户可能没有 profiles 行，先幂等补行再锁。
+    insert into public.profiles (user_id) values (v_uid)
+    on conflict (user_id) do nothing;
     -- 安全修复（P2-4）：锁住本用户的 profiles 行，串行化并发保存，
     -- 避免两个请求同时通过配额校验后各自写入、最终超出配额
     select storage_quota_bytes into v_quota
@@ -659,6 +668,9 @@ begin
     if v_uid is null then
         return jsonb_build_object('ok', false, 'allowed', false, 'message', '未登录');
     end if;
+    -- 老用户可能没有 profiles 行，先幂等补行再锁。
+    insert into public.profiles (user_id) values (v_uid)
+    on conflict (user_id) do nothing;
     -- 锁住本用户的 profiles 行，串行化并发调用（与 save_dataset 同法）
     select vision_calls_per_day, vision_tokens_per_day, vision_max_tokens_per_call
       into v_calls, v_tokens, v_max_call

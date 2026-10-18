@@ -5,12 +5,15 @@
 """
 
 import io
+import logging
 
 import pandas as pd
 import streamlit as st
 
-from auth import get_supabase
+from auth import expire_session, get_supabase, is_session_error
 from utils import safe_error_text
+
+_LOG = logging.getLogger(__name__)
 
 
 def _user_id() -> str | None:
@@ -68,6 +71,9 @@ def save_dataset(df: pd.DataFrame, name: str, dataset_id: str | None = None) -> 
         st.error(save_error_message(err))
         return False
     except Exception as e:
+        _LOG.warning("保存数据集失败", exc_info=True)
+        if is_session_error(e):
+            expire_session()
         st.error(safe_error_text(e, "保存失败，请稍后重试。"))
         return False
 
@@ -83,7 +89,10 @@ def _scalar_rpc(name: str, default: int, uid: str | None = None) -> int:
     try:
         res = sb.rpc(name, {"p_user_id": uid}).execute()
         return int(res.data or default)
-    except Exception:
+    except Exception as exc:
+        _LOG.warning("存储 RPC %s 失败", name, exc_info=True)
+        if is_session_error(exc):
+            expire_session()
         return default
 
 
@@ -114,7 +123,10 @@ def list_datasets():
             .execute()
         )
         return res.data or []
-    except Exception:
+    except Exception as exc:
+        _LOG.warning("列出数据集失败", exc_info=True)
+        if is_session_error(exc):
+            expire_session()
         return []
 
 
@@ -142,6 +154,9 @@ def load_dataset(dataset_id: str):
                 df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
             return df, row["name"]
     except Exception as e:
+        _LOG.warning("载入数据集失败 dataset_id=%s", dataset_id, exc_info=True)
+        if is_session_error(e):
+            expire_session()
         st.error(safe_error_text(e, "载入失败，请稍后重试。"))
     return None, None
 
@@ -166,7 +181,10 @@ def delete_dataset(dataset_id: str) -> bool:
             "user_id", uid
         ).execute()
         return True
-    except Exception:
+    except Exception as exc:
+        _LOG.warning("删除数据集失败 dataset_id=%s", dataset_id, exc_info=True)
+        if is_session_error(exc):
+            expire_session()
         return False
 
 
@@ -190,7 +208,10 @@ def _vision_rpc(name, params=None):
         if isinstance(data, dict) and data.get("ok"):
             return data
         return None
-    except Exception:
+    except Exception as exc:
+        _LOG.warning("读图配额 RPC %s 失败", name, exc_info=True)
+        if is_session_error(exc):
+            expire_session()
         return None
 
 

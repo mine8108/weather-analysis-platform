@@ -38,7 +38,7 @@ from modules.codec import render_codec_tab
 from modules.reporter import render_export_tab
 from modules.nwp_forecast import render_forecast_tab
 from utils import df_fingerprint as _df_fingerprint, go_back as _go_back, _safe_toast
-from auth import render_auth_page, is_authenticated, sign_out_user
+from auth import render_auth_page, is_authenticated, sign_out_user, ensure_session
 from modules import theme_aether
 from modules.design_tokens import css_var
 from modules.weather_wall import render_wall
@@ -437,6 +437,9 @@ theme_aether.inject_theme()
 if not is_authenticated():
     render_auth_page()
     st.stop()
+
+# 已登录页面的 rerun 入口：会话过期或刷新失败时回到登录页。
+ensure_session()
 
 # 用户使用手册：独立页面，不占用 Tab 编号（唯一真相源为 docs/用户使用手册.md）。
 # 拦截必须放在 Tab 导航之前并 st.stop()，否则手册页会与 Tab 内容叠加。

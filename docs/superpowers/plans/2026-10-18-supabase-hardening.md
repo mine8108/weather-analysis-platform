@@ -253,3 +253,11 @@ Expected: PASS
 - HMAC 暂缓：签名者与写库者同为 Streamlit 进程，HMAC 对该威胁模型没有额外收益。
 - 冗余清理：`auth._session_client`、`db._scalar_rpc`、`utils.supabase_secrets_ready` 三处合并；删除 `gfs_cache.PRUNE_HOURS`；schema 读图配额章节由 8 改为 9、自检章节由 9 改为 10，并同步所有引用。
 - 测试保持 18 条，修改既有断言覆盖 service_role 写入与 authenticated 收回；本地门禁需重新跑一遍。
+
+### 批次 2 后端项（S5/S6/S14/S15）
+
+- S5：`app.py` 在登录门禁后调用 `ensure_session()`；`auth.py` 新增 `is_session_error` / `expire_session` / `ensure_session`；`db.py` 在 RPC 异常中识别会话失效并回登录页。
+- S6：`db.py` 与 `auth.py` 补 `logging`，关键失败路径不再静默。
+- S14：`auth._list_users` 按 100 条/页翻页，老版本 API 回退单页。
+- S15：两个 `SECURITY DEFINER` 函数在 `for update` 前幂等补 `profiles` 行，schema 增加历史用户补行。
+- 测试：`test_supabase_backend.py` 新增会话错误、分页、日志三条，总数 424；全量通过。

@@ -13,6 +13,7 @@
 """
 
 import hashlib
+import logging
 import secrets
 import socket
 from datetime import datetime, timedelta, timezone
@@ -22,6 +23,8 @@ import streamlit as st
 
 from modules.supabase_backend import selfcheck_problems
 from utils import safe_error_text
+
+_LOG = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -192,7 +195,7 @@ def sign_out_user():
         try:
             sb.auth.sign_out()
         except Exception:
-            pass
+            _LOG.warning("服务端退出登录失败，继续清理本地会话", exc_info=True)
     for k in list(st.session_state.keys()):
         if k not in _LOGOUT_KEEP:
             del st.session_state[k]
@@ -201,12 +204,72 @@ def sign_out_user():
     st.session_state["import_method"] = None
 
 
+# ============================================================
+# 二点五、会话过期处理（S5）
+# ============================================================
+# 只认登录态失效类错误。网络抖动、服务端 5xx 不在这里处理，避免一次故障
+# 就把用户踢回登录页。
+_SESSION_ERROR_MARKERS = (
+    "jwt expired",
+    "invalid jwt",
+    "token is expired",
+    "token has expired",
+    "invalid claim",
+    "session missing",
+    "refresh token",
+    "401",
+    "pgrst301",
+)
+
+
+def is_session_error(exc) -> bool:
+    """判断异常是否属于登录态失效（过期、刷新失败、令牌无效）。"""
+    text = str(exc).lower()
+    return any(marker in text for marker in _SESSION_ERROR_MARKERS)
+
+
+def expire_session():
+    """会话失效：清空本会话并回到登录页。"""
+    sign_out_user()
+    st.session_state["auth_error"] = "登录已过期，请重新登录。"
+    st.rerun()
+
+
+def ensure_session():
+    """已登录页面的 rerun 入口：校验会话，刷新失败则回登录页。
+
+    supabase-auth 的 ``get_session()`` 会在过期前自动刷新；刷新失败会抛
+    异常，返回 None 表示本地会话已丢失。网络错误不强制登出。
+    """
+    if not is_authenticated():
+        return
+    sb = st.session_state.get(_SESSION_CLIENT_KEY)
+    if sb is None:
+        # 测试桩或极端残缺状态下可能只有 auth_user 没有客户端；不在这里
+        # 强制登出，避免把一次内部状态不完整误判成会话过期。
+        _LOG.warning("已登录但缺少会话客户端，跳过会话校验")
+        return
+    try:
+        getter = getattr(getattr(sb, "auth", None), "get_session", None)
+        if getter is None:
+            return
+        session = getter()
+    except Exception as exc:
+        if is_session_error(exc):
+            expire_session()
+        else:
+            _LOG.warning("会话校验失败，保留当前登录态", exc_info=True)
+        return
+    if session is None:
+        expire_session()
+
+
 def _apply_cloud_theme(user) -> None:
     """登录成功后，把 Supabase user_metadata 里的偏好应用到当前会话。
 
     theme_aether 在页面加载时可能已按本地文件初始化，云端值优先级更高，
     这里做登录后的覆盖同步。同时读回天气墙偏好（城市列表 cities JSON 串
-    + 显示开关 show_wall）。读取失败静默跳过，不阻断登录。
+    + 显示开关 show_wall）。读取失败只记日志，不阻断登录。
     """
     try:
         from modules import theme_aether, city_prefs
@@ -214,7 +277,7 @@ def _apply_cloud_theme(user) -> None:
         theme_aether.apply_cloud_theme(meta.get("theme"))
         city_prefs.apply_cloud_prefs(meta.get("cities"), meta.get("show_wall"))
     except Exception:
-        pass
+        _LOG.warning("应用云端偏好失败", exc_info=True)
 
 
 # ============================================================
@@ -687,17 +750,44 @@ def _user_dict(u) -> dict:
     }
 
 
-def _list_users(sb_admin) -> list:
-    """返回用户列表（dict），兼容不同 supabase-py 版本。"""
-    res = sb_admin.auth.admin.list_users()
-    users = []
+_USERS_PER_PAGE = 100
+_USERS_MAX_PAGES = 100  # 硬上限，避免异常分页导致死循环
+
+
+def _users_from_response(res) -> list:
+    """兼容 supabase-py 各版本的 list_users 返回结构。"""
     if hasattr(res, "users"):
-        users = res.users
-    elif isinstance(res, list):
-        users = res
-    elif isinstance(res, dict):
-        users = res.get("users", [])
-    return [_user_dict(u) for u in users if _user_dict(u)]
+        return list(res.users or [])
+    if isinstance(res, list):
+        return res
+    if isinstance(res, dict):
+        return list(res.get("users", []) or [])
+    return []
+
+
+def _list_users(sb_admin) -> list:
+    """返回用户列表（dict），按页拉全，兼容不支持分页参数的老版本。"""
+    users = []
+    page = 1
+    while page <= _USERS_MAX_PAGES:
+        try:
+            res = sb_admin.auth.admin.list_users(
+                page=page, per_page=_USERS_PER_PAGE)
+        except TypeError:
+            # 老版本没有分页参数，只能拉一页；避免无限重试。
+            res = sb_admin.auth.admin.list_users()
+            page = _USERS_MAX_PAGES + 1
+        batch = _users_from_response(res)
+        users.extend(batch)
+        if len(batch) < _USERS_PER_PAGE:
+            break
+        page += 1
+    out = []
+    for user in users:
+        item = _user_dict(user)
+        if item:
+            out.append(item)
+    return out
 
 
 def _missing_tables(sb_admin, tables: list) -> list:
@@ -726,6 +816,7 @@ def _run_security_selfcheck(sb_admin):
             data = data[0] if data else None
         return data if isinstance(data, dict) else None
     except Exception:
+        _LOG.warning("安全自检 RPC 调用失败", exc_info=True)
         return None
 
 
