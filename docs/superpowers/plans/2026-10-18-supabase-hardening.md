@@ -246,3 +246,10 @@ Expected: PASS
 - 线上执行（2026-10-18）：`supabase/schema.sql` 已在 Supabase SQL Editor 执行成功；`security_selfcheck()`、`put_gfs_cache` 的权限与写入行为已通过 SQL 核验。
 - 执行中发现并修复：`security_selfcheck` 的 `bool_or` 嵌套聚合（42803）；Supabase 默认函数权限需要显式 revoke anon/authenticated。
 - 线上 Streamlit 应用仍是旧部署，新代码尚未推送；管理员面板自检需发布后验证。
+
+### 批次 2（2026-10-18）：写入收口与冗余清理
+
+- `put_gfs_cache` 放行 service_role、收回 authenticated 执行权；`nwp_forecast._save_gfs_to_cache` 改用 `get_supabase_admin()`。登录用户不再有缓存写入入口。
+- HMAC 暂缓：签名者与写库者同为 Streamlit 进程，HMAC 对该威胁模型没有额外收益。
+- 冗余清理：`auth._session_client`、`db._scalar_rpc`、`utils.supabase_secrets_ready` 三处合并；删除 `gfs_cache.PRUNE_HOURS`；schema 读图配额章节由 8 改为 9、自检章节由 9 改为 10，并同步所有引用。
+- 测试保持 18 条，修改既有断言覆盖 service_role 写入与 authenticated 收回；本地门禁需重新跑一遍。

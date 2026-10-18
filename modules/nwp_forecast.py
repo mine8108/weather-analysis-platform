@@ -25,7 +25,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils import retry_with_backoff
+from utils import retry_with_backoff, supabase_secrets_ready
 from config import (AQI_STANDARD_LABEL, COLORS, safe_chart, _is_dark,
                     WARN_LEVEL_ORDER, LIFE_INDEX_META as _LIFE_INDEX_META,
                     WIND_DIRECTIONS)
@@ -113,6 +113,23 @@ def _gfs_records_to_df(records):
     return df
 
 
+def _cache_client(admin=False):
+    """创建 GFS 缓存客户端；读取用用户客户端，写入用 service_role。
+
+    写入必须由应用服务端完成。若使用登录用户客户端，任何用户都能直接调
+    ``put_gfs_cache`` 伪造缓存；改用 service_role 后，函数只对该角色开放。
+    读取仍走用户客户端，RLS 继续生效。
+    """
+    if not supabase_secrets_ready():
+        return None
+    try:
+        from auth import get_supabase, get_supabase_admin
+        return get_supabase_admin() if admin else get_supabase()
+    except Exception:
+        _LOG.warning("创建 GFS 缓存客户端失败", exc_info=True)
+        return None
+
+
 def _load_gfs_from_cache(cache_key):
     """从 Supabase 读取二级缓存（跨用户 / 跨重启共享）。失败返回 None。
 
@@ -120,10 +137,7 @@ def _load_gfs_from_cache(cache_key):
     刷新 ``created_at``，缓存会在首次写入一小时后对所有人永久失效。
     """
     try:
-        if not st.secrets.get("SUPABASE_URL") or not st.secrets.get("SUPABASE_ANON_KEY"):
-            return None
-        from auth import get_supabase
-        sb = get_supabase()
+        sb = _cache_client()
         if sb is None:
             return None
         records = gfs_cache.read_from(
@@ -139,15 +153,12 @@ def _load_gfs_from_cache(cache_key):
 def _save_gfs_to_cache(cache_key, lat, lon, days, model, df):
     """写入 Supabase 二级缓存（失败只记日志，不影响返回）。
 
-    写入统一经 ``put_gfs_cache`` RPC。表级 insert/update 已从客户端角色收回，
-    因此这里不能再直接 upsert；RPC 会校验键与坐标自洽、刷新 ``updated_at``，
-    并顺带清理过期行。
+    写入使用 service_role 客户端，统一经 ``put_gfs_cache`` RPC。表级
+    insert/update 已从客户端角色收回，RPC 只对 service_role 开放，因此
+    登录用户无法直接伪造缓存；函数内仍会校验键、坐标与数据形状。
     """
     try:
-        if not st.secrets.get("SUPABASE_URL") or not st.secrets.get("SUPABASE_ANON_KEY"):
-            return
-        from auth import get_supabase
-        sb = get_supabase()
+        sb = _cache_client(admin=True)
         if sb is None:
             return
         gfs_cache.save_to(

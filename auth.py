@@ -141,31 +141,31 @@ def _create_client(key_name: str, *, fatal: bool = True):
         return None
 
 
-def get_supabase():
-    """返回**当前会话专属**的 Supabase 客户端（含本会话登录态）。"""
-    cached = st.session_state.get(_SESSION_CLIENT_KEY)
+def _session_client(key_name: str, session_key: str, *, fatal: bool):
+    """按会话缓存一个 Supabase 客户端；创建失败返回 None。"""
+    cached = st.session_state.get(session_key)
     if cached is not None:
         return cached
-    client = _create_client("SUPABASE_ANON_KEY", fatal=True)
-    if client is None:
-        return None
-    st.session_state[_SESSION_CLIENT_KEY] = client
+    client = _create_client(key_name, fatal=fatal)
+    if client is not None:
+        st.session_state[session_key] = client
     return client
+
+
+def get_supabase():
+    """返回**当前会话专属**的 Supabase 客户端（含本会话登录态）。"""
+    return _session_client("SUPABASE_ANON_KEY", _SESSION_CLIENT_KEY, fatal=True)
 
 
 def get_supabase_admin():
     """返回当前会话的管理客户端（service_role，绕过 RLS）。
 
-    仅用于受 ADMIN_PASSWORD 保护的服务端管理操作。该密钥绝不进入前端。
-    未配置时返回 None，由调用方降级处理。
+    仅用于受 ADMIN_PASSWORD 保护的服务端管理操作与 GFS 缓存写入。
+    该密钥绝不进入前端。未配置时返回 None，由调用方降级处理。
     """
-    cached = st.session_state.get(_SESSION_ADMIN_KEY)
-    if cached is not None:
-        return cached
-    client = _create_client("SUPABASE_SERVICE_ROLE_KEY", fatal=False)
-    if client is not None:
-        st.session_state[_SESSION_ADMIN_KEY] = client
-    return client
+    return _session_client(
+        "SUPABASE_SERVICE_ROLE_KEY", _SESSION_ADMIN_KEY, fatal=False
+    )
 
 
 # ============================================================
@@ -594,7 +594,7 @@ def _render_admin_panel():
 
             st.divider()
 
-            # --- 5.3 读图配额（supabase/schema.sql 第 8 节）---
+            # --- 5.3 读图配额（supabase/schema.sql 第 9 节）---
             # 读图用的是部署方的 API 密钥，任何用户的每次调用都计费在部署方账上，
             # 因此这三项是成本控制的唯一旋钮。每日次数给 0 即等于停用该用户的读图。
             st.subheader("读图配额（每日）")

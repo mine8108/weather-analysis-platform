@@ -83,7 +83,8 @@ def _healthy_report():
         "rls": {table: True for table in backend.RLS_TABLES},
         "functions": {
             "save_dataset": {"anon": False, "authenticated": True},
-            "put_gfs_cache": {"anon": False, "authenticated": True},
+            "put_gfs_cache": {"anon": False, "authenticated": False,
+                              "service_role": True},
             "security_selfcheck": {"anon": False, "authenticated": False},
             "release_invite_code": {"anon": False, "authenticated": False},
         },
@@ -119,11 +120,17 @@ def test_selfcheck_detects_anon_execute_grant():
     assert any("save_dataset" in p and "anon" in p for p in problems), problems
 
 
-def test_selfcheck_detects_authenticated_execute_grant():
+def test_selfcheck_detects_function_grant_problems():
+    for name in ("put_gfs_cache", "security_selfcheck"):
+        report = _healthy_report()
+        report["functions"][name]["authenticated"] = True
+        problems = backend.selfcheck_problems(report)
+        assert any(name in p for p in problems), (name, problems)
+
     report = _healthy_report()
-    report["functions"]["security_selfcheck"]["authenticated"] = True
+    report["functions"]["put_gfs_cache"]["service_role"] = False
     problems = backend.selfcheck_problems(report)
-    assert any("security_selfcheck" in p for p in problems), problems
+    assert any("put_gfs_cache" in p and "service_role" in p for p in problems), problems
 
 
 def test_selfcheck_detects_table_write_privilege():
@@ -207,7 +214,10 @@ def test_nwp_cache_write_uses_rpc():
     client = _FakeClient(True)
     key = "gfs_fc_cache_v3_1.0000_2.0000_d7_blend"
     with mock.patch.object(nwp_forecast, "st", _fake_streamlit_secrets()), \
-            mock.patch("auth.get_supabase", return_value=client):
+            mock.patch("utils.st", _fake_streamlit_secrets()), \
+            mock.patch("auth.get_supabase_admin", return_value=client), \
+            mock.patch("auth.get_supabase",
+                       side_effect=AssertionError("写入不得使用登录用户客户端")):
         nwp_forecast._save_gfs_to_cache(key, 1.0, 2.0, 7, "blend", df)
     assert client.calls, "缓存写入没有发出任何请求"
     assert client.calls[0][0] == "put_gfs_cache", client.calls
@@ -219,6 +229,7 @@ def test_nwp_cache_read_filters_updated_at():
     ])
     key = "gfs_fc_cache_v3_1.0000_2.0000_d7_blend"
     with mock.patch.object(nwp_forecast, "st", _fake_streamlit_secrets()), \
+            mock.patch("utils.st", _fake_streamlit_secrets()), \
             mock.patch("auth.get_supabase", return_value=client):
         df = nwp_forecast._load_gfs_from_cache(key)
     assert df is not None and len(df) == 1
@@ -241,6 +252,8 @@ def test_schema_defines_cache_rpc_and_updated_at():
         "revoke execute on function public.security_selfcheck() from public, anon, authenticated;",
         "revoke execute on function public.save_dataset(uuid, text, text) from public, anon;",
         "revoke execute on function public.consume_invite_code(text, uuid) from public, anon;",
+        "from public, anon, authenticated;",
+        "to service_role;",
         "datasets_name_len_check",
     ):
         assert needle in sql, needle

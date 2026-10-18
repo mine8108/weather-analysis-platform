@@ -72,36 +72,29 @@ def save_dataset(df: pd.DataFrame, name: str, dataset_id: str | None = None) -> 
         return False
 
 
-def get_storage_usage_bytes(uid: str | None = None) -> int:
-    """返回指定用户（默认当前登录用户）已用存储字节数。"""
+def _scalar_rpc(name: str, default: int, uid: str | None = None) -> int:
+    """调用返回单个整数的 RPC；未登录、客户端缺失或异常一律返回默认值。"""
+    uid = uid or _user_id()
     if uid is None:
-        uid = _user_id()
-    if uid is None:
-        return 0
+        return default
     sb = get_supabase()
     if sb is None:
-        return 0
+        return default
     try:
-        res = sb.rpc("get_storage_usage", {"p_user_id": uid}).execute()
-        return int(res.data or 0)
+        res = sb.rpc(name, {"p_user_id": uid}).execute()
+        return int(res.data or default)
     except Exception:
-        return 0
+        return default
+
+
+def get_storage_usage_bytes(uid: str | None = None) -> int:
+    """返回指定用户（默认当前登录用户）已用存储字节数。"""
+    return _scalar_rpc("get_storage_usage", 0, uid)
 
 
 def get_storage_quota_bytes(uid: str | None = None) -> int:
     """返回指定用户（默认当前登录用户）的存储配额字节数。"""
-    if uid is None:
-        uid = _user_id()
-    if uid is None:
-        return 10485760
-    sb = get_supabase()
-    if sb is None:
-        return 10485760
-    try:
-        res = sb.rpc("get_storage_quota", {"p_user_id": uid}).execute()
-        return int(res.data or 10485760)
-    except Exception:
-        return 10485760
+    return _scalar_rpc("get_storage_quota", 10485760, uid)
 
 
 def list_datasets():
@@ -178,7 +171,7 @@ def delete_dataset(dataset_id: str) -> bool:
 
 
 # ============================================================
-# 读图配额（服务端强制，见 supabase/schema.sql 第 8 节）
+# 读图配额（服务端强制，见 supabase/schema.sql 第 9 节）
 # 三个函数都以 None 表示「配额服务不可用」，与「配额已用完」区分开：
 # 前者是故障，后者是正常拒绝。调用方必须分别处置，不能把故障当成放行。
 # ============================================================

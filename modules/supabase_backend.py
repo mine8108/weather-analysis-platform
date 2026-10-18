@@ -8,7 +8,7 @@
 
 1. public 下五张业务表必须启用 RLS；
 2. 一组函数绝不能对 anon 开放执行权；
-3. `release_invite_code` 与 `security_selfcheck` 不能对 authenticated 开放；
+3. `put_gfs_cache`、`release_invite_code` 与 `security_selfcheck` 不能对 authenticated 开放；
 4. 客户端角色不能对业务表持有 insert/update/delete 权限。
 """
 
@@ -27,11 +27,15 @@ ANON_FORBIDDEN_FUNCTIONS = (
     "security_selfcheck",
 )
 
-# 这两个函数的信息面或破坏面超出普通登录用户，只允许 service_role。
+# 这些函数的信息面或破坏面超出普通登录用户，只允许 service_role。
 AUTHENTICATED_FORBIDDEN_FUNCTIONS = (
+    "put_gfs_cache",
     "release_invite_code",
     "security_selfcheck",
 )
+
+# 服务端写入函数必须对 service_role 开放，否则缓存写入会静默失败。
+SERVICE_REQUIRED_FUNCTIONS = ("put_gfs_cache",)
 
 # 客户端角色的表级写权限必须收回，写入一律经 SECURITY DEFINER 函数。
 FORBIDDEN_TABLE_PRIVILEGES = {
@@ -66,6 +70,9 @@ def selfcheck_problems(report):
     for name in AUTHENTICATED_FORBIDDEN_FUNCTIONS:
         if _function_grant(functions, name, "authenticated"):
             problems.append("函数 %s 对 authenticated 开放执行权" % name)
+    for name in SERVICE_REQUIRED_FUNCTIONS:
+        if not _function_grant(functions, name, "service_role"):
+            problems.append("函数 %s 未授予 service_role" % name)
 
     privileges = report.get("table_privileges") or {}
     for table, roles in FORBIDDEN_TABLE_PRIVILEGES.items():

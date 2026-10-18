@@ -359,11 +359,11 @@ drop policy if exists "gfs_cache_auth_update" on public.gfs_cache;
 drop policy if exists "gfs_cache_prune" on public.gfs_cache;
 revoke insert, update, delete on public.gfs_cache from authenticated, anon;
 
--- 残余风险：RPC 能阻止任意键、跨坐标与畸形数据，但无法阻止已登录用户为
--- 真实坐标伪造一份看起来合理的缓存。当前信任边界是邀请码准入；若要彻底
--- 防投毒，需要在写入时附服务端密钥的 HMAC，并在函数内用 pgcrypto 校验。
+-- 写入只允许应用服务端。RPC 内仍校验 key、坐标与数据形状，但登录用户没有
+-- 执行权，因此无法直接伪造一份看起来合理的缓存。HMAC 只在签名方与写库方
+-- 分离时才有额外价值，当前架构不需要。
 
--- 7.1 缓存写入 RPC（SECURITY DEFINER，可刷新他人创建的行）
+-- 7.1 缓存写入 RPC（SECURITY DEFINER，仅 service_role 可调）
 create or replace function public.put_gfs_cache(
     p_key text,
     p_lat double precision,
@@ -383,7 +383,8 @@ declare
     v_lat_key numeric;
     v_lon_key numeric;
 begin
-    if v_uid is null then
+    -- 应用服务端用 service_role 写入；登录用户不再拥有执行权。
+    if v_uid is null and auth.role() <> 'service_role' then
         return false;
     end if;
     if p_key is null or left(p_key, 13) <> 'gfs_fc_cache_'
@@ -457,10 +458,11 @@ end;
 $$;
 
 revoke execute on function public.put_gfs_cache(
-    text, double precision, double precision, integer, text, jsonb) from public, anon;
+    text, double precision, double precision, integer, text, jsonb)
+    from public, anon, authenticated;
 grant execute on function public.put_gfs_cache(
     text, double precision, double precision, integer, text, jsonb)
-    to authenticated, service_role;
+    to service_role;
 
 -- ============================================================
 -- 8. save_dataset：带配额强制的数据集写入函数（SECURITY DEFINER）
@@ -550,7 +552,7 @@ grant execute on function public.save_dataset(uuid, text, text) to authenticated
 revoke insert, update on public.datasets from authenticated;
 
 -- ============================================================
--- 8. 读图配额：按用户、按天的次数与 token 双维度限制
+-- 9. 读图配额：按用户、按天的次数与 token 双维度限制
 --    背景：读图调用使用部署方的 API 密钥，任何被邀请用户的每次调用都计费在
 --    部署方账上。此前只有浏览器会话级的计数，刷新即归零，既不能作为成本控制，
 --    也没有对象可供管理员按用户调配。
@@ -592,7 +594,7 @@ create policy "vision_usage_select_self"
 
 revoke insert, update, delete on public.vision_usage from authenticated, anon;
 
--- 8.1 查询今日配额状态（只读，不改计数）
+-- 9.1 查询今日配额状态（只读，不改计数）
 create or replace function public.get_vision_quota()
 returns jsonb
 language plpgsql
@@ -637,7 +639,7 @@ begin
 end;
 $$;
 
--- 8.2 开始一次调用：原子地检查并占用一次次数（先占后用，防并发穿透）
+-- 9.2 开始一次调用：原子地检查并占用一次次数（先占后用，防并发穿透）
 --     token 的实际用量由调用返回后的 record_vision_usage 补记。
 create or replace function public.begin_vision_call()
 returns jsonb
@@ -704,7 +706,7 @@ begin
 end;
 $$;
 
--- 8.3 调用返回后补记实际用量。成功与失败都要记——失败同样被服务商计费。
+-- 9.3 调用返回后补记实际用量。成功与失败都要记——失败同样被服务商计费。
 --     负数一律钳到 0（安全要求 2），否则可反向冲销自己的用量。
 create or replace function public.record_vision_usage(
     p_prompt bigint, p_completion bigint, p_reasoning bigint, p_total bigint)
@@ -753,7 +755,7 @@ grant execute on function public.record_vision_usage(bigint, bigint, bigint, big
 -- （见第 2 节的 P0-3 修复），因此只有 service_role（管理员面板）能改这三列。
 
 -- ============================================================
--- 9. 安全自检：把线上 RLS、函数执行权、表级写权限汇总成 jsonb
+-- 10. 安全自检：把线上 RLS、函数执行权、表级写权限汇总成 jsonb
 --    管理员面板解锁后调用，与仓库声明的边界逐项比对。只授予 service_role，
 --    避免把安全配置暴露给普通登录用户。
 -- ============================================================

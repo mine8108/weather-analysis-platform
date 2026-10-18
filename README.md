@@ -86,7 +86,7 @@ weather_app/
     ├── aqi.py                  # AQI 分指数与综合指数唯一实现
     ├── codec.py                # SYNOP/METAR 解码
     ├── nwp_forecast.py         # GFS 数值预报接入 + 时间图/空气质量/风玫瑰/预报验证
-    ├── gfs_cache.py            # GFS 二级缓存读写契约（updated_at / put_gfs_cache RPC）
+    ├── gfs_cache.py            # GFS 二级缓存读写契约（updated_at / service_role 写入）
     ├── supabase_backend.py     # 安全自检判定（纯逻辑，不依赖 Streamlit）
     ├── verify.py               # GFS 预报 vs 实况 的定量验证
     ├── reporter.py             # Word/CSV 报告导出
@@ -264,8 +264,9 @@ Streamlit Cloud 已经重建容器：v2.3.0 发布时就遇到过推送十余分
   `record_vision_usage`），以及 `profiles` 上的三个配额列。脚本可重复执行，
   重跑不会丢数据；未重跑时管理员面板会直接提示「数据库表未创建」并给出该指引。
 - **本次（2026-10-18）升级同样必须重跑**：`gfs_cache` 新增 `updated_at` 与写入
-  RPC `put_gfs_cache`，客户端直写权限已收回；新增 `security_selfcheck()` 自检
-  函数。未重跑时缓存会静默回退到实时请求，管理员面板会提示「无法执行数据库安全自检」。
+  RPC `put_gfs_cache`，客户端直写权限已收回，RPC 仅授予 `service_role`；新增
+  `security_selfcheck()` 自检函数。未重跑时缓存会静默回退到实时请求，管理员
+  面板会提示「无法执行数据库安全自检」。
 
 ### 3. 配置密钥
 - 本地：复制 `.streamlit/secrets.toml.example` 为 `.streamlit/secrets.toml` 并填入。

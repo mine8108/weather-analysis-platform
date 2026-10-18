@@ -35,6 +35,7 @@ from modules.design_tokens import (
     THEME_NAMES,
     tokens_for,
 )
+from utils import supabase_secrets_ready
 
 # 向后兼容：历史上 token 定义在本模块，测试与业务代码从 ``theme_aether`` 读取。
 __all__ = [
@@ -94,16 +95,11 @@ def _save_pref_local(theme: str) -> None:
 
 
 def _cloud_available() -> bool:
-    """Supabase 密钥已配置且当前已登录时，才走云端持久化。
+    """Supabase 已配置且当前已登录时，才走云端持久化。
 
-    先做 secrets 预检：get_supabase() 在缺密钥时会 st.stop() 中断渲染，
-    这里必须避免误触发。
+    先做 secrets 预检：get_supabase() 在缺密钥时会 st.stop() 中断渲染。
     """
-    try:
-        has_secrets = bool(str(st.secrets.get("SUPABASE_URL", "")).strip())
-    except Exception:
-        has_secrets = False
-    return has_secrets and bool(st.session_state.get("auth_user"))
+    return supabase_secrets_ready() and bool(st.session_state.get("auth_user"))
 
 
 def _save_pref_cloud(theme: str) -> None:

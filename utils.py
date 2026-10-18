@@ -9,6 +9,20 @@ import streamlit as st
 import pandas as pd
 
 
+def supabase_secrets_ready() -> bool:
+    """Supabase URL 与 anon key 都已配置时返回 True。
+
+    只做 secrets 预检，不创建客户端、不触发 st.stop。缓存与偏好持久化共用
+    这一处判断，避免每个模块各写一份 try/except。
+    """
+    try:
+        return bool(str(st.secrets.get("SUPABASE_URL", "")).strip()) and bool(
+            str(st.secrets.get("SUPABASE_ANON_KEY", "")).strip()
+        )
+    except Exception:
+        return False
+
+
 # ============================================================
 # 零、Toast 安全封装
 # ============================================================

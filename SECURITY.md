@@ -19,7 +19,7 @@ RLS 策略定义于 `supabase/schema.sql`，需在 Supabase 控制台 SQL Editor
 - `vision_usage`：仅本人可 select 自己那行；insert/update/delete 对客户端全部撤销，计数只能经下面三个函数改动。
 - `get_vision_quota` / `begin_vision_call` / `record_vision_usage`：SECURITY DEFINER 且默认 PUBLIC 执行权已收回，仅授予 authenticated 与 service_role。三个函数**一律以 `auth.uid()` 判定身份、不接受调用方传入 user_id**（否则可伪造或清空他人计数），`record_vision_usage` 的 token 增量钳到非负（否则可传负数反向冲销用量绕过每日上限）。
 - `invite_codes`：启用 RLS 且不开任何 anon / authenticated policy，仅经 SECURITY DEFINER 函数访问。
-- `gfs_cache`：读仅限 authenticated；写与删除只经 SECURITY DEFINER 函数 `put_gfs_cache`。函数内校验 key 与经纬度自洽、数据形状与单行 100KB 上限，写入时刷新 `updated_at` 并清理 6 小时前的旧行。客户端对表的 insert/update/delete 权限已收回。
+- `gfs_cache`：读仅限 authenticated；写与删除只经 SECURITY DEFINER 函数 `put_gfs_cache`，且该函数仅授予 `service_role`。应用服务端用 service_role 客户端写入，登录用户不能直接调用，因此无法伪造缓存。函数内仍校验 key 与经纬度自洽、数据形状与单行 100KB 上限，写入时刷新 `updated_at` 并清理 6 小时前的旧行。客户端对表的 insert/update/delete 权限已收回。
 - `security_selfcheck()`：仅 service_role 可调，返回各表 RLS 状态、public 函数对 anon/authenticated/service_role 的执行权、以及五张表的表级写权限。管理员面板每次解锁先跑一次，自检不通过即停止管理操作。
 - 函数执行权：Supabase 的默认权限会把 anon/authenticated 直接授予新函数，只 `revoke ... FROM public` 收不干净。`schema.sql` 因此对每个函数显式收回 anon/authenticated，再按需授予。
 

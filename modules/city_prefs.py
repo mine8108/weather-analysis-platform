@@ -6,13 +6,16 @@
 - 已登录：Supabase user_metadata.cities（JSON 字符串）+ show_wall（"0"/"1"），登录时读回
 
 城市条目只保留 JSON 安全最小字段（zh/en/lat/lon/region/capital）。
-所有云端写入用轻量 create_client（auth.get_supabase 会 st.stop() 中断页面，不可用于持久化）。
+云端写入使用当前会话的 `auth.get_supabase()` 客户端；调用前用
+`utils.supabase_secrets_ready()` 预检，避免缺密钥时 `st.stop()`。
 """
 
 import json
 from pathlib import Path
 
 import streamlit as st
+
+from utils import supabase_secrets_ready
 
 _PREF_FILE = Path.home() / ".weather_wall_cities.json"
 
@@ -81,11 +84,7 @@ def _save_local(cities, show_wall: bool) -> None:
 # Supabase 云端通道
 # ============================================================
 def _cloud_available() -> bool:
-    try:
-        has_secrets = bool(str(st.secrets.get("SUPABASE_URL", "")).strip())
-    except Exception:
-        has_secrets = False
-    return has_secrets and bool(st.session_state.get("auth_user"))
+    return supabase_secrets_ready() and bool(st.session_state.get("auth_user"))
 
 
 def _save_cloud(cities, show_wall: bool) -> None:

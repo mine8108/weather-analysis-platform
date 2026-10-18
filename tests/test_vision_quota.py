@@ -30,7 +30,7 @@ def _read(rel):
 def _quota_section():
     """schema.sql 里读图配额那一节（避免断言误命中其他章节的同名字样）。"""
     sql = _read("supabase/schema.sql")
-    marker = "8. 读图配额"
+    marker = "9. 读图配额"
     assert marker in sql, "schema.sql 缺少读图配额章节"
     return sql.split(marker, 1)[1]
 

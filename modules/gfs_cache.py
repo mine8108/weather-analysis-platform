@@ -1,8 +1,8 @@
 """GFS 二级缓存的读写契约。
 
-缓存表在 Supabase 的 `gfs_cache`，写入只允许经 `put_gfs_cache` RPC。这个模块
-不导入 streamlit，调用方负责鉴权、客户端生命周期与 DataFrame 转换，因此可以
-在没有 UI 依赖的环境里直接测试。
+缓存表在 Supabase 的 `gfs_cache`，写入只允许经 `put_gfs_cache` RPC（仅
+`service_role` 可调）。这个模块不导入 streamlit，调用方负责鉴权、客户端生命
+周期与 DataFrame 转换，因此可以在没有 UI 依赖的环境里直接测试。
 
 时间戳用 `updated_at`。旧实现按 `created_at` 过滤，而 upsert 不会刷新
 `created_at`，导致首次写入一小时后缓存对所有人永久失效。读写两端都改用
@@ -15,7 +15,6 @@ LOG = logging.getLogger(__name__)
 
 TABLE = "gfs_cache"
 TTL_HOURS = 1
-PRUNE_HOURS = 6
 
 
 def write_params(cache_key, lat, lon, days, model, records):
