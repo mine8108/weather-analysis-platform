@@ -1113,6 +1113,60 @@ def _sample_frames():
 
 
 # ============================================================
+# 阈值作用域（批次 0）：会话状态优先，模块全局仅作无上下文兜底
+# ============================================================
+
+def _with_fake_streamlit(session_state):
+    """临时把 streamlit 模块替换成只带 session_state 的替身，返回恢复函数。"""
+    import types
+
+    saved = sys.modules.get("streamlit")
+    sys.modules["streamlit"] = types.SimpleNamespace(session_state=session_state)
+
+    def restore():
+        if saved is None:
+            sys.modules.pop("streamlit", None)
+        else:
+            sys.modules["streamlit"] = saved
+
+    return restore
+
+
+def test_current_thresholds_prefers_session_state():
+    restore = _with_fake_streamlit(
+        {"_custom_thresholds": {"gale": {"蓝色": 99.0}}})
+    try:
+        assert analyzer.current_thresholds()["gale"]["蓝色"] == 99.0
+    finally:
+        restore()
+
+
+def test_current_thresholds_falls_back_to_module_global():
+    restore = _with_fake_streamlit({})
+    analyzer.set_custom_thresholds({"fog": {"黄色": 1.0}})
+    try:
+        assert analyzer.current_thresholds()["fog"]["黄色"] == 1.0
+    finally:
+        analyzer.set_custom_thresholds({})
+        restore()
+
+
+def test_detectors_read_current_thresholds_not_module_global():
+    """检测函数必须走 current_thresholds()，否则会话隔离形同虚设。"""
+    restore = _with_fake_streamlit(
+        {"_custom_thresholds": {"fog": {"黄色": 99999.0, "橙色": 99999.0,
+                                        "红色": 99999.0}}})
+    df = pd.DataFrame({
+        "timestamp": pd.date_range("2026-07-01", periods=30, freq="h"),
+        "visibility": [10.0] * 30,
+    })
+    try:
+        assert analyzer.check_fog(df) != []
+    finally:
+        restore()
+
+
+# ============================================================
 # 无 pytest 时的入口
 # ============================================================
 if __name__ == "__main__":

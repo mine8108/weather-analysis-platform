@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import PAGE_CONFIG, FIELD_LABELS, APP_VERSION, get_debug_mode
 from modules.data_loader import (
+    merge_manual_rows,
     render_file_upload_section,
     render_manual_input_section,
     render_api_section,
@@ -23,7 +24,6 @@ from modules.data_loader import (
 from modules.data_quality import render_quality_report
 from modules.visualizer import render_visualization_tab
 from modules.analyzer import (
-    set_custom_thresholds,
     check_high_temperature,
     check_cold_wave,
     check_gale,
@@ -85,15 +85,17 @@ def _safe_render(name, fn, *args, **kwargs):
 
 
 def _safe_reset():
-    """错误恢复：清除应用数据，保留导航默认值和登录态，回到导入页。"""
-    keep = {"active_tab", "import_step", "import_method", "_nav_stack", "auth_user"}
-    keep |= {k for k in st.session_state if k.startswith(("auth_", "invite_", "admin_"))}
-    for _k in list(st.session_state.keys()):
-        if _k not in keep:
-            del st.session_state[_k]
-    st.session_state["active_tab"] = 0
-    st.session_state["import_step"] = 0
-    st.session_state["import_method"] = None
+    """错误恢复：清除应用数据，保留导航、登录态与会话客户端，回到导入页。
+
+    修复：旧实现删掉了 _sb_client / _sb_admin_client 却保留 auth_user，
+    下一轮 get_supabase() 新建的客户端没有 JWT，RLS 会拒绝一切读写；
+    同时删掉 _auto_load_done 会让云端数据被自动载回，重置等于没重置。
+    """
+    from modules.app_state import reset_session
+    reset_session(
+        st.session_state,
+        keep_prefixes=("auth_", "invite_", "admin_"),
+    )
 
 
 # Tab 名称映射(用于重置按钮显示当前 Tab 名)
@@ -113,7 +115,7 @@ _RESET_KEYS_BY_TAB = {
                  "chart_reader_report_images", "chart_reader_last_gen",
                  "chart_reader_gen_count"],
     "报告导出": ["report_data"],
-    "报文解码": ["manual_data"],
+    "报文解码": ["manual_data", "codec_result", "codec_errors"],
 }
 
 
@@ -597,8 +599,9 @@ with st.sidebar:
         custom["thunder"] = {"hours": th_h}
 
         if st.button("[OK] 应用自定义阈值", use_container_width=True):
-            set_custom_thresholds(custom)
-            st.success("自定义阈值已应用！")
+            # 写入会话状态，避免模块级全局把单个用户的阈值扩散到全部会话。
+            st.session_state["_custom_thresholds"] = custom
+            st.success("自定义阈值已应用（仅本会话生效）。")
 
     st.divider()
     st.checkbox("[调试] 显示详细错误信息", value=False, key="debug_mode",
@@ -753,15 +756,10 @@ if st.session_state["active_tab"] == 0:
         elif method == "manual":
             df_manual = _safe_render("导入-手动", render_manual_input_section)
             if df_manual is not None:
-                try:
-                    df_manual["timestamp"] = pd.to_datetime(df_manual["timestamp"])
-                except Exception:
-                    pass
-                if st.session_state["df"] is not None:
-                    st.session_state["df"] = pd.concat([st.session_state["df"], df_manual], ignore_index=True)
-                    st.session_state["df"] = st.session_state["df"].sort_values("timestamp").reset_index(drop=True)
-                else:
-                    st.session_state["df"] = df_manual
+                df_manual["timestamp"] = pd.to_datetime(
+                    df_manual["timestamp"], errors="coerce")
+                st.session_state["df"] = merge_manual_rows(
+                    st.session_state.get("df"), df_manual)
                 st.session_state["import_step"] = 2
                 st.rerun()
         elif method == "api":
@@ -850,15 +848,10 @@ if st.session_state["active_tab"] == 0:
         with sub_tab2:
             df_manual = _safe_render("导入-手动", render_manual_input_section)
             if df_manual is not None:
-                try:
-                    df_manual["timestamp"] = pd.to_datetime(df_manual["timestamp"])
-                except Exception:
-                    pass
-                if st.session_state["df"] is not None:
-                    st.session_state["df"] = pd.concat([st.session_state["df"], df_manual], ignore_index=True)
-                    st.session_state["df"] = st.session_state["df"].sort_values("timestamp").reset_index(drop=True)
-                else:
-                    st.session_state["df"] = df_manual
+                df_manual["timestamp"] = pd.to_datetime(
+                    df_manual["timestamp"], errors="coerce")
+                st.session_state["df"] = merge_manual_rows(
+                    st.session_state.get("df"), df_manual)
         with sub_tab3:
             df_api, source_api = _safe_render("导入-API", render_api_section) or (None, None)
             if df_api is not None:

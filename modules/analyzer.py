@@ -30,6 +30,22 @@ def set_custom_thresholds(custom):
     CUSTOM_THRESHOLDS = custom
 
 
+def current_thresholds():
+    """当前生效的自定义阈值。
+
+    优先读会话状态，实现多用户隔离；无 Streamlit 上下文或未设置时退回
+    模块级 CUSTOM_THRESHOLDS，保持既有测试与脚本的调用方式不变。
+    """
+    try:
+        import streamlit as st
+        custom = st.session_state.get("_custom_thresholds")
+    except Exception:
+        custom = None
+    if custom:
+        return custom
+    return CUSTOM_THRESHOLDS or {}
+
+
 def heat_index_celsius(t_c, rh):
     """Rothfusz 热指数：摄氏度输入、摄氏度输出（修复 R-27 / R-29）。
 
@@ -65,7 +81,7 @@ def check_high_temperature(df):
 
     cfg = HIGH_TEMP_WARNING
     yellow_cfg = cfg["黄色"]
-    custom = CUSTOM_THRESHOLDS.get("high_temp", {})
+    custom = current_thresholds().get("high_temp", {})
 
     # 检查连续 N 天日最高气温≥阈值
     if "timestamp" in df.columns:
@@ -133,7 +149,7 @@ def check_cold_wave(df):
     drop_48h = (float(temps.iloc[-49]) - t_now) if len(temps) >= 49 else None
     min_temp = float(temps.tail(24).min())
 
-    custom = CUSTOM_THRESHOLDS.get("cold_wave", {})
+    custom = current_thresholds().get("cold_wave", {})
     checks = [
         ("红色", drop_24h),
         ("橙色", drop_24h),
@@ -184,7 +200,7 @@ def check_gale(df):
 
     triggered = None
     for level, _, actual, threshold in reversed(level_checks):
-        custom_thresh = CUSTOM_THRESHOLDS.get("gale", {}).get(level, threshold)
+        custom_thresh = current_thresholds().get("gale", {}).get(level, threshold)
         if actual >= custom_thresh:
             bf, bf_name = get_beaufort_level(actual)
             triggered = (level, actual, bf, bf_name, custom_thresh)
@@ -220,7 +236,7 @@ def check_fog(df):
     min_vis_m = float(vis.tail(24).min()) * 1000  # 转为米
 
     for level in ["红色", "橙色", "黄色"]:  # 从高到低检查
-        threshold = CUSTOM_THRESHOLDS.get("fog", {}).get(level, FOG_WARNING[level]["visibility"])
+        threshold = current_thresholds().get("fog", {}).get(level, FOG_WARNING[level]["visibility"])
         if min_vis_m < threshold:
             warnings_list.append({
                 "type": "大雾",
@@ -253,7 +269,7 @@ def check_rainstorm(df):
     rain_6h = precip.tail(6).sum()
     rain_3h = precip.tail(3).sum()
 
-    custom = CUSTOM_THRESHOLDS.get("rainstorm", {})
+    custom = current_thresholds().get("rainstorm", {})
 
     def _thr(level):
         return custom.get(level, RAINSTORM_WARNING[level]["rain"])
@@ -298,7 +314,7 @@ def check_frost(df):
         return warnings_list
 
     min_temp = float(temps.tail(24).min())
-    custom = CUSTOM_THRESHOLDS.get("frost", {})
+    custom = current_thresholds().get("frost", {})
 
     for level in ["橙色", "黄色", "蓝色"]:
         cfg = FROST_WARNING[level]
@@ -332,7 +348,7 @@ def check_thunderstorm(df):
     thunder_codes = [95, 96, 97, 99]
     is_thunder = codes.isin(thunder_codes)
     # R-14 补齐：检测窗口可在侧边栏调整
-    window_hours = float(CUSTOM_THRESHOLDS.get("thunder", {}).get("hours", 6) or 6)
+    window_hours = float(current_thresholds().get("thunder", {}).get("hours", 6) or 6)
 
     if "timestamp" in df.columns:
         ts = pd.to_datetime(df["timestamp"], errors="coerce")
@@ -376,7 +392,7 @@ def check_haze(df):
     if min_vis < FOG_WARNING["黄色"]["visibility"]:
         return []  # 低于大雾黄色阈值，归入大雾，不重复报霾
 
-    custom = CUSTOM_THRESHOLDS.get("haze", {})
+    custom = current_thresholds().get("haze", {})
     for level in ["橙色", "黄色"]:
         cfg = HAZE_WARNING[level]
         threshold = custom.get(level, cfg["visibility"])
