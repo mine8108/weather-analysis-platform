@@ -28,13 +28,16 @@ jobs:
       - name: 安装依赖
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-dev.txt
+          pip install -r requirements.txt -c constraints.txt -r requirements-dev.txt
 
-      - name: 依赖漏洞扫描（SEC-04，非阻断）
-        continue-on-error: true
+      - name: 依赖一致性检查
+        run: python -m pip check
+
+      - name: 依赖漏洞扫描（SEC-04，阻断）
+        # 审计整个已安装环境（含传递依赖），发现漏洞即失败
         run: |
           python -m pip install pip-audit
-          pip-audit -r requirements.txt
+          pip-audit
 
       - name: 认证与多租户回归（P0/P1）
         run: python -B tests/test_auth_session.py

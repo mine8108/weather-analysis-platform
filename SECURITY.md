@@ -46,6 +46,10 @@ RLS 策略定义于 `sql/schema.sql`，需在 Supabase 控制台 SQL Editor 执�
 
 **2026-10-18 线上核验**：Supabase「Allow new users to sign up」确认为关闭；「Confirm email」已开启；`sql/schema.sql` 已重跑成功；修复代码已推送并部署，管理员面板安全自检通过；邀请码注册端到端回归通过（测试账号已删除）。
 
+**依赖供应链（SEC-04）**：`constraints.txt` 锁定传递依赖版本，CI 使用 `pip install -r requirements.txt -c constraints.txt`；`pip-audit` 已改为阻断式（审计整个已安装环境，含传递依赖），并新增每周 `security-audit` 工作流。哈希锁文件需联网用 `pip-compile --generate-hashes` 生成，目前尚未落地。
+
+**数据库集成测试**：`integration_tests/` 提供三条需要真实 Supabase 的用例（并发存储配额、并发出站配额、邀请码函数执行权），默认跳过，只在独立 staging 项目运行；说明见 `integration_tests/README.md`。
+
 **部署后必须重跑 `sql/schema.sql`**（新增表 / 函数 / 列与多项执行权变更），否则出站配额与邀请码注册会失败。完整变更与验证见 `research/audit-2026-10-18/修复记录.md`。
 
 ## 公开库部署须知

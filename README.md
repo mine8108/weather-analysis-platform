@@ -44,6 +44,7 @@ weather_app/
 ├── utils.py                    # DataFrame 指纹、API 重试、预加载缓存
 ├── config.py                   # 国家预警阈值、字段映射、风力等级表、防御指南
 ├── requirements.txt            # 运行依赖（版本固定，含 supabase==2.33.0）
+├── constraints.txt             # 传递依赖版本锁（CI 复现解析结果）
 ├── requirements-dev.txt        # 开发依赖（pytest，不参与线上部署）
 ├── runtime.txt                 # Streamlit Cloud Python 版本声明
 ├── LICENSE                     # MIT
@@ -139,7 +140,7 @@ weather_app/
 cd weather_app
 
 # 2. 安装依赖（建议使用虚拟环境）
-pip install -r requirements.txt
+pip install -r requirements.txt -c constraints.txt
 
 # 3. 启动应用
 streamlit run app.py
@@ -174,8 +175,16 @@ python -B tests/test_release_surface.py  # 版本/依赖/Secrets/CI 契约 18 �
 其余用例用 pytest 运行全部（当前共 **491** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
 
 ```bash
-pip install -r requirements-dev.txt
+pip install -r requirements-dev.txt -c constraints.txt
 pytest tests -q
+```
+
+### 数据库安全契约的集成测试（staging）
+
+`integration_tests/` 下有三条需要真实 Supabase 的用例：并发 `save_dataset` 配额、并发 `begin_outbound_call` 配额、邀请码函数执行权。默认跳过，**只在独立 staging 项目**上运行，配置方式见 `integration_tests/README.md`。
+
+```bash
+pytest integration_tests -q
 ```
 
 **每次发布前一律跑一遍下面四项审计**，全部以退出码 0 为通过。不要按「这次改了什么」决定跑不跑：`check_py_vars` 曾因这条旧措辞（「改配色后另跑」）被连续几个版本漏跑，其间它一直报着一个误报，谁也没发现——长期存在的假阳性会训练人忽略检查。
@@ -266,7 +275,7 @@ Streamlit Cloud 已经重建容器：v2.3.0 发布时就遇到过推送十余分
 ### 1. 创建 Supabase 项目
 - 注册 [supabase.com](https://supabase.com) → New Project。
 - Authentication → Providers → Email：
-  - 关闭 `Confirm email` 以便本地测试直接登录（生产可开启）。
+  - 生产环境建议开启 `Confirm email`（线上已开启）；本地联调可临时关闭。
   - **关闭 `Allow new users to sign up`（允许公开注册）**：本平台采用「邀请码授权注册」，注册账号必须经管理员发放的邀请码、由服务端建账号，因此必须关闭公开注册。
 - 复制 Project URL 与 `anon public` 密钥（Settings → API）。
 - 复制 `service_role` 密钥（Settings → API，标记为 secret，**切勿在前端暴露**），用于服务端管理操作。
