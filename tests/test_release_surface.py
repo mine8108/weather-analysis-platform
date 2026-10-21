@@ -28,7 +28,7 @@ def _read(rel):
 
 def test_version_bumped():
     from config import APP_VERSION
-    assert APP_VERSION == "2.3.8", APP_VERSION
+    assert APP_VERSION == "2.3.9", APP_VERSION
 
 
 def test_live_artifacts_carry_current_version():
@@ -105,9 +105,9 @@ def test_era5_variable_check_is_documented_and_present():
 
 def test_secrets_example_lists_vision_keys():
     text = _read(".streamlit/secrets.toml.example")
-    for key in ("LLM_VISION_MODEL", "LLM_VISION_API_KEY", "LLM_VISION_BASE_URL",
-                "LLM_VISION_MAX_TOKENS"):
+    for key in ("LLM_VISION_MODEL", "LLM_VISION_API_KEY", "LLM_VISION_BASE_URL"):
         assert key in text, key
+    assert "LLM_VISION_MAX_TOKENS" not in text
     assert "回落到 LLM_MODEL" in text or "回落到 `LLM_MODEL`" in text
 
 

@@ -238,9 +238,12 @@ def test_manual_mentions_current_navigation():
 
 
 def test_manual_documents_upload_limits_and_terminal_path():
-    """第 8 章需写明图片上限，第 11 章需写明手动打开终端与许可接受。"""
+    """第 8 章需写明图片与配额上限，第 11 章需写明手动打开终端与许可接受。"""
     text = _manual_text()
-    assert "5 MB" in text
+    assert "1.5 MB" in text
+    assert "7.5 MB" in text
+    assert "最多 5 张" in text
+    assert "80,000" in text
     assert "终端" in text
     assert "许可" in text
 

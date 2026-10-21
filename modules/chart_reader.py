@@ -21,11 +21,11 @@ import streamlit as st
 
 from PIL import Image
 
-# 上传与体积上限
-MAX_IMAGES = 3
-MAX_RAW_BYTES = 20 * 1024 * 1024      # 原始字节硬上限，超过直接拒绝，不解码
-MAX_IMAGE_BYTES = 5 * 1024 * 1024     # 提交单图上限
-MAX_TOTAL_BYTES = 12 * 1024 * 1024    # 提交合计上限
+# 上传与体积上限（2026-10-22 配额调整：5 张 / 单图 1.5 MB）
+MAX_IMAGES = 5
+MAX_IMAGE_BYTES = int(1.5 * 1024 * 1024)  # 单图上限：原始字节与提交字节同一阈值
+MAX_RAW_BYTES = MAX_IMAGE_BYTES           # 解码前闸门，超过直接拒绝，不解码
+MAX_TOTAL_BYTES = MAX_IMAGES * MAX_IMAGE_BYTES  # 提交合计上限（5 × 1.5 MB = 7.5 MB）
 # 安全修复（SEC-13）：5000 万像素在解码/转 RGB/LANCZOS 时峰值可达数百 MB，
 # 单张就足以在 1GB 实例上触发 OOM；收紧到 1600 万像素。
 MAX_PIXELS = 16 * 1000 * 1000         # 解码后的像素数上限
@@ -44,10 +44,11 @@ _PASSTHROUGH_MIMES = {"PNG": "image/png", "JPEG": "image/jpeg"}
 
 # 单次生成的会话限制
 MIN_INTERVAL_SECONDS = 60
-# 每会话最多尝试 5 次。计的是「尝试」而非「成功」：失败调用同样被服务商计费，
-# 只数成功就会让反复失败不计入额度。会话级限制刷新页面即重置，属防误操作级别，
-# 不是成本控制——真正的硬配额需要服务端状态（见计划文档的配额设计讨论）。
-MAX_GENERATIONS_PER_SESSION = 5
+# 每会话最多尝试 10 次，与每日次数上限对齐，避免「每日十次」被会话级上限截成五次。
+# 计的是「尝试」而非「成功」：失败调用同样被服务商计费，只数成功就会让反复失败
+# 不计入额度。会话级限制刷新页面即重置，属防误操作级别，不是成本控制——真正的
+# 硬配额在服务端（见 sql/schema.sql 第 9 节），刷新无法绕过。
+MAX_GENERATIONS_PER_SESSION = 10
 
 # 配额服务不可用时的进程级兜底额度（每人每日）。单进程部署下它跨会话生效，
 # 刷新页面无法重置，故障不再把成本约束退化为零。
@@ -158,7 +159,7 @@ def _process_image_uncached(raw, name):
         return _fail(name, "文件为空")
 
     if len(raw) > MAX_RAW_BYTES:
-        return _fail(name, "文件过大（原始 %.2f MB，上限 %.0f MB），请先自行压缩后上传"
+        return _fail(name, "文件过大（原始 %.2f MB，上限 %.1f MB），请先自行压缩后上传"
                      % (len(raw) / 1048576.0, MAX_RAW_BYTES / 1048576.0),
                      len(raw))
 
@@ -206,7 +207,7 @@ def _process_image_uncached(raw, name):
         return _fail(name, "图片处理失败（文件可能已损坏或不完整）", len(raw))
 
     if len(data) > MAX_IMAGE_BYTES:
-        return _fail(name, "处理后的字节仍超过单图上限（%.2f MB > %.0f MB），请先自行压缩后上传"
+        return _fail(name, "处理后的字节仍超过单图上限（%.2f MB > %.1f MB），请先自行压缩后上传"
                      % (len(data) / 1048576.0, MAX_IMAGE_BYTES / 1048576.0), len(raw))
 
     return {"name": name, "ok": True, "error": None,
@@ -219,7 +220,7 @@ def check_total_size(images):
     """合计体积校验：只统计成功的图片；超限返回提示文本，否则 None。"""
     total_kb = sum(item.get("new_kb", 0) for item in images if item.get("ok"))
     if total_kb * 1024 > MAX_TOTAL_BYTES:
-        return ("提交合计 %.1f MB，超过上限 %.0f MB，请减少图片张数或先自行压缩"
+        return ("提交合计 %.1f MB，超过上限 %.1f MB，请减少图片张数或先自行压缩"
                 % (total_kb / 1024.0, MAX_TOTAL_BYTES / 1048576.0))
     return None
 
@@ -302,26 +303,23 @@ def quota_allows(state, user_key=""):
     return False, "配额服务不可用，临时额度已用完，请稍后重试。"
 
 
-def quota_budget(state, default, prompt_tokens=0):
-    """本次调用的输出预算。
+def quota_budget(state, prompt_tokens=0):
+    """本次调用可用的 max_tokens：只由当日剩余 token 决定。
 
-    取单次上限与当日剩余额度两者较小值，并预留 prompt token 与安全余量。
-    返回 0 表示当日剩余不足以再发起一次调用，调用方必须拒绝。
+    2026-10-22 起不再设固定单次上限：只要当日余额还够，本次调用就能拿到剩余
+    额度减掉 prompt 估算与安全余量后的全部预算。返回 None 表示配额服务不可用，
+    调用方不传 max_tokens（由服务商默认输出上限兜底）；返回 0 表示当日余额不足，
+    调用方必须拒绝。
     """
     if not state:
-        return default
-    try:
-        per_call = int(state.get("max_tokens_per_call") or 0)
-    except (TypeError, ValueError):
-        return default
-    limit = per_call if per_call > 0 else default
+        return None
     remaining = state.get("tokens_remaining")
     if remaining is None:
-        return limit
+        return None
     try:
         remaining = int(remaining)
     except (TypeError, ValueError):
-        return limit
+        return None
     try:
         reserve = max(int(prompt_tokens or 0), 0)
     except (TypeError, ValueError):
@@ -329,7 +327,7 @@ def quota_budget(state, default, prompt_tokens=0):
     cap = remaining - SAFETY_MARGIN_TOKENS - reserve
     if cap <= 0:
         return 0
-    return min(limit, cap)
+    return cap
 
 
 def format_daily_quota(state):
@@ -443,8 +441,8 @@ _FAILURE_TABLE = """
 |---|---|---|
 | 提示「读图解析尚未配置」 | 未设置 `LLM_VISION_MODEL` | 按上方说明在 Secrets 中配置后重启应用 |
 | 某张图标记为失败 | 超过体积/像素上限、分辨率过低或文件不是有效图片 | 按该图给出的原因处理；伪装扩展名的文件会被拒绝 |
-| 整体拒绝上传 | 张数超过 3 张，或提交合计超过 12 MB | 减少张数或先自行压缩 |
-| 生成失败并给出可读错误 | 模型服务超时、密钥无效、额度不足，或输出预算被推理过程耗尽 | 原图已保留，可直接重试；错误文本会带出 `finish_reason`、模型名与响应片段，据此处置；预算不足可调大 `LLM_VISION_MAX_TOKENS` |
+| 整体拒绝上传 | 张数超过 5 张、单图超过 1.5 MB，或提交合计超过 7.5 MB | 减少张数或先自行压缩 |
+| 生成失败并给出可读错误 | 模型服务超时、密钥无效、当日额度不足，或输出被服务商截断 | 原图已保留，可直接重试；错误文本会带出 `finish_reason`、模型名与响应片段，据此处置；当日 token 不足可次日再试或请管理员调整每日配额 |
 | 解读里出现「图中未标注」 | 图中确实没有该信息 | 这是刻意的反幻觉约束，不是故障 |
 | 解读与图不符 | 模型判读能力有限，尤其是等值线密集或非中文标注的图 | 在补充说明里指明图种、层次与关注点可显著改善 |
 """
@@ -475,8 +473,7 @@ def _record_usage(usage):
 def _generate(cfg, images, note):
     """执行一次读图解析。失败即报错并保留原图，不产出任何替代文本。"""
     from db import begin_vision_call
-    from modules.ai_narrative import (VISION_MAX_TOKENS, build_report_meta,
-                                      call_vision_llm)
+    from modules.ai_narrative import build_report_meta, call_vision_llm
 
     now = time.time()
     last = float(st.session_state.get("chart_reader_last_gen", 0) or 0)
@@ -498,10 +495,10 @@ def _generate(cfg, images, note):
         (st.warning if allowed else st.error)(notice)
     if not allowed:
         return
-    # 安全修复（SEC-24）：预算要预留本次图片 prompt 的开销，否则实际总量会超配额
-    budget = quota_budget(quota_state, VISION_MAX_TOKENS,
-                          estimate_image_tokens(images) + 800)
-    if budget <= 0:
+    # 安全修复（SEC-24）：预算要预留本次图片 prompt 的开销，否则实际总量会超配额。
+    # 不再叠加固定单次上限：本次预算就是当日剩余额度。
+    budget = quota_budget(quota_state, estimate_image_tokens(images) + 800)
+    if budget is not None and budget <= 0:
         st.warning("今日 token 剩余额度不足以再生成一次，"
                    "请次日再试或联系管理员调整配额。")
         return
@@ -555,7 +552,8 @@ def render_chart_reader_tab():
         return
 
     uploads = st.file_uploader(
-        "上传气象图（最多 %d 张，单图 5 MB 以内）" % MAX_IMAGES,
+        "上传气象图（最多 %d 张，单图 %.1f MB 以内）"
+        % (MAX_IMAGES, MAX_IMAGE_BYTES / 1048576.0),
         type=ALLOWED_UPLOAD_TYPES, accept_multiple_files=True,
         key="chart_reader_uploader")
 
@@ -606,9 +604,8 @@ def render_chart_reader_tab():
     quota_state = get_vision_quota()
     quota_line = format_daily_quota(quota_state)
     if quota_line:
-        st.caption("%s · 单次上限 %s token（每日 0 点北京时间重置）"
-                   % (quota_line,
-                      format(int(quota_state.get("max_tokens_per_call") or 0), ",")))
+        st.caption("%s（每日 0 点北京时间重置；单次调用不另设 token 上限）"
+                   % quota_line)
     elif quota_state is None and st.session_state.get("auth_user"):
         st.caption("⚠️ 未能读取今日配额，本次按会话级限制放行。")
 

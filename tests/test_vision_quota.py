@@ -46,6 +46,19 @@ def test_schema_defines_per_user_vision_quota():
                    "public.get_vision_quota", "public.begin_vision_call",
                    "public.record_vision_usage"):
         assert needle in section, needle
+    # 2026-10-22 配额调整：每人每日 10 次 / 80,000 token。列默认值、函数兜底
+    # 与老用户的一次性迁移三处必须同时是同一组数字，否则新老用户会拿到不同配额。
+    assert "vision_calls_per_day       integer not null default 10" in section
+    assert "vision_tokens_per_day      bigint  not null default 80000" in section
+    assert "coalesce(v_calls, 10)" in section
+    assert "coalesce(v_tokens, 80000)" in section
+    assert "vision_calls_per_day  = 10" in section
+    assert "vision_tokens_per_day = 80000" in section
+
+    # 管理员面板的显示兜底不得落后于数据库默认值
+    panel = _read("modules/admin/panel.py")
+    assert "_DEFAULT_VISION_CALLS = 10" in panel
+    assert "_DEFAULT_VISION_TOKENS = 80000" in panel
 
 
 def test_schema_revokes_public_execute_and_grants_authenticated():
@@ -223,29 +236,30 @@ def test_quota_allows_is_silent_when_allowed():
     assert notice == ""
 
 
-def test_quota_budget_prefers_server_value_then_falls_back():
-    assert chart_reader.quota_budget({"max_tokens_per_call": 8000}, 20000) == 8000
-    assert chart_reader.quota_budget(None, 20000) == 20000
-    assert chart_reader.quota_budget({"max_tokens_per_call": "x"}, 20000) == 20000
-    assert chart_reader.quota_budget({"max_tokens_per_call": 0}, 20000) == 20000
-    assert chart_reader.quota_budget({"max_tokens_per_call": None}, 20000) == 20000
+def test_quota_budget_is_remaining_daily_tokens_only():
+    """单次调用不设固定上限：预算就是当日剩余额度减占位与安全余量。"""
+    assert chart_reader.quota_budget({"tokens_remaining": 50000}, 5000) == 43000
+    assert chart_reader.quota_budget({"tokens_remaining": 80000}, 0) == 78000
+    # 配额服务不可用时返回 None：调用方不传 max_tokens，由服务商默认上限兜底
+    assert chart_reader.quota_budget(None, 5000) is None
 
 
 def test_quota_budget_capped_by_remaining_tokens():
-    state = {"max_tokens_per_call": 20000, "tokens_remaining": 5000}
-    assert chart_reader.quota_budget(state, 20000) == 3000
+    state = {"tokens_remaining": 5000}
+    assert chart_reader.quota_budget(state, 5000) == 0
+    assert chart_reader.quota_budget({"tokens_remaining": 9000}, 5000) == 2000
 
 
 def test_quota_budget_zero_when_remaining_below_margin():
-    state = {"max_tokens_per_call": 20000, "tokens_remaining": 1000}
-    assert chart_reader.quota_budget(state, 20000) == 0
+    assert chart_reader.quota_budget({"tokens_remaining": 1000}, 0) == 0
+    assert chart_reader.quota_budget({"tokens_remaining": 1999}, 0) == 0
 
 
 def test_daily_quota_text_and_exhaustion():
-    state = {"calls_limit": 5, "calls_used": 5, "calls_remaining": 0,
-             "tokens_limit": 100000, "tokens_used": 12345, "tokens_remaining": 87655}
+    state = {"calls_limit": 10, "calls_used": 10, "calls_remaining": 0,
+             "tokens_limit": 80000, "tokens_used": 12345, "tokens_remaining": 67655}
     text = chart_reader.format_daily_quota(state)
-    assert "5/5" in text
+    assert "10/10" in text
     assert "12,345" in text
     assert chart_reader.daily_quota_exhausted(state) is True
 

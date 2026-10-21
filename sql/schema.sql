@@ -192,11 +192,8 @@ alter table public.schema_version enable row level security;
 -- 不建客户端策略：只有 service_role 与函数 owner 能读。
 revoke all on public.schema_version from anon, authenticated;
 
-insert into public.schema_version (id, version)
-values (1, '2026-10-18')
-on conflict (id) do update
-    set version = excluded.version,
-        applied_at = now();
+-- 版本号在文件末尾统一写入（第 12 节）：第 9 节的一次性配额迁移需要读到
+-- 升级前的版本号；若在这里提前写成新版本，迁移会被误判为已完成。
 
 -- 2.2 管理员操作审计：只允许 service_role 写入与读取，客户端无策略。
 create table if not exists public.admin_audit_log (
@@ -649,9 +646,36 @@ revoke insert, update on public.datasets from authenticated;
 -- ============================================================
 
 alter table public.profiles
-    add column if not exists vision_calls_per_day       integer not null default 5,
-    add column if not exists vision_tokens_per_day      bigint  not null default 100000,
+    add column if not exists vision_calls_per_day       integer not null default 10,
+    add column if not exists vision_tokens_per_day      bigint  not null default 80000,
     add column if not exists vision_max_tokens_per_call integer not null default 20000;
+
+-- 2026-10-22 起 vision_max_tokens_per_call 不再作为配额使用：单次调用不设固定
+-- token 上限，只受当日 token 余额约束。本列保留以兼容旧版客户端与回滚，应用侧
+-- 不再读取。
+
+-- 列默认值只影响之后新插入的行；已有行必须显式改默认值，否则管理员面板里
+-- 未单独设置过配额的用户会继续沿用旧默认（5 次 / 100,000 token）。
+alter table public.profiles
+    alter column vision_calls_per_day  set default 10,
+    alter column vision_tokens_per_day set default 80000;
+
+-- 9.0 一次性数据迁移（2026-10-22）：把仍停留在旧默认值的用户改为新默认。
+--     不覆盖管理员单独调整过的配额；以 schema_version 为闸门，重跑 schema.sql
+--     不会再执行，避免把管理员后来刻意设回 5 次 / 100,000 的用户又改掉。
+do $$
+declare
+    v_version text;
+begin
+    select version into v_version from public.schema_version where id = 1;
+    if v_version is distinct from '2026-10-22' then
+        update public.profiles
+           set vision_calls_per_day  = 10,
+               vision_tokens_per_day = 80000
+         where vision_calls_per_day  = 5
+           and vision_tokens_per_day = 100000;
+    end if;
+end $$;
 
 create table if not exists public.vision_usage (
     user_id           uuid    not null references auth.users(id) on delete cascade,
@@ -702,8 +726,8 @@ begin
     select vision_calls_per_day, vision_tokens_per_day, vision_max_tokens_per_call
       into v_calls, v_tokens, v_max_call
       from public.profiles where user_id = v_uid;
-    v_calls    := coalesce(v_calls, 5);
-    v_tokens   := coalesce(v_tokens, 100000);
+    v_calls    := coalesce(v_calls, 10);
+    v_tokens   := coalesce(v_tokens, 80000);
     v_max_call := coalesce(v_max_call, 20000);
 
     select calls, total_tokens into v_used_c, v_used_t
@@ -753,8 +777,8 @@ begin
       into v_calls, v_tokens, v_max_call
       from public.profiles where user_id = v_uid
        for update;
-    v_calls    := coalesce(v_calls, 5);
-    v_tokens   := coalesce(v_tokens, 100000);
+    v_calls    := coalesce(v_calls, 10);
+    v_tokens   := coalesce(v_tokens, 80000);
     v_max_call := coalesce(v_max_call, 20000);
 
     select calls, total_tokens into v_used_c, v_used_t
@@ -1069,3 +1093,15 @@ begin
         end;
     end loop;
 end $$;
+
+-- ============================================================
+-- 12. schema 版本写入
+--     必须放在文件末尾：第 9 节的一次性迁移以本行旧版本号为闸门，
+--     提前写入新版本会让迁移被误判为已完成。脚本中途失败时版本保持旧值，
+--     重跑会重新执行迁移，符合预期。
+-- ============================================================
+insert into public.schema_version (id, version)
+values (1, '2026-10-22')
+on conflict (id) do update
+    set version = excluded.version,
+        applied_at = now();

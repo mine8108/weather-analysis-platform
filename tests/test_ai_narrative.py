@@ -76,7 +76,7 @@ def test_resolve_vision_config_falls_back_for_key_and_url():
     assert cfg["api_key"] == "text-key"
     assert cfg["base_url"] == "https://example.invalid/v1"
     assert cfg["model"] == "qwen-vl-max"
-    assert cfg["max_tokens"] == ai_narrative.VISION_MAX_TOKENS
+    assert "max_tokens" not in cfg
 
 
 def test_resolve_vision_config_prefers_vision_specific_values():
@@ -134,7 +134,8 @@ def test_call_vision_llm_builds_multimodal_payload():
     assert text == "解读正文"
     assert captured["url"] == "https://example.invalid/v1/chat/completions"
     assert captured["json"]["model"] == "qwen-vl-max"
-    assert captured["json"]["max_tokens"] >= 1200
+    # 不传 max_tokens 时由服务商默认上限兜底，应用不再强加单次 token 上限
+    assert "max_tokens" not in captured["json"]
     content = captured["json"]["messages"][1]["content"]
     assert content[0]["type"] == "text"
     assert content[1]["type"] == "image_url"
@@ -142,14 +143,15 @@ def test_call_vision_llm_builds_multimodal_payload():
     assert captured["headers"]["Authorization"] == "Bearer key"
 
 
-def test_vision_max_tokens_is_enough_for_reasoning_models():
-    """输出预算必须容得下推理型模型的思考过程。
+def test_no_module_level_single_call_token_cap():
+    """单次调用不设固定 token 上限：唯一约束是服务端每日 token 余额。
 
-    实测 deepseek-flash：单图 reasoning 2065 tokens，双图 10437 tokens，而六段
-    正文只有约 1100 tokens。1600 与 4096 两个上限都被思考吃光，正文未开始即结束
-    （finish_reason=length + content 空）。这里锁一个下界，防止再把预算改小。
+    历史上这里锁过 VISION_MAX_TOKENS 的下界，用于防止推理过程吃光预算。
+    2026-10-22 起每日配额成为唯一 token 约束，模块级上限必须不存在，
+    否则「不限单次、只限每日」的承诺会被悄悄改回去。
     """
-    assert ai_narrative.VISION_MAX_TOKENS >= 12000, ai_narrative.VISION_MAX_TOKENS
+    assert not hasattr(ai_narrative, "VISION_MAX_TOKENS")
+    assert not hasattr(ai_narrative, "_MAX_TOKENS_CEILING")
 
 
 def test_call_vision_llm_accepts_max_tokens_override():
@@ -169,8 +171,44 @@ def test_call_vision_llm_accepts_max_tokens_override():
     assert captured["max_tokens"] == 8000
 
 
-def test_resolve_vision_config_reads_max_tokens_override():
-    """允许通过 Secrets 覆盖输出预算：合适的值取决于所选模型。"""
+def test_call_vision_llm_retries_without_max_tokens_on_provider_rejection():
+    """服务商拒绝过大的 max_tokens 时退回不传该字段，不让日报额度检查把功能弄挂。
+
+    日额度 80,000 时首次调用可能传出数万 max_tokens，部分服务商只接受自己的
+    输出上限。第一次 400 不应计费，重试一次即可继续。
+    """
+    payloads = []
+
+    class _BadRequest:
+        status_code = 400
+        text = '{"error":{"message":"max_tokens is too large"}}'
+
+        def json(self):
+            return {}
+
+        def raise_for_status(self):
+            return None
+
+    def _fake_post(url, headers=None, json=None, timeout=None):
+        payloads.append(dict(json or {}))
+        if len(payloads) == 1:
+            return _BadRequest()
+        return _FakeResponse({"choices": [{"message": {"content": "正文"}}]})
+
+    original = ai_narrative.requests.post
+    try:
+        ai_narrative.requests.post = _fake_post
+        text = ai_narrative.call_vision_llm("p", ["data:a"], "k", model="m",
+                                            max_tokens=60000)
+    finally:
+        ai_narrative.requests.post = original
+    assert text == "正文"
+    assert payloads[0]["max_tokens"] == 60000
+    assert "max_tokens" not in payloads[1]
+
+
+def test_resolve_vision_config_ignores_legacy_max_tokens_secret():
+    """旧的 LLM_VISION_MAX_TOKENS 配置不再进入请求：单次上限已移除。"""
     class _Secrets:
         data = {"LLM_VISION_MODEL": "m", "LLM_VISION_API_KEY": "k",
                 "LLM_VISION_MAX_TOKENS": "8000"}
@@ -182,13 +220,13 @@ def test_resolve_vision_config_reads_max_tokens_override():
     try:
         ai_narrative.st.secrets = _Secrets()
         cfg = ai_narrative.resolve_vision_config()
-        assert cfg["max_tokens"] == 8000
+        assert "max_tokens" not in cfg
     finally:
         ai_narrative.st.secrets = original
 
 
-def test_resolve_vision_config_rejects_invalid_max_tokens():
-    """非法值回落默认，不得因为一个可选键把读图功能整个弄坏。"""
+def test_resolve_vision_config_ignores_invalid_legacy_max_tokens_secret():
+    """旧键即使填了非法值也不得影响配置解析，更不得恢复单次上限。"""
     class _Secrets:
         data = {"LLM_VISION_MODEL": "m", "LLM_VISION_API_KEY": "k",
                 "LLM_VISION_MAX_TOKENS": "很多"}
@@ -200,7 +238,8 @@ def test_resolve_vision_config_rejects_invalid_max_tokens():
     try:
         ai_narrative.st.secrets = _Secrets()
         cfg = ai_narrative.resolve_vision_config()
-        assert cfg["max_tokens"] == ai_narrative.VISION_MAX_TOKENS
+        assert cfg["model"] == "m"
+        assert "max_tokens" not in cfg
     finally:
         ai_narrative.st.secrets = original
 
@@ -366,7 +405,7 @@ def test_call_vision_llm_empty_content_reports_diagnostics():
     assert "length" in message
     assert "some-vl-model" in message
     assert "choices" in message, message
-    assert "LLM_VISION_MAX_TOKENS" in message
+    assert "输出被截断" in message
 
 
 def test_call_vision_llm_flags_reasoning_only_response():

@@ -184,7 +184,15 @@ def test_process_image_keeps_jpeg_for_photo_like_content():
     img = Image.frombytes("RGB", (2000, 1200), noise)
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=92)
-    result = chart_reader.process_image(buf.getvalue(), "photo.jpg")
+
+    # 体积上限收紧到 1.5 MB 后，随机噪声图很容易在入口闸门就被拒；本测试只
+    # 关心编码格式选择，故临时放宽两个体积阈值，避免测试结果依赖噪声压缩率。
+    def _run():
+        return chart_reader.process_image(buf.getvalue(), "photo.jpg")
+
+    result = _with_limit(
+        "MAX_RAW_BYTES", 20 * 1024 * 1024,
+        lambda: _with_limit("MAX_IMAGE_BYTES", 20 * 1024 * 1024, _run))
     assert result["ok"] is True, result["error"]
     assert result["mime"] == "image/jpeg"
 
@@ -224,10 +232,18 @@ def test_image_to_data_url_uses_actual_mime():
 # ============================================================
 
 def test_generation_cap_and_budget_match_configured_quota():
-    """每会话 5 次、单次 2 万 token 是用户设定的额度，锁住防止被改回去。"""
-    assert chart_reader.MAX_GENERATIONS_PER_SESSION == 5
-    from modules.ai_narrative import VISION_MAX_TOKENS
-    assert VISION_MAX_TOKENS == 20000
+    """每会话 10 次、最多 5 张、单图 1.5 MB 是设定值，锁住防止漂移。
+
+    单次 token 上限已按要求移除，token 约束只剩服务端每日配额；模块里不得再
+    出现 VISION_MAX_TOKENS 之类的固定上限。
+    """
+    assert chart_reader.MAX_GENERATIONS_PER_SESSION == 10
+    assert chart_reader.MAX_IMAGES == 5
+    assert chart_reader.MAX_IMAGE_BYTES == int(1.5 * 1024 * 1024)
+    assert chart_reader.MAX_RAW_BYTES == chart_reader.MAX_IMAGE_BYTES
+    assert chart_reader.MAX_TOTAL_BYTES == chart_reader.MAX_IMAGES * chart_reader.MAX_IMAGE_BYTES
+    from modules import ai_narrative
+    assert not hasattr(ai_narrative, "VISION_MAX_TOKENS")
 
 
 def test_merge_usage_sums_all_fields():

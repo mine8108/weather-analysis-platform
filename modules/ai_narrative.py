@@ -25,14 +25,8 @@ from utils import check_response_size
 
 DEFAULT_BASE_URL = "https://api.deepseek.com"
 VISION_TIMEOUT_SECONDS = 90
-# 输出预算。读图要求六段式长回答，且推理型模型的思考过程也从这里扣额度。
-# 实测 deepseek-flash：单图 reasoning 2065 tokens，双图 reasoning 10437 tokens，
-# 而六段正文只有约 1100 tokens。1600 与 4096 都被思考过程吃光，正文未开始即
-# 结束（finish_reason=length、content 空）。用户设定的单次额度为 2 万，可用
-# LLM_VISION_MAX_TOKENS 覆盖。
-VISION_MAX_TOKENS = 20000
-_MAX_TOKENS_FLOOR = 256
-_MAX_TOKENS_CEILING = 32000
+# 单次调用不再设固定输出预算：应用侧只按当日剩余 token 决定本次可用的 max_tokens，
+# 每日配额是唯一的 token 约束（见 modules/chart_reader.quota_budget）。
 
 _VISION_SYSTEM_PROMPT = (
     "你是严谨的气象分析助手，只依据用户提供的图像与说明进行判读，"
@@ -73,31 +67,13 @@ def resolve_vision_config():
     base_url = str(_secret("LLM_VISION_BASE_URL")
                    or _secret("LLM_BASE_URL")
                    or DEFAULT_BASE_URL).strip().rstrip("/")
-    return {"api_key": api_key, "base_url": base_url, "model": model,
-            "max_tokens": _resolve_max_tokens()}
-
-
-def _resolve_max_tokens():
-    """输出预算：可选键 LLM_VISION_MAX_TOKENS，非法或越界一律回落默认值。
-
-    一个可选的调优键不该有能力把读图功能整个弄坏，故此处只接受合法整数。
-    """
-    raw = str(_secret("LLM_VISION_MAX_TOKENS") or "").strip()
-    if not raw:
-        return VISION_MAX_TOKENS
-    try:
-        value = int(raw)
-    except (TypeError, ValueError):
-        return VISION_MAX_TOKENS
-    if _MAX_TOKENS_FLOOR <= value <= _MAX_TOKENS_CEILING:
-        return value
-    return VISION_MAX_TOKENS
+    return {"api_key": api_key, "base_url": base_url, "model": model}
 
 
 # 空正文的处置提示。三种常见原因的处置完全不同，只报「空内容」等于丢掉现场。
 _FINISH_HINTS = {
-    "length": "输出预算被耗尽（推理型模型的思考过程也从这里扣额度）。"
-              "可精简补充说明，或把 LLM_VISION_MAX_TOKENS 调大。",
+    "length": "输出被截断：可能撞上服务商自身的输出上限，或当日剩余 token 已不足"
+              "以容纳完整正文。可精简补充说明、减少图片张数，或次日再试。",
     "content_filter": "内容被服务商安全策略拦截，请更换图片或模型。",
     "stop": "模型正常结束却没输出正文，最常见的原因是该模型不支持图像输入。",
 }
@@ -173,7 +149,8 @@ def call_vision_llm(prompt, images_b64, api_key, base_url=None, model=None,
     """调用多模态模型生成读图解读。失败抛异常，由调用方处理。
 
     images_b64 为 data URL 列表（``data:image/jpeg;base64,...``）。
-    ``max_tokens`` 省略时用模块默认值（见 VISION_MAX_TOKENS）。
+    ``max_tokens`` 省略时不向服务商传该字段，单次调用不设固定上限；传入时用
+    调用方算出的当日剩余额度约束本次输出，保证日配额不被单次调用突破。
     ``usage_out`` 传入 dict 时会写入归一化后的用量；**失败路径也会写**，因为
     服务商对这次调用已经计费了（实测被截断的调用照样扣满预算）。只记成功路径
     会让失败风暴在账面上完全隐形。
@@ -186,23 +163,35 @@ def call_vision_llm(prompt, images_b64, api_key, base_url=None, model=None,
     for data_url in images_b64 or []:
         content.append({"type": "image_url", "image_url": {"url": data_url}})
 
-    resp = requests.post(
-        base_url + "/chat/completions",
-        headers={
-            "Authorization": "Bearer %s" % api_key,
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": model,
-            "messages": [
-                {"role": "system", "content": _VISION_SYSTEM_PROMPT},
-                {"role": "user", "content": content},
-            ],
-            "temperature": 0.3,
-            "max_tokens": int(max_tokens or VISION_MAX_TOKENS),
-        },
-        timeout=VISION_TIMEOUT_SECONDS,
-    )
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": _VISION_SYSTEM_PROMPT},
+            {"role": "user", "content": content},
+        ],
+        "temperature": 0.3,
+    }
+    if max_tokens is not None:
+        payload["max_tokens"] = int(max_tokens)
+
+    url = base_url + "/chat/completions"
+    headers = {
+        "Authorization": "Bearer %s" % api_key,
+        "Content-Type": "application/json",
+    }
+
+    def _post():
+        return requests.post(url, headers=headers, json=payload,
+                             timeout=VISION_TIMEOUT_SECONDS)
+
+    resp = _post()
+    # 服务商可能拒绝超过自身输出上限的 max_tokens。此时退回不传该字段，由服务商
+    # 默认上限兜底；每日 token 配额仍由调用前的余额检查与调用后的用量记账约束。
+    if (getattr(resp, "status_code", None) == 400
+            and "max_tokens" in payload
+            and "max_tokens" in str(getattr(resp, "text", "")).lower()):
+        payload.pop("max_tokens", None)
+        resp = _post()
     resp.raise_for_status()
     check_response_size(resp)
     data = resp.json()

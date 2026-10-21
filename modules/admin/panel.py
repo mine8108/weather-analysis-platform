@@ -25,6 +25,11 @@ _ADMIN_GLOBAL_WINDOW = 60        # 全局滑动窗口（秒）
 _ADMIN_GLOBAL_MAX = 20           # 全局窗口内最多失败次数
 _ADMIN_SESSION_SECONDS = 600     # 解锁后 10 分钟自动失效
 
+# 读图配额默认值（与 sql/schema.sql 第 9 节保持一致；tests/test_vision_quota.py 锁定）。
+# 数据库里已有值的用户以数据库为准，这里只是新列缺失或查询失败时的显示兜底。
+_DEFAULT_VISION_CALLS = 10
+_DEFAULT_VISION_TOKENS = 80000
+
 # 安全修复（SEC-11）：失败计数按会话隔离（key 为服务端生成的随机 sid），
 # 全局只做滑动窗口限速。旧实现用进程级硬锁，匿名者每 5 分钟失败 5 次
 # 就能让管理员长期无法解锁。
@@ -242,14 +247,15 @@ def render_admin_panel():
 
             # --- 5.3 读图配额（sql/schema.sql 第 9 节）---
             # 读图用的是部署方的 API 密钥，任何用户的每次调用都计费在部署方账上，
-            # 因此这三项是成本控制的唯一旋钮。每日次数给 0 即等于停用该用户的读图。
+            # 因此这两项是成本控制的唯一旋钮。每日次数给 0 即等于停用该用户的读图；
+            # 单次调用不设固定 token 上限，只受每日 token 余额约束。
             st.subheader("读图配额（每日）")
             prof_row = {}
             try:
                 prof = (
                     sb_admin.table("profiles")
                     .select("vision_calls_per_day,vision_tokens_per_day,"
-                            "vision_max_tokens_per_call,outbound_calls_per_day")
+                            "outbound_calls_per_day")
                     .eq("user_id", uid)
                     .execute()
                 )
@@ -265,40 +271,35 @@ def render_admin_panel():
                 used_row = (usage_rows.data or [{}])[0] if usage_rows.data else {}
                 st.caption(
                     "今日已用 %s / %s 次 · token %s / %s（每日 0 点北京时间重置）"
-                    % (used_row.get("calls", 0), prof_row.get("vision_calls_per_day", 5),
+                    % (used_row.get("calls", 0),
+                       prof_row.get("vision_calls_per_day", _DEFAULT_VISION_CALLS),
                        used_row.get("total_tokens", 0),
-                       prof_row.get("vision_tokens_per_day", 100000))
+                       prof_row.get("vision_tokens_per_day", _DEFAULT_VISION_TOKENS))
                 )
             except Exception:
                 st.caption("读图用量查询失败。若刚升级代码，请先重跑 sql/schema.sql。")
 
-            vc1, vc2, vc3 = st.columns(3)
+            vc1, vc2 = st.columns(2)
             with vc1:
                 calls_day = st.number_input(
                     "每日次数", min_value=0, max_value=200, step=1,
-                    value=int(prof_row.get("vision_calls_per_day", 5) or 0),
+                    value=int(prof_row.get("vision_calls_per_day", _DEFAULT_VISION_CALLS) or 0),
                     key="vq_calls")
             with vc2:
                 tokens_day = st.number_input(
                     "每日 token", min_value=0, max_value=100000000, step=10000,
-                    value=int(prof_row.get("vision_tokens_per_day", 100000) or 0),
+                    value=int(prof_row.get("vision_tokens_per_day", _DEFAULT_VISION_TOKENS) or 0),
                     key="vq_tokens")
-            with vc3:
-                max_call = st.number_input(
-                    "单次上限 token", min_value=256, max_value=32000, step=1000,
-                    value=int(prof_row.get("vision_max_tokens_per_call", 20000) or 20000),
-                    key="vq_maxcall")
+            st.caption("单次调用不设固定 token 上限，可用额度等于当日剩余 token。")
             if st.button("保存读图配额", key="vq_save"):
                 try:
                     sb_admin.table("profiles").update({
                         "vision_calls_per_day": int(calls_day),
                         "vision_tokens_per_day": int(tokens_day),
-                        "vision_max_tokens_per_call": int(max_call),
                     }).eq("user_id", uid).execute()
                     _audit_admin(sb_admin, "quota.vision.update", uid, {
                         "calls": int(calls_day),
                         "tokens": int(tokens_day),
-                        "max_call": int(max_call),
                     })
                     st.success("读图配额已更新（对该用户的下一次生成生效）。")
                 except Exception as e:
