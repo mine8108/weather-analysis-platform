@@ -66,7 +66,7 @@ six==1.17.0
 smmap==5.0.3
 starlette==1.8.0
 storage3==2.33.0
-streamlit==1.59.1
+streamlit==1.66.0
 StrEnum==0.4.15
 supabase-auth==2.33.0
 supabase-functions==2.33.0
