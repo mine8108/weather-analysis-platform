@@ -24,7 +24,7 @@
 
 ## 🛠 技术栈
 
-- **Web 框架**：[Streamlit](https://streamlit.io/) 1.59
+- **Web 框架**：[Streamlit](https://streamlit.io/) 1.66.1
 - **数据处理**：pandas 3.0 / numpy 2.5
 - **可视化**：Plotly 6.8（交互式，支持导出 HTML）
 - **报告生成**：python-docx 1.2（Word）
@@ -172,7 +172,7 @@ python -B tests/test_supabase_backend.py # Supabase 后端契约 26 条
 python -B tests/test_release_surface.py  # 版本/依赖/Secrets/CI 契约 18 条
 ```
 
-其余用例用 pytest 运行全部（当前共 **492** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
+其余用例用 pytest 运行全部（当前共 **531** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
 
 ```bash
 pip install -r requirements-dev.txt -c constraints.txt
@@ -283,7 +283,7 @@ Streamlit Cloud 已经重建容器：v2.3.0 发布时就遇到过推送十余分
 ### 2. 建表与行级安全
 - Supabase → SQL Editor → 新建查询 → 粘贴 `sql/schema.sql` 并执行。
 - 该脚本创建 `datasets` / `profiles` / `invite_codes` / `gfs_cache` /
-  `vision_usage` 五张业务表、`schema_version` 版本表与配套 RLS、函数，保证用户只能读写自己的数据。
+  `vision_usage` / `vision_calls` 等业务表、`schema_version` 版本表与配套 RLS、函数，保证用户只能读写自己的数据。
 - **升级到 2.3.7 及以后必须重跑一次该脚本**：新增了读图配额所需的
   `vision_usage` 表与三个配额函数（`get_vision_quota` / `begin_vision_call` /
   `record_vision_usage`），以及 `profiles` 上的三个配额列。脚本可重复执行，
@@ -293,11 +293,21 @@ Streamlit Cloud 已经重建容器：v2.3.0 发布时就遇到过推送十余分
   `security_selfcheck()` 自检函数、`schema_version` 版本表、邀请码
   `expires_at` / `revoked_at` 列，以及 `profiles` 历史用户补行。未重跑时缓存会
   静默回退到实时请求，管理员面板会提示「无法执行数据库安全自检」。
-- **本次（2026-10-22）配额调整也必须重跑**：`profiles` 的读图配额默认值改为
+- **2026-10-22 的历史配额迁移**：`profiles` 的读图配额默认值改为
   10 次 / 80,000 token，第 9 节的一次性迁移只修改仍为旧默认值（5 次 / 100,000）
-  的用户，管理员单独调整过的配额不受影响；脚本末尾会把 `schema_version` 写到
-  `2026-10-22`。图片体积、张数与单次 token 上限都是代码行为，随应用部署生效，
-  无需改库。
+  的用户。后续重跑不会再次迁移这些默认值，保留管理员设置；当前脚本末尾的
+  `schema_version` 为 `2026-10-23`。图片体积与张数限制随应用部署生效。
+
+**2026-10-23 审查修复的部署顺序**：先暂停读图请求并等待在途调用结束，在 Supabase 执行最新版 `sql/schema.sql`，再部署配套应用代码。数据库版本应为 `2026-10-23`。新增 `vision_calls` 调用账本、`vision_usage.reserved_tokens` 和仅服务端可执行的 `settle_vision_call`；旧 `record_vision_usage` 的执行权已撤销，旧应用与新 SQL 不兼容。脚本重跑保留用户自定义额度。
+
+读图现在先原子预留每日剩余预算，再发起模型请求，同一用户通常同时只允许一笔在途调用。可信用量到达后幂等结算并释放余量；超时或缺少可靠用量时按全额预留预算计入配额。配额服务不可用、结算服务未配置、供应商拒绝输出预算参数时停止调用。`SUPABASE_SERVICE_ROLE_KEY` 还用于可信结算，必须仅存在于服务端。进程中断后未结算的预留不会自动返还，当日新调用受限，次日使用新账期；不要未经核账直接清零。
+
+本地 PostgreSQL 行为验证可单独执行，使用 PGlite 运行仓库实际 SQL，不连接生产项目：
+
+```bash
+npm ci --prefix tests/sql --ignore-scripts --no-audit --no-fund
+npm test --prefix tests/sql
+```
 
 ### 3. 配置密钥
 - 本地：复制 `.streamlit/secrets.toml.example` 为 `.streamlit/secrets.toml` 并填入。

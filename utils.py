@@ -45,12 +45,15 @@ def _safe_toast(body, icon=None):
 # ============================================================
 
 def df_fingerprint(df):
-    """计算 DataFrame 轻量指纹（行数+列名+首尾3行 MD5）"""
-    if df is None or df.empty:
+    """全量内容指纹：包括列顺序、类型、索引和每一行。"""
+    if df is None:
         return "empty"
-    head_tail = pd.concat([df.head(3), df.tail(3)])
-    raw = f"{len(df)}_{','.join(df.columns)}_{head_tail.to_csv(index=False)}"
-    return hashlib.md5(raw.encode()).hexdigest()[:12]
+    digest = hashlib.sha256(repr((list(df.columns), list(map(str, df.dtypes)))).encode())
+    try:
+        digest.update(pd.util.hash_pandas_object(df, index=True).values.tobytes())
+    except TypeError:
+        digest.update(df.to_csv(index=True).encode("utf-8"))
+    return digest.hexdigest()
 
 
 def tab_fingerprint_match(tab_name, df):

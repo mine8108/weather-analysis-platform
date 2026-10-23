@@ -1,0 +1,6 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {"test": "node vision_quota.mjs"},
+  "dependencies": {"@electric-sql/pglite": "0.5.11"}
+}

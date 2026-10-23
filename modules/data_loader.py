@@ -111,24 +111,23 @@ def detect_field_types(df):
 
 def _read_csv_content(content: bytes) -> pd.DataFrame:
     """按编码回退解析 CSV（SEC-03：限制 nrows，避免超大文件先全量进内存）。"""
-    encodings = ["utf-8", "gbk", "gb2312", "gb18030", "latin-1"]
+    from modules.dataset import station_dtypes
+    encodings = ["utf-8-sig", "gb18030", "gbk", "gb2312"]
     df = None
     for enc in encodings:
         try:
+            text = content.decode(enc, errors="strict")
+            columns = pd.read_csv(StringIO(text), nrows=0).columns
             candidate = pd.read_csv(
-                StringIO(content.decode(enc, errors="replace")),
-                nrows=_MAX_ROWS + 1,
+                StringIO(text), nrows=_MAX_ROWS + 1, dtype=station_dtypes(columns),
             )
-            if len(candidate.columns) > 1:
+            if len(candidate.columns) >= 1:
                 df = candidate
                 break
-        except Exception:
+        except (UnicodeError, pd.errors.ParserError, pd.errors.EmptyDataError):
             continue
     if df is None:
-        df = pd.read_csv(
-            StringIO(content.decode("utf-8", errors="replace")),
-            nrows=_MAX_ROWS + 1,
-        )
+        raise ValueError("无法解码 CSV，请保存为 UTF-8 或 GB18030 编码后重试。")
     # 去除全空行
     return df.dropna(how="all").reset_index(drop=True)
 
@@ -156,8 +155,10 @@ def load_excel(file) -> pd.DataFrame:
     if cached is not None:
         return cached.copy()
     _check_xlsx_bomb(data)
+    from modules.dataset import station_dtypes
+    columns = pd.read_excel(BytesIO(data), engine="openpyxl", nrows=0).columns
     df = pd.read_excel(
-        BytesIO(data), engine="openpyxl", nrows=_MAX_ROWS + 1
+        BytesIO(data), engine="openpyxl", nrows=_MAX_ROWS + 1, dtype=station_dtypes(columns)
     )
     df = df.dropna(how="all").reset_index(drop=True)
     _check_shape(df)
@@ -638,6 +639,7 @@ def fetch_open_meteo(lat, lon, start_date, end_date):
             "weather_code",
         ],
         "timezone": "Asia/Shanghai",
+        "wind_speed_unit": "ms",
     }
 
     resp = requests.get(url, params=params, timeout=30)
@@ -664,6 +666,17 @@ def fetch_open_meteo(lat, lon, start_date, end_date):
         "visibility": [None] * len(hourly["time"]),
     })
 
+    # 接入边界使用响应单位校验，兼容历史缓存中的 km/h。
+    units = data.get("hourly_units") or {}
+    wind_unit = units.get("wind_speed_10m", "m/s")
+    if wind_unit not in {"m/s", "km/h"}:
+        return None, f"API 返回不支持的风速单位：{wind_unit}"
+    df["wind_speed"] = pd.to_numeric(df["wind_speed"], errors="coerce")
+    if wind_unit == "km/h":
+        df["wind_speed"] /= 3.6
+    if units.get("cloud_cover", "%") != "%":
+        return None, "API 返回不支持的云量单位"
+    df["cloud_cover"] = pd.to_numeric(df["cloud_cover"], errors="coerce") / 10.0
     df["station_id"] = f"API({lat:.1f},{lon:.1f})"
     return df, None
 
@@ -939,10 +952,11 @@ def merge_manual_rows(df, manual_df):
     """
     if manual_df is None or manual_df.empty:
         return df
+    from modules.dataset import canonicalize
     if df is None or df.empty:
-        merged = manual_df.copy()
+        merged = canonicalize(manual_df)
     else:
-        merged = pd.concat([df, manual_df], ignore_index=True)
+        merged = pd.concat([canonicalize(df), canonicalize(manual_df)], ignore_index=True)
     if "timestamp" in merged.columns:
         subset = ["timestamp"]
         if "station_id" in merged.columns:

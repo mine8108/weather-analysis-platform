@@ -235,12 +235,8 @@ def test_high_temperature_all_nan_temperature_returns_empty():
     )
 
 
-def test_high_temperature_without_timestamp_column_still_checks_24h():
-    """缺 timestamp 列时跳过「连续 3 天」判据，24h 极值判据仍生效。"""
-    temps = np.r_[_const(23, 20.0), [38.0]]
-    warnings = analyzer.check_high_temperature(pd.DataFrame({"temperature": temps}))
-
-    assert _levels(warnings) == ["橙色"], f"实际 {warnings!r}"
+def test_high_temperature_without_time_is_not_a_24h_measurement():
+    assert analyzer.check_high_temperature(pd.DataFrame({"temperature": [38.] * 24})) == []
 
 
 def test_high_temperature_single_hour_day_counts_as_hot_day_current_behaviour():
@@ -725,7 +721,7 @@ def test_frost_uses_air_temperature_as_ground_proxy_current_behaviour():
 # ============================================================
 def test_thunderstorm_yellow_trigger_code_95():
     """天气码 95（雷暴）→ 黄色/Ⅲ级。"""
-    warnings = analyzer.check_thunderstorm(pd.DataFrame({"weather_code": [0, 0, 0, 0, 0, 95]}))
+    warnings = analyzer.check_thunderstorm(_frame(len([0, 0, 0, 0, 0, 95]), weather_code=[0, 0, 0, 0, 0, 95]))
 
     assert len(warnings) == 1, f"应只报 1 条雷电预警，实际 {warnings!r}"
     warn = warnings[0]
@@ -744,7 +740,7 @@ def test_thunderstorm_always_yellow():
     assert set(THUNDER_WARNING) == {"黄色", "橙色", "红色"}, "config 定义了三级雷电预警"
 
     for code in (95, 96, 97, 99):
-        warnings = analyzer.check_thunderstorm(pd.DataFrame({"weather_code": [0, 0, code]}))
+        warnings = analyzer.check_thunderstorm(_frame(len([0, 0, code]), weather_code=[0, 0, code]))
         assert _levels(warnings) == ["黄色"], f"天气码 {code} 实际 {warnings!r}"
         assert warnings[0]["level_num"] == THUNDER_WARNING["黄色"]["level"]
         assert warnings[0]["icon"] == THUNDER_WARNING["黄色"]["icon"]
@@ -753,7 +749,7 @@ def test_thunderstorm_always_yellow():
 def test_thunderstorm_no_trigger_without_thunder_code():
     """非雷暴天气码 → 空列表。"""
     _assert_empty(
-        analyzer.check_thunderstorm(pd.DataFrame({"weather_code": [0, 1, 2, 3, 61, 80]})),
+        analyzer.check_thunderstorm(_frame(len([0, 1, 2, 3, 61, 80]), weather_code=[0, 1, 2, 3, 61, 80])),
         "check_thunderstorm(无雷暴码)",
     )
 
@@ -763,17 +759,17 @@ def test_thunderstorm_missing_weather_code_returns_empty():
     _assert_empty(analyzer.check_thunderstorm(_frame(24)), "check_thunderstorm(无 weather_code 列)")
 
 
-def test_thunderstorm_only_last_six_records_considered_current_behaviour():
+def test_thunderstorm_uses_actual_last_six_hours():
     """现状记录（缺陷 D-11）：只检查最后 6 条记录的天气码。
 
     analyzer.py:267 用 tail(6) 实现「6h 内」，但按记录条数而非时间差截取，
     采样间隔非 1 小时时该窗口的时间含义会失真；8 条数据中的早期雷暴码被忽略。
     """
     _assert_empty(
-        analyzer.check_thunderstorm(pd.DataFrame({"weather_code": [95, 0, 0, 0, 0, 0, 0, 0]})),
+        analyzer.check_thunderstorm(_frame(len([95, 0, 0, 0, 0, 0, 0, 0]), weather_code=[95, 0, 0, 0, 0, 0, 0, 0])),
         "check_thunderstorm(雷暴码落在窗口之外)",
     )
-    assert _levels(analyzer.check_thunderstorm(pd.DataFrame({"weather_code": [0, 0, 0, 0, 0, 0, 0, 95]}))) == ["黄色"]
+    assert _levels(analyzer.check_thunderstorm(_frame(len([0, 0, 0, 0, 0, 0, 0, 95]), weather_code=[0, 0, 0, 0, 0, 0, 0, 95]))) == ["黄色"]
 
 
 def test_thunderstorm_window_honours_custom_config():
@@ -789,11 +785,11 @@ def test_thunderstorm_window_honours_custom_config():
 def test_thunderstorm_single_record_is_rejected():
     """修复 R-37：雷电检测要求最小样本长度（≥3 条），1 条记录不再报警。"""
     _assert_empty(
-        analyzer.check_thunderstorm(pd.DataFrame({"weather_code": [95]})),
+        analyzer.check_thunderstorm(_frame(len([95]), weather_code=[95])),
         "check_thunderstorm(1 条记录)",
     )
     assert _levels(
-        analyzer.check_thunderstorm(pd.DataFrame({"weather_code": [0, 0, 95]}))
+        analyzer.check_thunderstorm(_frame(len([0, 0, 95]), weather_code=[0, 0, 95]))
     ) == ["黄色"]
 
 

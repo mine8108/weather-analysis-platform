@@ -134,6 +134,13 @@ def _normalize_usage(usage):
     归一化后调用方不需要知道服务商差异。
     """
     usage = usage if isinstance(usage, dict) else {}
+    def valid_count(key):
+        value = usage.get(key)
+        return (isinstance(value, int) and not isinstance(value, bool) and value >= 0
+                or isinstance(value, str) and value.isascii() and value.isdecimal())
+    if not (valid_count("total_tokens")
+            or valid_count("prompt_tokens") and valid_count("completion_tokens")):
+        return {}  # 缺失或异常的计数必须保留为未知用量，不能释放预留预算。
     details = usage.get("completion_tokens_details")
     details = details if isinstance(details, dict) else {}
     return {
@@ -185,18 +192,17 @@ def call_vision_llm(prompt, images_b64, api_key, base_url=None, model=None,
                              timeout=VISION_TIMEOUT_SECONDS)
 
     resp = _post()
-    # 服务商可能拒绝超过自身输出上限的 max_tokens。此时退回不传该字段，由服务商
-    # 默认上限兜底；每日 token 配额仍由调用前的余额检查与调用后的用量记账约束。
+    # 无法确认供应商支持的上限时终止，禁止删除预算约束后重试。
     if (getattr(resp, "status_code", None) == 400
             and "max_tokens" in payload
             and "max_tokens" in str(getattr(resp, "text", "")).lower()):
-        payload.pop("max_tokens", None)
-        resp = _post()
+        raise ValueError("视觉服务拒绝 max_tokens 预算参数；本次已停止，"
+                         "请配置支持输出限额的模型或调整预算后重试。")
     resp.raise_for_status()
     check_response_size(resp)
     data = resp.json()
     # 记账先于解析：后面任何分支抛异常，用量都已经落账
-    if usage_out is not None:
+    if usage_out is not None and isinstance(data.get("usage"), dict) and data["usage"]:
         usage_out.update(_normalize_usage(data.get("usage")))
     try:
         choice = data["choices"][0]

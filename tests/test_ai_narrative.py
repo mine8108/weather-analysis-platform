@@ -171,12 +171,8 @@ def test_call_vision_llm_accepts_max_tokens_override():
     assert captured["max_tokens"] == 8000
 
 
-def test_call_vision_llm_retries_without_max_tokens_on_provider_rejection():
-    """服务商拒绝过大的 max_tokens 时退回不传该字段，不让日报额度检查把功能弄挂。
-
-    日额度 80,000 时首次调用可能传出数万 max_tokens，部分服务商只接受自己的
-    输出上限。第一次 400 不应计费，重试一次即可继续。
-    """
+def test_call_vision_llm_rejects_unbounded_retry():
+    """供应商不接受限额参数时必须停止，不可删除预算重试。"""
     payloads = []
 
     class _BadRequest:
@@ -198,13 +194,16 @@ def test_call_vision_llm_retries_without_max_tokens_on_provider_rejection():
     original = ai_narrative.requests.post
     try:
         ai_narrative.requests.post = _fake_post
-        text = ai_narrative.call_vision_llm("p", ["data:a"], "k", model="m",
-                                            max_tokens=60000)
+        try:
+            ai_narrative.call_vision_llm("p", ["data:a"], "k", model="m", max_tokens=60000)
+        except ValueError as exc:
+            assert "预算" in str(exc)
+        else:
+            raise AssertionError("must stop when the provider rejects a bound")
     finally:
         ai_narrative.requests.post = original
-    assert text == "正文"
     assert payloads[0]["max_tokens"] == 60000
-    assert "max_tokens" not in payloads[1]
+    assert len(payloads) == 1
 
 
 def test_resolve_vision_config_ignores_legacy_max_tokens_secret():
@@ -286,7 +285,7 @@ def test_call_vision_llm_reports_usage_even_when_content_empty():
 
 
 def test_call_vision_llm_tolerates_missing_usage():
-    """服务商不返回 usage 时按 0 计，不得让记账把正常调用弄挂。"""
+    """服务商不返回 usage 时保留未知状态，正文仍正常返回。"""
     original = ai_narrative.requests.post
     usage = {}
     try:
@@ -296,7 +295,7 @@ def test_call_vision_llm_tolerates_missing_usage():
                                      usage_out=usage)
     finally:
         ai_narrative.requests.post = original
-    assert usage == {"prompt": 0, "completion": 0, "reasoning": 0, "total": 0}
+    assert usage == {}  # unknown usage must not be recorded as a free call
 
 
 def test_call_vision_llm_supports_multiple_images():

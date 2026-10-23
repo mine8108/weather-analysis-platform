@@ -21,7 +21,7 @@ from config import AQI_BREAKPOINTS, AQI_LEVELS
 # 标准 IAQI 节点。每个污染物的节点序列必须是它的前缀，且相邻档首尾相接。
 IAQI_NODES = (0, 50, 100, 150, 200, 300, 400, 500)
 
-# 允许的末档节点：气态污染物的 1 小时表仅定义到 200
+# 允许的末档节点：SO₂ 当前采用的 1 小时表止于 200，其余污染物覆盖至 500。
 ALLOWED_IAQI_CAPS = (200, 500)
 
 # 必须提供断点表的污染物
@@ -116,7 +116,7 @@ def iaqi(conc, pollutant):
     """单污染物分指数。无法计算时返回 None。
 
     超末档按末档斜率线性外推后钳制到该污染物自身的最大 IAQI 节点
-    （颗粒物与 CO 为 500，气态污染物为 200）——**不返回 0**。
+    （SO₂ 为 200，其余污染物为 500），不将越界值当作零。
     """
     key = normalize_key(pollutant)
     if key is None or key not in AQI_BREAKPOINTS:

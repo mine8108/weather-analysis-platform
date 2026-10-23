@@ -50,11 +50,6 @@ MIN_INTERVAL_SECONDS = 60
 # 硬配额在服务端（见 sql/schema.sql 第 9 节），刷新无法绕过。
 MAX_GENERATIONS_PER_SESSION = 10
 
-# 配额服务不可用时的进程级兜底额度（每人每日）。单进程部署下它跨会话生效，
-# 刷新页面无法重置，故障不再把成本约束退化为零。
-LOCAL_FALLBACK_CALLS = 3
-_LOCAL_QUOTA = {}
-
 # 单次输出预算要留给 prompt 与估算误差的余量
 SAFETY_MARGIN_TOKENS = 2000
 
@@ -268,58 +263,29 @@ def format_usage(usage):
 
 # ============================================================
 # 服务端每日配额（见 sql/schema.sql 第 9 节）
-# 三个纯函数把「服务不可用」与「配额已用完」分开处置：
-# 前者是故障，后者是正常拒绝。故障时启用进程级临时额度，既不静默绕过配额，
-# 也不因为一次数据库抖动把功能整体锁死；临时额度跨会话有效，刷新无法重置。
+# 只有拿到服务端预留的预算与调用标识后才允许访问模型。
 # ============================================================
 
-def _local_quota_take(user_key):
-    """进程级兜底额度：同一用户当日累计计数，跨会话生效。"""
-    from datetime import datetime
-    today = datetime.now().strftime("%Y-%m-%d")
-    entry = _LOCAL_QUOTA.get(user_key)
-    if not entry or entry["day"] != today:
-        entry = {"day": today, "calls": 0}
-        _LOCAL_QUOTA[user_key] = entry
-    if entry["calls"] >= LOCAL_FALLBACK_CALLS:
-        return False
-    entry["calls"] += 1
-    return True
-
-
 def quota_allows(state, user_key=""):
-    """(是否放行, 提示文本)。state 为 None 表示配额服务不可用。
-
-    故障时不再无条件放行。改为进程级临时额度后，成本上限从「无限」变成
-    「每人每日 LOCAL_FALLBACK_CALLS 次」，且刷新页面无法重置。
-    """
+    """返回是否允许调用及原因；预留失败时停止付费请求。"""
     if state:
-        if state.get("allowed"):
+        if state.get("allowed") and state.get("call_id") and state.get("reserved_tokens", 0) > 0:
             return True, ""
         return False, str(state.get("message") or "今日读图配额已用完。")
-    if _local_quota_take(user_key or "anonymous"):
-        return True, ("⚠️ 配额服务不可用，已启用进程级临时额度"
-                      "（每人每日 %d 次）。" % LOCAL_FALLBACK_CALLS)
-    return False, "配额服务不可用，临时额度已用完，请稍后重试。"
+    return False, "配额服务暂不可用，本次未发起模型请求，请稍后重试。"
 
 
 def quota_budget(state, prompt_tokens=0):
-    """本次调用可用的 max_tokens：只由当日剩余 token 决定。
-
-    2026-10-22 起不再设固定单次上限：只要当日余额还够，本次调用就能拿到剩余
-    额度减掉 prompt 估算与安全余量后的全部预算。返回 None 表示配额服务不可用，
-    调用方不传 max_tokens（由服务商默认输出上限兜底）；返回 0 表示当日余额不足，
-    调用方必须拒绝。
-    """
+    """从本次已预留预算扣除输入估算和安全余量；返回 0 时停止调用。"""
     if not state:
-        return None
-    remaining = state.get("tokens_remaining")
+        return 0
+    remaining = state.get("reserved_tokens")
     if remaining is None:
-        return None
+        return 0
     try:
         remaining = int(remaining)
     except (TypeError, ValueError):
-        return None
+        return 0
     try:
         reserve = max(int(prompt_tokens or 0), 0)
     except (TypeError, ValueError):
@@ -334,11 +300,14 @@ def format_daily_quota(state):
     """今日配额状态的人话描述；state 不可用时返回空串。"""
     if not state:
         return ""
-    return ("今日读图已用 %s/%s 次（剩余 %s）· token %s/%s"
+    line = ("今日读图已用 %s/%s 次（剩余 %s）· token %s/%s"
             % (state.get("calls_used", 0), state.get("calls_limit", 0),
                state.get("calls_remaining", 0),
                format(int(state.get("tokens_used") or 0), ","),
                format(int(state.get("tokens_limit") or 0), ",")))
+    if state.get("tokens_reserved"):
+        line += "（处理中预留 %s）" % format(int(state["tokens_reserved"]), ",")
+    return line
 
 
 def daily_quota_exhausted(state):
@@ -453,7 +422,7 @@ def _render_failure_table():
         st.markdown(_FAILURE_TABLE)
 
 
-def _record_usage(usage):
+def _record_usage(usage, call_id):
     """把一次调用的用量并入会话累计、写回服务端，并记下最近一次。
 
     必须在成功与失败两条路径上都调用：服务商对失败的调用同样计费。
@@ -465,8 +434,15 @@ def _record_usage(usage):
     total = merge_usage(st.session_state.get("chart_reader_usage_total"), usage)
     st.session_state["chart_reader_usage_last"] = last
     st.session_state["chart_reader_usage_total"] = total
-    if not record_vision_usage(usage):
-        st.caption("⚠️ 本次用量未能写入服务端配额，管理员看到的今日用量可能偏低。")
+    pending = st.session_state.get("_pending_vision_usage", {})
+    if not record_vision_usage(usage, call_id):
+        pending[call_id] = usage
+        st.caption("本次用量暂未结算，预算仍保留；重新打开此页会重试结算。")
+    else:
+        pending.pop(call_id, None)
+    st.session_state["_pending_vision_usage"] = pending
+    if not usage:
+        st.caption("服务商未返回可靠用量，本次按预留预算计入每日配额。")
     return last, total
 
 
@@ -497,13 +473,14 @@ def _generate(cfg, images, note):
         return
     # 安全修复（SEC-24）：预算要预留本次图片 prompt 的开销，否则实际总量会超配额。
     # 不再叠加固定单次上限：本次预算就是当日剩余额度。
-    budget = quota_budget(quota_state, estimate_image_tokens(images) + 800)
-    if budget is not None and budget <= 0:
+    prompt = build_chart_prompt(images, note)
+    budget = quota_budget(quota_state, estimate_image_tokens(images) + len(prompt.encode("utf-8")) + 800)
+    if budget <= 0:
+        _record_usage({"total": 0}, quota_state["call_id"])
         st.warning("今日 token 剩余额度不足以再生成一次，"
                    "请次日再试或联系管理员调整配额。")
         return
 
-    prompt = build_chart_prompt(images, note)
     data_urls = [image_to_data_url(item["data_bytes"], item["mime"])
                  for item in images]
 
@@ -514,7 +491,7 @@ def _generate(cfg, images, note):
                                    base_url=cfg["base_url"], model=cfg["model"],
                                    max_tokens=budget, usage_out=usage)
         except Exception as exc:  # noqa: BLE001 - 任何失败都报错，不降级
-            _record_usage(usage)
+            _record_usage(usage, quota_state["call_id"])
             st.session_state["chart_reader_gen_count"] = count + 1
             detail = str(exc).strip() or exc.__class__.__name__
             st.error("读图解析失败：%s" % detail[:200])
@@ -525,7 +502,7 @@ def _generate(cfg, images, note):
                        % ("（消耗 %s）" % format_usage(usage) if spent else ""))
             return
 
-    _record_usage(usage)
+    _record_usage(usage, quota_state["call_id"])
     st.session_state["chart_reader_text"] = text
     st.session_state["chart_reader_meta"] = build_report_meta(
         "上传气象图 %d 张（模型：%s）" % (len(images), cfg["model"]))
@@ -538,6 +515,13 @@ def _generate(cfg, images, note):
 def render_chart_reader_tab():
     """渲染 AI 读图解析页。不依赖任何已导入数据。"""
     from modules.ai_narrative import display_report, resolve_vision_config
+    from db import record_vision_usage
+
+    pending = st.session_state.get("_pending_vision_usage", {})
+    for call_id, usage in list(pending.items()):
+        if record_vision_usage(usage, call_id):
+            pending.pop(call_id, None)
+    st.session_state["_pending_vision_usage"] = pending
 
     st.subheader("[读图] AI 读图解析")
     st.caption("上传气象图（天气图 / 卫星云图 / 雷达回波 / 模式形势图），"
@@ -607,7 +591,7 @@ def render_chart_reader_tab():
         st.caption("%s（每日 0 点北京时间重置；单次调用不另设 token 上限）"
                    % quota_line)
     elif quota_state is None and st.session_state.get("auth_user"):
-        st.caption("⚠️ 未能读取今日配额，本次按会话级限制放行。")
+        st.caption("⚠️ 未能读取今日配额，恢复服务后才能生成解读。")
 
     if total_usage.get("completion"):
         st.caption("本会话累计消耗 %s。" % format_usage(total_usage))
@@ -617,7 +601,9 @@ def render_chart_reader_tab():
     daily_blocked = daily_quota_exhausted(quota_state)
     disabled = (not ok_images) or bool(total_error) or daily_blocked \
         or count >= MAX_GENERATIONS_PER_SESSION
-    if daily_blocked:
+    if daily_blocked and quota_state.get("tokens_reserved"):
+        st.info("已有请求占用预算，请等待其完成或重新打开此页重试结算。")
+    elif daily_blocked:
         st.error("今日读图配额已用完，生成按钮已禁用。次日自动重置，"
                  "或请管理员调整你的配额。")
     elif remaining <= 0:

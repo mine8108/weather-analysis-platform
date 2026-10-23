@@ -23,16 +23,6 @@ from modules.data_loader import (
 )
 from modules.data_quality import render_quality_report
 from modules.visualizer import render_visualization_tab
-from modules.analyzer import (
-    check_high_temperature,
-    check_cold_wave,
-    check_gale,
-    check_fog,
-    check_rainstorm,
-    check_frost,
-    check_thunderstorm,
-    check_haze,
-)
 from modules.chart_reader import render_chart_reader_tab
 from modules.codec import render_codec_tab
 from modules.reporter import render_export_tab
@@ -411,12 +401,14 @@ def _adopt_dataset(df, *, source=None, quality_score=None):
     这里，否则列名归一与 schema 版本会分叉。
     """
     from modules.dataset import prepare_import
+    from modules.analysis_service import invalidate_analysis
+    invalidate_analysis(st.session_state)
     ds = prepare_import(
         df,
         source=(st.session_state.get("source", "") if source is None else source),
         quality_score=(st.session_state.get("quality_score", 0.0)
                        if quality_score is None else quality_score),
-        warnings=st.session_state.get("warnings_list", []),
+        warnings=[],
     )
     st.session_state["df"] = ds.df
     st.session_state["source"] = ds.source
@@ -761,8 +753,6 @@ if st.session_state["active_tab"] == 0:
         elif method == "manual":
             df_manual = _safe_render("导入-手动", render_manual_input_section)
             if df_manual is not None:
-                df_manual["timestamp"] = pd.to_datetime(
-                    df_manual["timestamp"], errors="coerce")
                 _adopt_dataset(merge_manual_rows(
                     st.session_state.get("df"), df_manual),
                     source=st.session_state.get("source") or "手动录入")
@@ -853,8 +843,6 @@ if st.session_state["active_tab"] == 0:
         with sub_tab2:
             df_manual = _safe_render("导入-手动", render_manual_input_section)
             if df_manual is not None:
-                df_manual["timestamp"] = pd.to_datetime(
-                    df_manual["timestamp"], errors="coerce")
                 _adopt_dataset(merge_manual_rows(
                     st.session_state.get("df"), df_manual),
                     source=st.session_state.get("source") or "手动录入")
@@ -886,27 +874,6 @@ if st.session_state["active_tab"] == 1:
 
 # ---- Tab 3: AI 读图解析 ----
 if st.session_state["active_tab"] == 3:
-    # 数据指纹缓存：数据未变化时跳过重复检测
-    if st.session_state["df"] is not None:
-        fp = _df_fingerprint(st.session_state["df"])
-        if st.session_state.get("_warn_fp") != fp:
-            all_w = []
-            checks = [
-                ("高温", check_high_temperature), ("寒潮", check_cold_wave),
-                ("大风", check_gale), ("大雾", check_fog),
-                ("暴雨", check_rainstorm), ("霜冻", check_frost),
-                ("雷电", check_thunderstorm), ("霾", check_haze),
-            ]
-            for name, fn in checks:
-                try:
-                    all_w += fn(st.session_state["df"])
-                except Exception as e:
-                    st.warning(
-                        f"{name}检测因数据问题跳过："
-                        + safe_error_text(e, "该检测项的数据格式不满足要求")
-                    )
-            st.session_state["warnings_list"] = all_w
-            st.session_state["_warn_fp"] = fp
     # 读图解析不依赖已导入数据，无条件渲染（详见 modules/chart_reader）
     _safe_render("读图解析", render_chart_reader_tab)
 

@@ -12,6 +12,7 @@
 """
 
 import pandas as pd
+from modules.observations import per_station, numeric_series, recent, hourly_totals
 
 from config import (
     HIGH_TEMP_WARNING, COLD_WAVE_WARNING, GALE_WARNING,
@@ -59,6 +60,7 @@ def heat_index_celsius(t_c, rh):
     return (hi_f - 32.0) * 5.0 / 9.0
 
 
+@per_station
 def check_high_temperature(df):
     """高温事件检测
 
@@ -72,8 +74,8 @@ def check_high_temperature(df):
     if "temperature" not in df.columns:
         return warnings_list
 
-    temps = pd.to_numeric(df["temperature"], errors="coerce").dropna()
-    if len(temps) < 24:  # 至少24条小时数据
+    temps = numeric_series(df, "temperature")
+    if temps.notna().sum() < 24:
         return warnings_list
 
     cfg = HIGH_TEMP_WARNING
@@ -93,6 +95,8 @@ def check_high_temperature(df):
                 yellow_temp = custom.get("黄色", yellow_cfg["temp"])
                 need_days = yellow_cfg.get("days", 3)
                 daily_max = daily.groupby("date")["temperature"].max()
+                daily_max.index = pd.to_datetime(daily_max.index)
+                daily_max = daily_max.asfreq("D")  # 缺日中断连续事件
                 consecutive = max_consecutive = 0
                 for hit in (daily_max >= yellow_temp):
                     consecutive = consecutive + 1 if hit else 0
@@ -107,7 +111,7 @@ def check_high_temperature(df):
                     })
 
     # 检查24h内最高气温：从高到低判级，只取最高级别
-    max_recent = temps.tail(24).max()
+    max_recent = recent(temps, 24).max()
     for level in ["红色", "橙色"]:
         threshold = custom.get(level, cfg[level]["temp"])
         if max_recent >= threshold:
@@ -123,6 +127,7 @@ def check_high_temperature(df):
     return warnings_list
 
 
+@per_station
 def check_cold_wave(df):
     """寒潮事件检测
 
@@ -136,15 +141,16 @@ def check_cold_wave(df):
     if "temperature" not in df.columns:
         return warnings_list
 
-    temps = pd.to_numeric(df["temperature"], errors="coerce").dropna()
+    temps = numeric_series(df, "temperature")
     if len(temps) < 24:
         return warnings_list
 
     t_now = float(temps.iloc[-1])
-    t_24h_ago = float(temps.iloc[-25]) if len(temps) >= 25 else float(temps.iloc[0])
-    drop_24h = t_24h_ago - t_now  # 降温为正
-    drop_48h = (float(temps.iloc[-49]) - t_now) if len(temps) >= 49 else None
-    min_temp = float(temps.tail(24).min())
+    t_24h_ago = temps.get(temps.index[-1] - pd.Timedelta(hours=24))
+    t_48h_ago = temps.get(temps.index[-1] - pd.Timedelta(hours=48))
+    drop_24h = None if t_24h_ago is None else float(t_24h_ago) - t_now
+    drop_48h = None if t_48h_ago is None else float(t_48h_ago) - t_now
+    min_temp = float(recent(temps, 24).min())
 
     custom = current_thresholds().get("cold_wave", {})
     checks = [
@@ -174,19 +180,20 @@ def check_cold_wave(df):
     return warnings_list
 
 
+@per_station
 def check_gale(df):
     """大风事件检测"""
     warnings_list = []
     if "wind_speed" not in df.columns:
         return warnings_list
 
-    ws = df["wind_speed"].dropna()
-    if len(ws) < 6:
+    ws = numeric_series(df, "wind_speed")
+    if ws.notna().sum() < 6:
         return warnings_list
 
-    max_recent_24h = ws.tail(24).max() if len(ws) >= 24 else ws.max()
-    max_recent_12h = ws.tail(12).max() if len(ws) >= 12 else ws.max()
-    max_recent_6h = ws.tail(6).max() if len(ws) >= 6 else ws.max()
+    max_recent_24h = recent(ws, 24).max()
+    max_recent_12h = recent(ws, 12).max()
+    max_recent_6h = recent(ws, 6).max()
 
     level_checks = [
         ("蓝色", 24, max_recent_24h, GALE_WARNING["蓝色"]["avg_wind"]),
@@ -216,6 +223,7 @@ def check_gale(df):
     return warnings_list
 
 
+@per_station
 def check_fog(df):
     """大雾事件检测
 
@@ -226,11 +234,11 @@ def check_fog(df):
     if "visibility" not in df.columns:
         return warnings_list
 
-    vis = pd.to_numeric(df["visibility"], errors="coerce").dropna()
+    vis = numeric_series(df, "visibility")
     if len(vis) == 0:
         return warnings_list
 
-    min_vis_m = float(vis.tail(24).min()) * 1000  # 转为米
+    min_vis_m = float(recent(vis, 24).min()) * 1000  # 转为米
 
     for level in ["红色", "橙色", "黄色"]:  # 从高到低检查
         threshold = current_thresholds().get("fog", {}).get(level, FOG_WARNING[level]["visibility"])
@@ -247,6 +255,7 @@ def check_fog(df):
     return warnings_list
 
 
+@per_station
 def check_rainstorm(df):
     """暴雨事件检测
 
@@ -257,14 +266,15 @@ def check_rainstorm(df):
     if "precipitation" not in df.columns:
         return warnings_list
 
-    precip = pd.to_numeric(df["precipitation"], errors="coerce").dropna()
+    precip = numeric_series(df, "precipitation")
     if len(precip) < 3 or precip.sum() == 0:
         return warnings_list
 
     # 滚动窗口求和
-    rain_12h = precip.tail(12).sum()
-    rain_6h = precip.tail(6).sum()
-    rain_3h = precip.tail(3).sum()
+    def latest(hours):
+        totals = hourly_totals(precip, hours)
+        return float(totals.iloc[-1]) if len(totals) else float("nan")
+    rain_12h, rain_6h, rain_3h = (latest(h) for h in (12, 6, 3))
 
     custom = current_thresholds().get("rainstorm", {})
 
@@ -297,6 +307,7 @@ def check_rainstorm(df):
     return warnings_list
 
 
+@per_station
 def check_frost(df):
     """霜冻事件检测（用气温近似地温，见 R-38）
 
@@ -306,11 +317,11 @@ def check_frost(df):
     if "temperature" not in df.columns:
         return warnings_list
 
-    temps = pd.to_numeric(df["temperature"], errors="coerce").dropna()
+    temps = numeric_series(df, "temperature")
     if len(temps) == 0:
         return warnings_list
 
-    min_temp = float(temps.tail(24).min())
+    min_temp = float(recent(temps, 24).min())
     custom = current_thresholds().get("frost", {})
 
     for level in ["橙色", "黄色", "蓝色"]:
@@ -328,6 +339,7 @@ def check_frost(df):
     return warnings_list
 
 
+@per_station
 def check_thunderstorm(df):
     """雷电事件检测（基于天气码）
 
@@ -371,6 +383,7 @@ def check_thunderstorm(df):
     }]
 
 
+@per_station
 def check_haze(df):
     """霾事件检测
 
@@ -381,11 +394,11 @@ def check_haze(df):
     if "visibility" not in df.columns:
         return []
 
-    vis = pd.to_numeric(df["visibility"], errors="coerce").dropna()
+    vis = numeric_series(df, "visibility")
     if len(vis) == 0:
         return []
 
-    min_vis = float(vis.tail(24).min()) * 1000  # 转为米
+    min_vis = float(recent(vis, 24).min()) * 1000  # 转为米
     if min_vis < FOG_WARNING["黄色"]["visibility"]:
         return []  # 低于大雾黄色阈值，归入大雾，不重复报霾
 

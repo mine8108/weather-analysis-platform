@@ -50,7 +50,8 @@ def test_merge_sorts_by_timestamp():
     late = pd.DataFrame([{"timestamp": "2026-07-08 15:00", "station_id": "ST01"}])
     early = pd.DataFrame([{"timestamp": "2026-07-08 14:00", "station_id": "ST01"}])
     merged = merge_manual_rows(late, early)
-    assert merged.iloc[0]["timestamp"] == "2026-07-08 14:00"
+    assert merged.iloc[0]["timestamp"] == pd.Timestamp("2026-07-08 14:00")
+    assert merged["timestamp"].is_monotonic_increasing
 
 
 def test_merge_empty_manual_returns_input():

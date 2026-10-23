@@ -86,3 +86,8 @@ jobs:
       # 全量回归：批次 0 起改为阻断。含 AppTest 启动冒烟与天气墙用例。
       - name: 全量回归（阻断）
         run: python -m pytest tests -q
+
+      - name: PostgreSQL 配额与权限行为回归
+        run: |
+          npm ci --prefix tests/sql --ignore-scripts --no-audit --no-fund
+          npm test --prefix tests/sql

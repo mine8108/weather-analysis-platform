@@ -3,10 +3,29 @@
 """
 
 import streamlit as st
-from datetime import datetime
+from datetime import datetime, timezone
 
 
-def decode_synop(report):
+def _report_time(day, hour, minute=0, reference_time=None):
+    """报文只含日时分；选择距参考 UTC 时刻最近的合法相邻月份。"""
+    reference = reference_time or datetime.now(timezone.utc)
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=timezone.utc)
+    reference = reference.astimezone(timezone.utc)
+    candidates = []
+    for offset in (-1, 0, 1):
+        month_index = reference.year * 12 + reference.month - 1 + offset
+        year, month = divmod(month_index, 12)
+        try:
+            candidates.append(datetime(year, month + 1, day, hour, minute, tzinfo=timezone.utc))
+        except ValueError:
+            continue
+    if not candidates:
+        raise ValueError("报文日期或时分无效")
+    return min(candidates, key=lambda value: abs(value - reference))
+
+
+def decode_synop(report, reference_time=None):
     """解码 SYNOP 陆地地面天气报告（简化版）。
 
     支持 FM-12 SYNOP 基本段：
@@ -42,10 +61,7 @@ def decode_synop(report):
                 hour = int(group[2:4])
                 wind_indicator = int(group[4])
                 if 1 <= day <= 31 and 0 <= hour <= 23:
-                    now = datetime.now()
-                    result["timestamp"] = datetime(
-                        now.year, now.month, min(day, 28), hour, 0
-                    )
+                    result["timestamp"] = _report_time(day, hour, reference_time=reference_time)
             except (ValueError, IndexError):
                 pass
             idx += 1
@@ -59,7 +75,7 @@ def decode_synop(report):
         if idx < len(tokens) and len(tokens[idx]) == 5:
             group = tokens[idx]
             try:
-                vis_code = int(group[4]) if group[4] != "/" else None
+                vis_code = int(group[3:5]) if group[3:5].isdigit() else None
 
                 if vis_code is not None:
                     # SYNOP 能见度码转换表（简化；VV=0 表示能见度 <0.1 km）
@@ -69,6 +85,10 @@ def decode_synop(report):
                     }
                     if 1 <= vis_code <= 50:
                         result["visibility"] = vis_code / 10.0  # 0.1 km 为单位
+                    elif 56 <= vis_code <= 80:
+                        result["visibility"] = float(vis_code - 50)
+                    elif 81 <= vis_code <= 89:
+                        result["visibility"] = float(30 + (vis_code - 80) * 5)
                     elif vis_code in vis_table:
                         result["visibility"] = vis_table[vis_code]
             except (ValueError, IndexError):
@@ -147,7 +167,7 @@ def decode_synop(report):
     return result, []
 
 
-def decode_metar(report):
+def decode_metar(report, reference_time=None):
     """
     解码 METAR/SPECI 航空气象报告（简化版）
     """
@@ -176,8 +196,7 @@ def decode_metar(report):
                 day = int(group[0:2])
                 hour = int(group[2:4])
                 minute = int(group[4:6])
-                now = datetime.now()
-                result["timestamp"] = datetime(now.year, now.month, min(day, 28), hour, minute)
+                result["timestamp"] = _report_time(day, hour, minute, reference_time)
             except (ValueError, IndexError):
                 pass
             idx += 1

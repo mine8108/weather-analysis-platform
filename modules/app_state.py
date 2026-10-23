@@ -45,7 +45,7 @@ _register(("active_tab", "import_step", "import_method"), "keep")
 
 _register((
     "_auto_load_done", "_import_history", "_wall_show", "_manual_open",
-    "_warn_fp",
+    "_warn_fp", "_analysis_result", "_pending_vision_usage",
 ), "global")
 
 _register((
@@ -75,7 +75,7 @@ _register((
     "chart_reader_usage_total",
 ), "tab", tab=TAB_CHART)
 
-_register(("report_data",), "tab", tab=TAB_EXPORT)
+_register(("report_data", "_report_fp"), "tab", tab=TAB_EXPORT)
 _register(("codec_result", "codec_errors"), "tab", tab=TAB_CODEC)
 _register(("multi_station_selected",), "tab", tab=TAB_VISUAL)
 

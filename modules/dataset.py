@@ -51,13 +51,20 @@ def units_for(columns):
             if _unit_of(FIELD_LABELS.get(col, ""))}
 
 
+def station_dtypes(columns):
+    """读取时保留站号，避免类型推断先丢失前导零。"""
+    aliases = {str(k).strip().lower() for k, v in FIELD_ALIASES.items() if v == "station_id"}
+    aliases.add("station_id")
+    return {c: "string" for c in columns if str(c).strip().lower() in aliases}
+
+
 def canonicalize(df: pd.DataFrame) -> pd.DataFrame:
     """列名与时间类型的归一，幂等。
 
     1. 去列名首尾空白
     2. 按 FIELD_ALIASES 与 RESIDUAL_ALIASES 映射到标准名
     3. 消除归一后产生的重复列（保留首次出现的列）
-    4. timestamp 列转 datetime
+    4. timestamp 转北京时间无时区 datetime；无时区输入视为北京时间
     """
     if df is None or not isinstance(df, pd.DataFrame):
         raise TypeError("canonicalize 需要 pandas.DataFrame")
@@ -80,9 +87,27 @@ def canonicalize(df: pd.DataFrame) -> pd.DataFrame:
     if mapping:
         out = out.rename(columns=mapping)
     out = out.loc[:, ~out.columns.duplicated()]
+    if "station_id" in out:
+        out["station_id"] = out["station_id"].astype("string")
 
     if "timestamp" in out.columns:
-        parsed = pd.to_datetime(out["timestamp"], errors="coerce")
+        try:
+            parsed = pd.to_datetime(out["timestamp"], errors="coerce", format="mixed")
+            if isinstance(parsed.dtype, pd.DatetimeTZDtype):
+                parsed = parsed.dt.tz_convert("Asia/Shanghai").dt.tz_localize(None)
+            elif not pd.api.types.is_datetime64_any_dtype(parsed.dtype):
+                raise ValueError("mixed time zones")
+        except (ValueError, TypeError):
+            # 手工追加报文时可能同时含本地无时区值与带 UTC/偏移量的值。
+            def local_time(value):
+                try:
+                    ts = pd.Timestamp(value)
+                    if pd.isna(ts):
+                        return pd.NaT
+                    return ts.tz_convert("Asia/Shanghai").tz_localize(None) if ts.tzinfo else ts
+                except (ValueError, TypeError):
+                    return pd.NaT
+            parsed = pd.to_datetime(out["timestamp"].map(local_time))
         # 全空结果说明这一列不是时间，保留原值交给下游报错
         if parsed.notna().any():
             out["timestamp"] = parsed
@@ -165,7 +190,8 @@ def from_text(text: str, source="") -> Dataset:
     version, body = _split_header(text)
     if not body.strip():
         return Dataset(df=pd.DataFrame(), source=source, schema_version=SCHEMA_VERSION)
-    df = pd.read_csv(io.StringIO(body))
+    columns = pd.read_csv(io.StringIO(body), nrows=0).columns
+    df = pd.read_csv(io.StringIO(body), dtype=station_dtypes(columns))
     dataset = migrate(df, version, source=source)
     dataset.schema_version = SCHEMA_VERSION
     return dataset

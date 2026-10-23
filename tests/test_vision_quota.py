@@ -19,6 +19,7 @@ if _APP_DIR not in sys.path:
 
 from modules import chart_reader  # noqa: E402
 import db  # noqa: E402
+import auth
 
 
 def _read(rel):
@@ -68,8 +69,7 @@ def test_schema_revokes_public_execute_and_grants_authenticated():
     因此 revoke 必须显式带上 anon，只收 public 不够。
     """
     section = _quota_section()
-    for fn in ("get_vision_quota()", "begin_vision_call()",
-               "record_vision_usage(bigint, bigint, bigint, bigint)"):
+    for fn in ("get_vision_quota()", "begin_vision_call()"):
         assert "revoke execute on function public.%s from public, anon;" % fn in section, fn
         assert "grant execute on function public.%s" % fn in section, fn
     assert "to authenticated, service_role" in section
@@ -138,15 +138,16 @@ class _patched_db:
     def __init__(self, data, error=None, uid="u-1"):
         self.client = _FakeClient(data, error)
         self.uid = uid
-        self._orig = (db.get_supabase, db._user_id)
+        self._orig = (db.get_supabase, db._user_id, auth.get_supabase_admin)
 
     def __enter__(self):
         db.get_supabase = lambda: self.client
         db._user_id = lambda: self.uid
+        auth.get_supabase_admin = lambda: self.client
         return self.client
 
     def __exit__(self, *exc):
-        db.get_supabase, db._user_id = self._orig
+        db.get_supabase, db._user_id, auth.get_supabase_admin = self._orig
         return False
 
 
@@ -181,46 +182,32 @@ def test_vision_rpc_accepts_single_row_wrapped_in_list():
 def test_record_vision_usage_sends_normalized_int_params():
     with _patched_db({"ok": True}) as client:
         db.record_vision_usage({"prompt": "10", "completion": 20,
-                                "reasoning": None, "total": 30})
+                                "reasoning": None, "total": 30}, "call-1")
     name, params = client.calls[-1]
-    assert name == "record_vision_usage"
-    assert params == {"p_prompt": 10, "p_completion": 20,
+    assert name == "settle_vision_call"
+    assert params == {"p_call_id": "call-1", "p_prompt": 10, "p_completion": 20,
                       "p_reasoning": 0, "p_total": 30}
 
 
 def test_record_vision_usage_tolerates_empty_usage():
     with _patched_db({"ok": True}) as client:
-        db.record_vision_usage(None)
-    assert client.calls[-1][1] == {"p_prompt": 0, "p_completion": 0,
-                                   "p_reasoning": 0, "p_total": 0}
+        db.record_vision_usage(None, "call-1")
+    assert client.calls[-1][1] == {"p_call_id": "call-1", "p_prompt": 0, "p_completion": 0,
+                                   "p_reasoning": 0, "p_total": None}
 
 
 # ============================================================
 # 三、页面侧纯函数：故障放行、正常拒绝
 # ============================================================
 
-def test_quota_allows_fails_closed_after_local_budget():
-    """配额服务不可用时启用进程级临时额度，用尽即拒绝。
-
-    静默放行等于绕过配额；无条件拒绝又会让一次数据库抖动锁死功能。
-    兜底额度按用户计数、跨会话生效，刷新页面无法重置。
-    """
-    chart_reader._LOCAL_QUOTA.clear()
-    for _ in range(chart_reader.LOCAL_FALLBACK_CALLS):
+def test_quota_unavailable_never_grants_paid_calls():
+    for _ in range(5):
         allowed, notice = chart_reader.quota_allows(None, "u1")
-        assert allowed is True
-        assert notice and "临时额度" in notice
-    allowed, notice = chart_reader.quota_allows(None, "u1")
-    assert allowed is False
-    assert "临时额度" in notice
+        assert allowed is False and "未发起" in notice
 
 
-def test_quota_allows_local_budget_isolated_per_user():
-    chart_reader._LOCAL_QUOTA.clear()
-    for _ in range(chart_reader.LOCAL_FALLBACK_CALLS):
-        chart_reader.quota_allows(None, "u1")
-    assert chart_reader.quota_allows(None, "u2")[0] is True
-    chart_reader._LOCAL_QUOTA.clear()
+def test_legacy_unreserved_server_response_is_rejected():
+    assert chart_reader.quota_allows({"allowed": True, "tokens_remaining": 80000})[0] is False
 
 
 def test_quota_allows_blocks_when_server_says_no():
@@ -231,28 +218,28 @@ def test_quota_allows_blocks_when_server_says_no():
 
 
 def test_quota_allows_is_silent_when_allowed():
-    allowed, notice = chart_reader.quota_allows({"allowed": True})
+    allowed, notice = chart_reader.quota_allows({"allowed": True, "call_id": "call-1", "reserved_tokens": 80000})
     assert allowed is True
     assert notice == ""
 
 
 def test_quota_budget_is_remaining_daily_tokens_only():
     """单次调用不设固定上限：预算就是当日剩余额度减占位与安全余量。"""
-    assert chart_reader.quota_budget({"tokens_remaining": 50000}, 5000) == 43000
-    assert chart_reader.quota_budget({"tokens_remaining": 80000}, 0) == 78000
-    # 配额服务不可用时返回 None：调用方不传 max_tokens，由服务商默认上限兜底
-    assert chart_reader.quota_budget(None, 5000) is None
+    assert chart_reader.quota_budget({"reserved_tokens": 50000}, 5000) == 43000
+    assert chart_reader.quota_budget({"reserved_tokens": 80000}, 0) == 78000
+    # 服务不可用时预算为零，禁止发起付费调用
+    assert chart_reader.quota_budget(None, 5000) == 0
 
 
 def test_quota_budget_capped_by_remaining_tokens():
-    state = {"tokens_remaining": 5000}
+    state = {"reserved_tokens": 5000}
     assert chart_reader.quota_budget(state, 5000) == 0
-    assert chart_reader.quota_budget({"tokens_remaining": 9000}, 5000) == 2000
+    assert chart_reader.quota_budget({"reserved_tokens": 9000}, 5000) == 2000
 
 
 def test_quota_budget_zero_when_remaining_below_margin():
-    assert chart_reader.quota_budget({"tokens_remaining": 1000}, 0) == 0
-    assert chart_reader.quota_budget({"tokens_remaining": 1999}, 0) == 0
+    assert chart_reader.quota_budget({"reserved_tokens": 1000}, 0) == 0
+    assert chart_reader.quota_budget({"reserved_tokens": 1999}, 0) == 0
 
 
 def test_daily_quota_text_and_exhaustion():

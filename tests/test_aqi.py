@@ -93,7 +93,7 @@ def test_iaqi_linear_interpolation_pm25():
 def test_iaqi_out_of_range_clamps_not_zero():
     """超末档必须钳制到本污染物上限，不得返回 0（原实现返回 0 会显示「优」）。"""
     assert aqi.iaqi(5000, "pm25") == 500.0
-    assert aqi.iaqi(9999, "o3") == 200.0
+    assert aqi.iaqi(9999, "o3") == 500.0
 
 
 def test_iaqi_gas_cap_is_200():

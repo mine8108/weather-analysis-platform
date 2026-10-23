@@ -668,7 +668,7 @@ declare
     v_version text;
 begin
     select version into v_version from public.schema_version where id = 1;
-    if v_version is distinct from '2026-10-22' then
+    if v_version is null or v_version < '2026-10-22' then
         update public.profiles
            set vision_calls_per_day  = 10,
                vision_tokens_per_day = 80000
@@ -690,6 +690,22 @@ create table if not exists public.vision_usage (
 );
 
 create index if not exists vision_usage_day_idx on public.vision_usage (day);
+
+-- F05：外部调用期间也占用预算；未知用量保留预算，禁止超时自动返还。
+alter table public.vision_usage add column if not exists reserved_tokens bigint not null default 0
+    check (reserved_tokens >= 0);
+create table if not exists public.vision_calls (
+    id uuid primary key default gen_random_uuid(),
+    user_id uuid not null references auth.users(id) on delete cascade,
+    day date not null,
+    budget bigint not null check (budget > 0),
+    settled boolean not null default false,
+    charged_tokens bigint,
+    created_at timestamptz not null default now()
+);
+alter table public.vision_calls enable row level security;
+revoke all on public.vision_calls from public, anon, authenticated;
+grant all on public.vision_calls to service_role;
 
 alter table public.vision_usage enable row level security;
 
@@ -719,6 +735,7 @@ declare
     v_max_call integer;
     v_used_c   integer := 0;
     v_used_t   bigint := 0;
+    v_reserved bigint := 0;
 begin
     if v_uid is null then
         return jsonb_build_object('ok', false, 'error', '未登录');
@@ -730,10 +747,11 @@ begin
     v_tokens   := coalesce(v_tokens, 80000);
     v_max_call := coalesce(v_max_call, 20000);
 
-    select calls, total_tokens into v_used_c, v_used_t
+    select calls, total_tokens, reserved_tokens into v_used_c, v_used_t, v_reserved
       from public.vision_usage where user_id = v_uid and day = v_day;
     v_used_c := coalesce(v_used_c, 0);
     v_used_t := coalesce(v_used_t, 0);
+    v_reserved := coalesce(v_reserved, 0);
 
     return jsonb_build_object(
         'ok', true,
@@ -742,15 +760,15 @@ begin
         'calls_remaining', greatest(v_calls - v_used_c, 0),
         'tokens_limit', v_tokens,
         'tokens_used', v_used_t,
-        'tokens_remaining', greatest(v_tokens - v_used_t, 0),
+        'tokens_remaining', greatest(v_tokens - v_used_t - v_reserved, 0),
+        'tokens_reserved', v_reserved,
         'max_tokens_per_call', v_max_call,
         'day', v_day
     );
 end;
 $$;
 
--- 9.2 开始一次调用：原子地检查并占用一次次数（先占后用，防并发穿透）
---     token 的实际用量由调用返回后的 record_vision_usage 补记。
+-- 9.2 原子占用次数与当前剩余 token 预算；由可信服务端按调用标识结算。
 create or replace function public.begin_vision_call()
 returns jsonb
 language plpgsql
@@ -765,6 +783,9 @@ declare
     v_max_call integer;
     v_used_c   integer;
     v_used_t   bigint;
+    v_reserved bigint;
+    v_budget bigint;
+    v_call_id uuid;
 begin
     if v_uid is null then
         return jsonb_build_object('ok', false, 'allowed', false, 'message', '未登录');
@@ -781,46 +802,51 @@ begin
     v_tokens   := coalesce(v_tokens, 80000);
     v_max_call := coalesce(v_max_call, 20000);
 
-    select calls, total_tokens into v_used_c, v_used_t
+    select calls, total_tokens, reserved_tokens into v_used_c, v_used_t, v_reserved
       from public.vision_usage where user_id = v_uid and day = v_day
        for update;
     v_used_c := coalesce(v_used_c, 0);
     v_used_t := coalesce(v_used_t, 0);
+    v_reserved := coalesce(v_reserved, 0);
+    v_budget := greatest(v_tokens - v_used_t - v_reserved, 0);
 
     if v_used_c >= v_calls then
         return jsonb_build_object('ok', true, 'allowed', false, 'reason', 'calls',
-            'message', format('今日读图次数已用完（%d 次）。次日重置，或请管理员调整配额。', v_calls),
+            'message', format('今日读图次数已用完（%s 次）。次日重置，或请管理员调整配额。', v_calls),
             'calls_limit', v_calls, 'calls_used', v_used_c, 'calls_remaining', 0,
             'tokens_limit', v_tokens, 'tokens_used', v_used_t,
-            'tokens_remaining', greatest(v_tokens - v_used_t, 0),
+            'tokens_remaining', greatest(v_tokens - v_used_t - v_reserved, 0),
             'max_tokens_per_call', v_max_call, 'day', v_day);
     end if;
-    if v_used_t >= v_tokens then
+    if v_budget <= 0 then
         return jsonb_build_object('ok', true, 'allowed', false, 'reason', 'tokens',
-            'message', format('今日读图 token 配额已用完（%s）。次日重置，或请管理员调整配额。', v_tokens),
+            'message', format('今日读图 token 余额不足或已有请求占用预算（%s）。请等待当前请求完成。', v_tokens),
             'calls_limit', v_calls, 'calls_used', v_used_c,
             'calls_remaining', greatest(v_calls - v_used_c, 0),
             'tokens_limit', v_tokens, 'tokens_used', v_used_t, 'tokens_remaining', 0,
             'max_tokens_per_call', v_max_call, 'day', v_day);
     end if;
 
-    insert into public.vision_usage (user_id, day, calls)
-    values (v_uid, v_day, 1)
+    insert into public.vision_usage (user_id, day, calls, reserved_tokens)
+    values (v_uid, v_day, 1, v_budget)
     on conflict (user_id, day) do update
         set calls = public.vision_usage.calls + 1,
+            reserved_tokens = public.vision_usage.reserved_tokens + excluded.reserved_tokens,
             updated_at = now();
+
+    insert into public.vision_calls (user_id, day, budget)
+    values (v_uid, v_day, v_budget) returning id into v_call_id;
 
     return jsonb_build_object('ok', true, 'allowed', true, 'message', '',
         'calls_limit', v_calls, 'calls_used', v_used_c + 1,
         'calls_remaining', greatest(v_calls - v_used_c - 1, 0),
         'tokens_limit', v_tokens, 'tokens_used', v_used_t,
-        'tokens_remaining', greatest(v_tokens - v_used_t, 0),
+        'tokens_remaining', 0, 'reserved_tokens', v_budget, 'call_id', v_call_id,
         'max_tokens_per_call', v_max_call, 'day', v_day);
 end;
 $$;
 
--- 9.3 调用返回后补记实际用量。成功与失败都要记——失败同样被服务商计费。
---     负数一律钳到 0（安全要求 2），否则可反向冲销自己的用量。
+-- 9.3 保留旧函数签名以兼容脚本重跑；其执行权已全部撤销，客户端必须升级。
 create or replace function public.record_vision_usage(
     p_prompt bigint, p_completion bigint, p_reasoning bigint, p_total bigint)
 returns jsonb
@@ -861,8 +887,53 @@ revoke execute on function public.begin_vision_call() from public, anon;
 revoke execute on function public.record_vision_usage(bigint, bigint, bigint, bigint) from public, anon;
 grant execute on function public.get_vision_quota() to authenticated, service_role;
 grant execute on function public.begin_vision_call() to authenticated, service_role;
-grant execute on function public.record_vision_usage(bigint, bigint, bigint, bigint)
-    to authenticated, service_role;
+-- 旧版自报用量不能释放预留；关闭旧入口，部署前必须更新客户端。
+revoke execute on function public.record_vision_usage(bigint, bigint, bigint, bigint)
+    from authenticated, service_role;
+
+-- 只有可信服务端可结算，避免用户伪造零用量释放预算。
+create or replace function public.settle_vision_call(
+    p_call_id uuid, p_prompt bigint, p_completion bigint, p_reasoning bigint, p_total bigint)
+returns jsonb language plpgsql security definer set search_path = public, pg_temp
+as $$
+declare
+    v_call public.vision_calls%rowtype;
+    v_uid uuid;
+    v_p bigint := greatest(coalesce(p_prompt, 0), 0);
+    v_c bigint := greatest(coalesce(p_completion, 0), 0);
+    v_r bigint := greatest(coalesce(p_reasoning, 0), 0);
+    v_t bigint;
+begin
+    if coalesce(auth.role(), '') <> 'service_role' then
+        raise exception 'service_role required' using errcode = '42501';
+    end if;
+    select user_id into v_uid from public.vision_calls where id = p_call_id;
+    if v_uid is null then
+        return jsonb_build_object('ok', false, 'error', 'unknown call');
+    end if;
+    -- 和 begin 保持相同锁顺序，幂等且按原始调用日结算。
+    perform 1 from public.profiles where user_id = v_uid for update;
+    select * into v_call from public.vision_calls where id = p_call_id for update;
+    if v_call.settled then
+        return jsonb_build_object('ok', true, 'already_settled', true);
+    end if;
+    -- 网络超时/响应未带 usage：按预留全额计入，防止失败风暴返还预算。
+    v_t := case when p_total is null then v_call.budget
+                else greatest(p_total, v_p + v_c, 0) end;
+    update public.vision_usage
+       set reserved_tokens = reserved_tokens - v_call.budget,
+           total_tokens = total_tokens + v_t,
+           prompt_tokens = prompt_tokens + v_p,
+           completion_tokens = completion_tokens + v_c,
+           reasoning_tokens = reasoning_tokens + v_r, updated_at = now()
+     where user_id = v_call.user_id and day = v_call.day;
+    update public.vision_calls set settled = true, charged_tokens = v_t where id = p_call_id;
+    return jsonb_build_object('ok', true, 'charged_tokens', v_t, 'day', v_call.day);
+end;
+$$;
+revoke execute on function public.settle_vision_call(uuid, bigint, bigint, bigint, bigint)
+    from public, anon, authenticated;
+grant execute on function public.settle_vision_call(uuid, bigint, bigint, bigint, bigint) to service_role;
 
 -- 管理员按用户调配额：profiles 的 update 权限此前已从 authenticated 撤销
 -- （见第 2 节的 P0-3 修复），因此只有 service_role（管理员面板）能改这三列。
@@ -1015,7 +1086,7 @@ as $$
                            has_table_privilege(r::name, 'public.' || t, pv)),
                        '{}'::jsonb)
               from (values ('datasets'), ('profiles'), ('invite_codes'),
-                           ('gfs_cache'), ('vision_usage'),
+                           ('gfs_cache'), ('vision_usage'), ('vision_calls'),
                            ('admin_audit_log'), ('schema_version'),
                            ('outbound_usage')) as tabs(t)
              cross join (values ('anon'), ('authenticated')) as roles(r)
@@ -1101,7 +1172,7 @@ end $$;
 --     重跑会重新执行迁移，符合预期。
 -- ============================================================
 insert into public.schema_version (id, version)
-values (1, '2026-10-22')
+values (1, '2026-10-23')
 on conflict (id) do update
     set version = excluded.version,
         applied_at = now();

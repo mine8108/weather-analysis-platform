@@ -9,6 +9,7 @@ import pandas as pd
 
 from config import level_label
 from modules import warn_rules
+from modules.observations import hourly_totals, station_frames, numeric_series
 
 
 
@@ -121,7 +122,7 @@ def _analyze_forecast(fdf):
         })
 
     # ----- 2. 暴雨预警（含连续降水检测 + 强度分类）-----
-    # 预报侧按日累计降水量判定，阈值集中在 warn_rules.DAILY_RAIN_LEVELS。
+    # 日累计仅用于雨量类别及出行提示；预警颜色在下方按完整小时窗口判定。
     _rain = warn_rules.DAILY_RAIN_LEVELS
     precip_cats = {"大雨(25-50mm)": 0, "暴雨(50-100mm)": 0, "大暴雨(>=100mm)": 0}
     heavy = dprecip[dprecip >= _rain["大雨"]]
@@ -136,25 +137,29 @@ def _analyze_forecast(fdf):
     results["precision"]["consecutive_rain"] = max_consec_rain
 
     for d, val in dprecip.items():
-        if val >= _rain["红色"]:
+        if val >= 100:
             precip_cats["大暴雨(>=100mm)"] += 1
-            lv = "红色"
-        elif val >= _rain["橙色"]:
+        elif val >= 50:
             precip_cats["暴雨(50-100mm)"] += 1
-            lv = "橙色"
-        elif val >= _rain["黄色"]:
-            precip_cats["暴雨(50-100mm)"] += 1
-            lv = "黄色"
-        elif val >= _rain["大雨"]:
+        elif val >= 25:
             precip_cats["大雨(25-50mm)"] += 1
-            continue
-        else:
-            continue
-        results["warnings"].append({
-            "type": "暴雨", "level": lv, "level_num": level_label(lv),
-            "detail": f"{d} 日降水量 {val:.1f} mm，需关注短时强降水。",
-            "icon": "[暴]",
-        })
+    # 日量只用于统计。预警使用完整的逐小时 3/6/12h 滚动窗口，允许跨午夜。
+    rain_levels = warn_rules.rainstorm_levels()
+    for station, frame in station_frames(fdf):
+        rain = numeric_series(frame, "precipitation")
+        peaks = {h: hourly_totals(rain, h).groupby(lambda ts: ts.date()).max()
+                 for h in (3, 6, 12)}
+        for date in sorted({d for series in peaks.values() for d in series.index}):
+            for color, hours in (("红色", 3), ("橙色", 3), ("黄色", 6), ("蓝色", 12)):
+                value = peaks[hours].get(date, float("nan"))
+                if value >= rain_levels[color]:
+                    prefix = f"站点 {station}：" if station is not None else ""
+                    results["warnings"].append({
+                        "type": "暴雨", "level": color, "level_num": level_label(color),
+                        "detail": f"{prefix}{date} 最大{hours}h降水量 {value:.1f} mm。",
+                        "icon": "[暴]",
+                    })
+                    break
     results["precision"]["precip_cats"] = precip_cats
     # 6h 最大降水片段
     if len(h6_precip) > 0:
@@ -164,7 +169,9 @@ def _analyze_forecast(fdf):
     _gale = warn_rules.gale_levels()
     windy = dmax_ws[dmax_ws >= _gale["蓝色"]]
     for d, val in windy.items():
-        if val >= _gale["橙色"]:
+        if val >= _gale["红色"]:
+            lv = "红色"
+        elif val >= _gale["橙色"]:
             lv = "橙色"
         elif val >= _gale["黄色"]:
             lv = "黄色"

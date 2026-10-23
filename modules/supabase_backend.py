@@ -16,10 +16,11 @@
 
 RLS_TABLES = ("datasets", "profiles", "invite_codes", "gfs_cache",
               "vision_usage", "admin_audit_log", "schema_version",
-              "outbound_usage")
+              "outbound_usage", "vision_calls")
 
 # 这些函数一旦对匿名角色开放，未登录访客就能绕过应用直接调后端。
 ANON_FORBIDDEN_FUNCTIONS = (
+    "settle_vision_call",
     "save_dataset",
     "put_gfs_cache",
     "get_storage_usage",
@@ -38,6 +39,7 @@ ANON_FORBIDDEN_FUNCTIONS = (
 
 # 这些函数的信息面或破坏面超出普通登录用户，只允许 service_role。
 AUTHENTICATED_FORBIDDEN_FUNCTIONS = (
+    "record_vision_usage", "settle_vision_call",
     "put_gfs_cache",
     "release_invite_code",
     "security_selfcheck",
@@ -49,6 +51,7 @@ AUTHENTICATED_FORBIDDEN_FUNCTIONS = (
 
 # 服务端写入/注册函数必须对 service_role 开放，否则注册或缓存写入会静默失败。
 SERVICE_REQUIRED_FUNCTIONS = (
+    "settle_vision_call",
     "put_gfs_cache",
     "get_gfs_cache",
     "claim_invite_code",
@@ -60,6 +63,7 @@ SERVICE_REQUIRED_FUNCTIONS = (
 # 这些函数必须是 SECURITY DEFINER 且 search_path 把 pg_temp 放到最后。
 # 缺失、被重建后丢失属性、或 search_path 被改回 public，都会在自检里暴露。
 SECURITY_DEFINER_FUNCTIONS = (
+    "settle_vision_call",
     "handle_new_user",
     "is_invite_code_valid",
     "claim_invite_code",
@@ -87,6 +91,7 @@ REQUIRED_POLICIES = (
 
 # 客户端角色的表级写权限必须收回，写入一律经 SECURITY DEFINER 函数。
 FORBIDDEN_TABLE_PRIVILEGES = {
+    "vision_calls": {"authenticated": ("SELECT", "INSERT", "UPDATE", "DELETE")},
     "datasets": {"authenticated": ("INSERT", "UPDATE")},
     "profiles": {"authenticated": ("UPDATE",)},
     "vision_usage": {"authenticated": ("INSERT", "UPDATE", "DELETE")},

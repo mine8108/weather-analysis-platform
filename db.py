@@ -258,31 +258,49 @@ def get_vision_quota():
 
 
 def begin_vision_call():
-    """原子地检查并占用一次读图次数。
+    """原子占用一次读图次数及剩余 token 预算。
 
     返回的 dict 里 ``allowed`` 为 False 表示今日配额已用完（正常拒绝），
     整个函数返回 None 才表示配额服务不可用。
     """
+    from auth import get_supabase_admin
+    if get_supabase_admin() is None:
+        return None  # 无可信结算服务时不启动付费调用
     return _vision_rpc("begin_vision_call")
 
 
-def record_vision_usage(usage):
-    """补记一次调用的实际用量，返回更新后的配额状态。
+def record_vision_usage(usage, call_id=None):
+    """可信服务端按调用标识幂等结算，返回结算结果；失败返回 None。
 
     成功与失败都要调用：服务商对失败的调用同样计费。
     """
+    from auth import get_supabase_admin
+    if not call_id or _user_id() is None:
+        return None
+    client = get_supabase_admin()
+    if client is None:
+        return None
     usage = usage or {}
-    return _vision_rpc("record_vision_usage", {
-        "p_prompt": int(usage.get("prompt") or 0),
-        "p_completion": int(usage.get("completion") or 0),
-        "p_reasoning": int(usage.get("reasoning") or 0),
-        "p_total": int(usage.get("total") or 0),
-    })
+    try:
+        res = client.rpc("settle_vision_call", {
+            "p_call_id": str(call_id),
+            "p_prompt": int(usage.get("prompt") or 0),
+            "p_completion": int(usage.get("completion") or 0),
+            "p_reasoning": int(usage.get("reasoning") or 0),
+            "p_total": int(usage.get("total") or 0) if usage else None,
+        }).execute()
+        data = res.data
+        if isinstance(data, list):
+            data = data[0] if data else None
+        return data if isinstance(data, dict) and data.get("ok") else None
+    except Exception:
+        _LOG.warning("读图预算结算失败 call_id=%s；预算继续保留", call_id, exc_info=True)
+        return None
 
 
 # ============================================================
 # 出站请求配额（SEC-02，见 sql/schema.sql 第 9.4 节）
-# 与读图配额同一约定：None 表示配额服务不可用（调用方放行并降级），
+# 此处 None 表示出站配额服务不可用（调用方放行并降级）；付费读图会停止。
 # dict 里 allowed=False 表示今日额度已用完（正常拒绝）。
 # ============================================================
 

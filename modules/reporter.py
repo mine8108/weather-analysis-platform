@@ -24,7 +24,7 @@ from modules.report.professional import _build_professional_report  # noqa: F401
 
 def export_report_word(df, warnings_list, score, source="",
                        forecast_df=None, forecast_analysis=None,
-                       plain_language=False, life_indices=None):
+                       plain_language=False, life_indices=None, analysis_notes=None):
     """生成 Word 分析报告主入口。
 
     自动根据数据可用性选择章节，字段名自适应。
@@ -51,6 +51,11 @@ def export_report_word(df, warnings_list, score, source="",
         _build_professional_report(doc, df, forecast_df, forecast_analysis,
                                     life_indices, warnings_list, score, source)
 
+    if analysis_notes:
+        doc.add_heading("观测分析范围与数据限制", level=1)
+        for note in analysis_notes:
+            doc.add_paragraph(str(note))
+        doc.add_paragraph("未检出事件不等于所有风险均已排除；缺字段或时间覆盖不足的项目无法判定。")
     buf = BytesIO()
     doc.save(buf)
     buf.seek(0)
@@ -60,6 +65,13 @@ def export_report_word(df, warnings_list, score, source="",
 def render_export_tab(df, warnings_list, score, source=""):
     """渲染增强版报告导出 Tab"""
     st.subheader("[导出] 报告导出")
+    from modules.analysis_service import ensure_analysis, analysis_key
+    from utils import df_fingerprint
+    from modules.nwp.calc import _analyze_forecast
+    assessment = ensure_analysis(st.session_state, df)
+    warnings_list, score = assessment["warnings"], assessment["score"]
+    if assessment["notes"]:
+        st.info("观测分析存在数据限制，详见报告中的分析范围说明。")
 
     # ---- 数据导出 ----
     st.write("#### [统计] 数据导出")
@@ -104,7 +116,12 @@ def render_export_tab(df, warnings_list, score, source=""):
                    "+ 事件检测 + 生活指南 + 防御建议 + 技术说明。报告以表格化排版"
                    "呈现（不含图片），交互式图表请回应用界面查看。")
 
-    fc_analysis = st.session_state.get("fc_analysis", None)
+    fc_df = st.session_state.get("fc_df")
+    fc_analysis = _analyze_forecast(fc_df) if fc_df is not None and not fc_df.empty else None
+    report_key = (analysis_key(df), df_fingerprint(fc_df), source, report_style,
+                  repr(st.session_state.get("life_indices")))
+    if st.session_state.get("_report_fp") != report_key:
+        st.session_state.pop("report_data", None)
 
     btn_label = ("[生成] 生成通俗版叙述报告"
                  if report_style == "💬 通俗版"
@@ -118,9 +135,11 @@ def render_export_tab(df, warnings_list, score, source=""):
                     forecast_analysis=fc_analysis,
                     plain_language=(report_style == "💬 通俗版"),
                     life_indices=st.session_state.get("life_indices"),
+                    analysis_notes=assessment["notes"],
                 )
                 if doc_data:
                     st.session_state["report_data"] = doc_data
+                    st.session_state["_report_fp"] = report_key
                     st.success("报告已生成，点击下方按钮下载。")
                     st.rerun()
             except Exception as e:

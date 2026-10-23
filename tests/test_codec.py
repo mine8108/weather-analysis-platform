@@ -68,7 +68,7 @@ def test_synop_weather_code_comes_from_7wwWW():
 
 def test_synop_visibility_vv_zero():
     """VV=0 表示能见度 <0.1 km。"""
-    report = "AAXX 29181 03969 12960 02703 10156"
+    report = "AAXX 29181 03969 12900 02703 10156"
     result, _ = decode_synop(report)
     assert result["visibility"] == 0.05, result.get("visibility")
 

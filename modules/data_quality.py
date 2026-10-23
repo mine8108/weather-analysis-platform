@@ -3,6 +3,7 @@
 """
 
 import pandas as pd
+import numpy as np
 import streamlit as st
 from config import FIELD_RANGES
 
@@ -27,7 +28,14 @@ def range_check(df):
     for field, (lo, hi) in FIELD_RANGES.items():
         if field not in df.columns:
             continue
-        col = _numeric(df, field).dropna()
+        parsed = _numeric(df, field)
+        invalid = df[field].notna() & (parsed.isna() | ~np.isfinite(parsed))
+        if invalid.any():
+            count = int(invalid.sum())
+            issues.append({"type": "非法数值", "field": field, "count": count,
+                           "detail": f"{count} 条无法转换为有限数值，不能参与分析",
+                           "severity": "error"})
+        col = parsed.replace([np.inf, -np.inf], np.nan).dropna()
         if len(col) == 0:
             continue
         out_of_range = (col < lo) | (col > hi)

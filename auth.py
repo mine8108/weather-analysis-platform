@@ -161,7 +161,7 @@ def get_supabase():
 def get_supabase_admin():
     """返回当前会话的管理客户端（service_role，绕过 RLS）。
 
-    仅用于受 ADMIN_PASSWORD 保护的服务端管理操作与 GFS 缓存写入。
+    用于受 ADMIN_PASSWORD 保护的管理操作、GFS 缓存写入与可信读图用量结算。
     该密钥绝不进入前端。未配置时返回 None，由调用方降级处理。
     """
     return _session_client(
