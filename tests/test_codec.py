@@ -37,6 +37,28 @@ def test_synop_standard_report():
     assert result["precipitation"] == 0
 
 
+def test_synop_cloud_amount_uses_tenths():
+    """WMO 2700 的中间级别、半云和满天云要落入平台的 0–10 成口径。"""
+    for code, expected in ((0, 0), (1, 1), (2, 2.5), (3, 4), (4, 5),
+                           (5, 6), (6, 7.5), (7, 9), (8, 10)):
+        result, errors = decode_synop(f"AAXX 23121 54511 11298 {code}0905 10250")
+        assert errors == []
+        assert result["cloud_cover"] == expected
+        assert result["wind_speed"] == 5.0
+        assert result["temperature"] == 25.0
+
+
+def test_synop_unknown_cloud_preserves_wind():
+    """天空遮蔽或未观测不能变成 9 成；缺云量时仍解析有效风组。"""
+    for code in ("9", "/"):
+        result, errors = decode_synop(f"AAXX 23121 54511 11298 {code}0905 10250")
+        assert errors == []
+        assert result["cloud_cover"] is None
+        assert result["wind_direction"] == 90
+        assert result["wind_speed"] == 5.0
+        assert result["temperature"] == 25.0
+
+
 def test_synop_wind_in_knots():
     """iw=4 时风速单位为节，需换算为 m/s。"""
     report = "AAXX 29184 03969 12960 02715 10156"

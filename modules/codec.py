@@ -96,14 +96,22 @@ def decode_synop(report, reference_time=None):
             idx += 1
 
         # Nddff - 总云量(N) / 风向(dd) / 风速(ff)
-        if idx < len(tokens) and len(tokens[idx]) == 5 and tokens[idx].isdigit():
+        if (idx < len(tokens) and len(tokens[idx]) == 5
+                and all(char in "0123456789/" for char in tokens[idx])):
             group = tokens[idx]
             try:
-                result["cloud_cover"] = min(int(group[0]), 10)
-                dd = int(group[1:3])
-                ff = int(group[3:5])
-                result["wind_direction"] = None if dd == 99 else dd * 10
-                if wind_indicator in (3, 4):  # 单位为节
+                # WMO 2700 的十分量对照；区间采用代表值，不能把码值直接当云量成数。
+                # https://www.nodc.noaa.gov/gtspp/document/codetbls/wmocodes/table2700.html
+                # N=9 为天空遮蔽，/ 为无法判断或未观测，均保留缺失。
+                cloud_tenths = {"0": 0.0, "1": 1.0, "2": 2.5, "3": 4.0,
+                                "4": 5.0, "5": 6.0, "6": 7.5, "7": 9.0, "8": 10.0}
+                result["cloud_cover"] = cloud_tenths.get(group[0])
+                dd = int(group[1:3]) if group[1:3].isdigit() else None
+                ff = int(group[3:5]) if group[3:5].isdigit() else None
+                result["wind_direction"] = None if dd in (None, 99) else dd * 10
+                if ff is None:
+                    result["wind_speed"] = None
+                elif wind_indicator in (3, 4):  # 单位为节
                     result["wind_speed"] = round(ff * 0.514444, 1)
                 else:  # iw 0/1 为 m/s
                     result["wind_speed"] = float(ff)
