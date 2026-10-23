@@ -501,7 +501,7 @@ pre code { background: transparent !important; color: var(--text-primary) !impor
     [data-testid="stRadio"] [role="radiogroup"] { flex-direction: column !important; gap: 2px; }
     [data-testid="stRadio"] [role="radiogroup"] label { padding: 6px 12px !important; font-size: 0.8rem !important; }
     [data-testid="stMetric"] { padding: 10px !important; }
-    .js-plotly-plot, .plot-container { max-height: 280px !important; }
+    /* Plotly 自身决定图高；单独压缩容器会裁掉多子图的下半部分。 */
     [data-testid="stDataFrame"] { overflow-x: auto !important; font-size: 0.75rem !important; }
 }
 @media screen and (min-width: 769px) and (max-width: 1024px) {
