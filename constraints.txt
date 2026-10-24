@@ -40,7 +40,7 @@ narwhals==2.27.1
 numpy==2.5.1
 openpyxl==3.1.5
 packaging==26.3
-pandas==3.0.3
+pandas==3.0.6
 pillow==13.0.0
 plotly==6.8.0
 pluggy==1.7.0
