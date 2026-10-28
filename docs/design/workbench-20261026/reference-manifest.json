@@ -1,0 +1,89 @@
+{
+  "date": "2026-10-26",
+  "baseline_commit": "6531f89",
+  "purpose": "Design references only; no implementation assets or validated weather data",
+  "motion_preference": "Brief page-entry animation and weather-icon hover only; static otherwise",
+  "references": [
+    {
+      "file": "weather-wall-expanded.png",
+      "source": "C:\\Users\\ASUS\\.codex\\generated_images\\01a17599-957c-7ff0-aae9-4069a80bf331\\exec-c04b41bc-d558-4c07-a75a-f9137f6c7192.png",
+      "sha256": "aa02955d2fc4b632a5a75705897222df3c094492c27d44d633ee4fe004bdabe8",
+      "width": 1487,
+      "height": 1058,
+      "role": "primary",
+      "scope": "Expanded weather wall; selected by user; visual authority for weather cards"
+    },
+    {
+      "file": "forecast-compact.png",
+      "source": "C:\\Users\\ASUS\\.codex\\generated_images\\01a17599-957c-7ff0-aae9-4069a80bf331\\exec-dfabd263-feaa-4af5-b8eb-4782c232b9ca.png",
+      "sha256": "905c75bca57776aeb6cfcd794923614d8c01a71c00bfb095fa7499b1e21209f4",
+      "width": 1486,
+      "height": 1059,
+      "role": "supporting",
+      "scope": "Compact global weather strip and aligned temperature/precipitation charts"
+    },
+    {
+      "file": "city-forecast-confirm.png",
+      "source": "C:\\Users\\ASUS\\.codex\\generated_images\\01a17599-957c-7ff0-aae9-4069a80bf331\\exec-6c54d305-8fc1-424a-8efa-99ac4d34171a.png",
+      "sha256": "ca75627969c4324527d74f72749de4531fbfa2fd55e21f689508ca5a03ba20ea",
+      "width": 1487,
+      "height": 1058,
+      "role": "supporting",
+      "scope": "City selection and forecast confirmation interaction"
+    },
+    {
+      "file": "data-import.png",
+      "source": "C:\\Users\\ASUS\\.codex\\generated_images\\01a17599-957c-7ff0-aae9-4069a80bf331\\exec-b50a8a00-5ec3-430c-9498-8bb2c77f1426.png",
+      "sha256": "41bb17f98011aeecd849cfac4a0dad4b7817e28fbec0b44e898d56f594b94dac",
+      "width": 1487,
+      "height": 1058,
+      "role": "module-content",
+      "scope": "Content layout only; old weather sidebar replaced by global top weather strip"
+    },
+    {
+      "file": "visualization.png",
+      "source": "C:\\Users\\ASUS\\.codex\\generated_images\\01a17599-957c-7ff0-aae9-4069a80bf331\\exec-8bb897c3-1c03-4f77-9622-acc7ab5f8047.png",
+      "sha256": "a0fc9158ac62a54207a766d1f7f0d72d9851f32aa02b6ccad29c16fa96ac8c7e",
+      "width": 1487,
+      "height": 1058,
+      "role": "module-content",
+      "scope": "Content layout only; preserve all seven existing visualization entries"
+    },
+    {
+      "file": "ai-before.png",
+      "source": "C:\\Users\\ASUS\\.codex\\generated_images\\01a17599-957c-7ff0-aae9-4069a80bf331\\exec-748bf7b8-b461-4117-8a41-3f787383f52e.png",
+      "sha256": "850bf8e03b0aa41f1f56e8d7f3a4279e2777471205c8d1bdfb461d714297b79b",
+      "width": 1484,
+      "height": 1060,
+      "role": "module-content",
+      "scope": "Final pre-generation design without introductory panel; use new global shell"
+    },
+    {
+      "file": "ai-after.png",
+      "source": "C:\\Users\\ASUS\\.codex\\generated_images\\01a17599-957c-7ff0-aae9-4069a80bf331\\exec-e929be30-21a5-4ad2-9c09-d080680bb57f.png",
+      "sha256": "0fd111e8ce101b9de159282bcdc66af2828f2b0c15a48b0e4db627b65e453f60",
+      "width": 1484,
+      "height": 1060,
+      "role": "module-content",
+      "scope": "Conclusions, source evidence and uncertainty; exact image boxes conditional"
+    },
+    {
+      "file": "report-export.png",
+      "source": "C:\\Users\\ASUS\\.codex\\generated_images\\01a17599-957c-7ff0-aae9-4069a80bf331\\exec-9e25447b-82c3-486c-8db7-202ddba50590.png",
+      "sha256": "88873d6e8356500e17248294726ba553b0a984e367d2397149bcad5bcfeab1ec",
+      "width": 1487,
+      "height": 1058,
+      "role": "module-content",
+      "scope": "Content preview design; not exact Word pagination"
+    },
+    {
+      "file": "code-decoder.png",
+      "source": "C:\\Users\\ASUS\\.codex\\generated_images\\01a17599-957c-7ff0-aae9-4069a80bf331\\exec-52540284-b910-441f-aacd-e609d4ab8874.png",
+      "sha256": "0d050b02f18d27eaf4970a29ec65925911eaf07b4a1078a0d86d8b55a43615d2",
+      "width": 1487,
+      "height": 1058,
+      "role": "module-content",
+      "scope": "Decoder input/result layout with original token provenance"
+    }
+  ]
+}

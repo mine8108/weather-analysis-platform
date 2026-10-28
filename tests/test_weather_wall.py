@@ -400,6 +400,14 @@ def _make_app_test(monkeypatch, with_df: bool):
     from streamlit.testing.v1 import AppTest
     import requests
     import db as db_mod
+    import streamlit as st
+    import modules.ui.weather_region as region
+    # AppTest has no browser JS. Capture the component data contract; visual and
+    # pointer interactions are covered separately in the in-app browser.
+    def component_capture(cards, **kwargs):
+        st.session_state["_test_weather_payload"] = {"cards": cards, **kwargs}
+        return None
+    monkeypatch.setattr(region, "render_weather", component_capture)
 
     monkeypatch.setattr(
         requests, "get",
@@ -434,13 +442,14 @@ def _make_app_test(monkeypatch, with_df: bool):
 
 class TestAppIntegration:
     def test_cover_wall_placeholder(self, monkeypatch):
-        """未定位未添加：封面显示引导占位卡，标题区已删除，无预置城市。"""
+        """Empty global weather region keeps the city list empty and the import page available."""
         at = _make_app_test(monkeypatch, with_df=False)
         at.run()
         assert not at.exception, f"封面渲染抛异常: {at.exception}"
         md = "\n".join(m.value for m in at.markdown)
         assert "aether-title" not in md   # 首页标题字段已移除（需求：删除标题）
-        assert "天气墙还空着" in md        # 引导占位卡
+        assert at.session_state["_test_weather_payload"]["cards"] == []
+        assert "选择数据导入方式" in md
         assert 'class="ww-card' not in md  # 无任何城市卡片（CSS 选择器 .ww-card 不算）
 
     def test_geo_location_adds_city(self, monkeypatch):
@@ -448,6 +457,7 @@ class TestAppIntegration:
         import modules.weather_wall as ww_mod
         monkeypatch.setattr(ww_mod, "forward_geocode", lambda name: [])
         at = _make_app_test(monkeypatch, with_df=False)
+        at.session_state["_weather_manage"] = True
         at.run()
         # text_input 输入城市名并点击「解析并添加」（北京命中 CITY_LIBRARY 直接加）
         at.text_input[0].set_value("北京")
@@ -455,13 +465,14 @@ class TestAppIntegration:
         at.button(key="wall_resolve").click().run()
         assert not at.exception, f"解析添加抛异常: {at.exception}"
         md = "\n".join(m.value for m in at.markdown)
-        assert "北京" in md and 'class="ww-card' in md
+        assert at.session_state["_test_weather_payload"]["cards"][0]["name"] == "北京"
 
     def test_search_unknown_city_prompt(self, monkeypatch):
         """未匹配城市：提示未找到，不添加卡片。"""
         import modules.weather_wall as ww_mod
         monkeypatch.setattr(ww_mod, "forward_geocode", lambda name: [])
         at = _make_app_test(monkeypatch, with_df=False)
+        at.session_state["_weather_manage"] = True
         at.run()
         at.text_input[0].set_value("zzzz不存在的城市")
         at.run()
@@ -477,6 +488,7 @@ class TestAppIntegration:
         import modules.weather_wall as ww_mod
         monkeypatch.setattr(ww_mod, "forward_geocode", lambda name: [])
         at = _make_app_test(monkeypatch, with_df=False)
+        at.session_state["_weather_manage"] = True
         at.run()
         # 第一次添加北京（成功）
         at.text_input[0].set_value("北京")
@@ -496,11 +508,12 @@ class TestAppIntegration:
         # 城市列表仍只有北京 1 个
         assert len(at.session_state["wall_cities"]) == 1
 
-    def test_reset_clears_wall_state(self, monkeypatch):
-        """重置当前页面数据：天气墙城市列表与搜索状态被彻底清理。"""
+    def test_reset_keeps_global_wall_state(self, monkeypatch):
+        """Resetting import data must preserve the global followed cities."""
         import modules.weather_wall as ww_mod
         monkeypatch.setattr(ww_mod, "forward_geocode", lambda name: [])
         at = _make_app_test(monkeypatch, with_df=False)
+        at.session_state["_weather_manage"] = True
         at.run()
         at.text_input[0].set_value("北京")
         at.run()
@@ -509,16 +522,13 @@ class TestAppIntegration:
         # 点击侧边栏「重置当前模块数据」
         at.button(key="sidebar_reset_current_tab").click().run()
         assert not at.exception
-        # 重置后 wall_cities 被清理，render_wall 重新初始化为空（临时偏好文件无数据）
-        assert at.session_state["wall_cities"] == []
+        assert at.session_state["wall_cities"][0]["zh"] == "北京"
         try:
             q = at.session_state["wall_query"]  # SafeSessionState 无 .get 方法
         except KeyError:
             q = ""
         assert q == ""
-        # 重置后封面回到占位卡
-        md = "\n".join(m.value for m in at.markdown)
-        assert "天气墙还空着" in md
+        assert at.session_state["_test_weather_payload"]["cards"][0]["name"] == "北京"
 
     def test_wall_hidden_by_toggle(self, monkeypatch):
         """天气墙开关关闭：封面显示隐藏说明，不渲染任何天气卡片。"""
@@ -528,7 +538,7 @@ class TestAppIntegration:
         assert not at.exception
         infos = " ".join(i.value for i in at.info)
         md = "\n".join(m.value for m in at.markdown)
-        assert "天气墙已隐藏" in infos
+        assert at.button(key="weather_show").label == "显示城市天气"
         assert 'class="ww-card' not in md
 
     def test_tab_order_viz_before_forecast(self, monkeypatch):
@@ -536,29 +546,26 @@ class TestAppIntegration:
         at = _make_app_test(monkeypatch, with_df=False)
         at.run()
         assert not at.exception
-        for opts in [r.options for r in at.radio]:
-            if opts and opts and "数据导入" in opts[0]:
-                viz = opts.index("[图表] 可视化分析")
-                fc = opts.index("[预报] 数值预报")
-                assert viz < fc, f"可视化({viz}) 应排在 数值预报({fc}) 之前"
-                break
+        from modules.ui.navigation import MODULES
+        assert [m[0] for m in MODULES] == ["数据导入", "可视化分析", "数值预报", "AI 读图解析", "报告导出", "报文解码"]
+        assert at.session_state["_module_nav"] == 0
 
-    def test_wall_disappears_after_import(self, monkeypatch):
-        """需求 2：导入数据后天气墙消失，自动回到数据摘要卡视图。"""
+    def test_wall_remains_after_import(self, monkeypatch):
+        """The revised all-module weather strip remains available after importing data."""
         at = _make_app_test(monkeypatch, with_df=True)
         at.run()
         assert not at.exception, f"摘要卡渲染抛异常: {at.exception}"
         md = "\n".join(m.value for m in at.markdown)
-        assert "aether-title" not in md    # 天气墙封面消失
-        assert "ww-card" not in md
+        assert at.session_state["_test_weather_payload"]["expanded"] is False
+        assert at.session_state["df"] is not None
 
     def test_cover_entry_with_data(self, monkeypatch):
         """老用户回封面：有数据 + _wall_cover=True 时封面照常渲染，数据不丢。"""
         at = _make_app_test(monkeypatch, with_df=True)
-        at.session_state["_wall_cover"] = True
         at.run()
+        at.button(key="sb_wall_cover").click().run()
         assert not at.exception, f"封面渲染抛异常: {at.exception}"
         md = "\n".join(m.value for m in at.markdown)
-        assert "天气墙还空着" in md        # 封面（标题已删，以占位卡为封面标志）
+        assert at.session_state["_test_weather_payload"]["expanded"] is True
         # 数据仍在会话中（返回按钮依赖 df 判定）
         assert at.session_state["df"] is not None

@@ -1,0 +1,706 @@
+{
+  "generation": "built-in image_gen",
+  "source_count": 41,
+  "expected_count": 41,
+  "optimization": "aspect-preserving downscale and WebP encoding only; original RGBA files retained locally",
+  "missing": [],
+  "assets": [
+    {
+      "id": "beijing",
+      "city": "北京",
+      "landmark": "天坛祈年殿",
+      "asset": "static/weather/landmarks/beijing.webp",
+      "pixels": [
+        1024,
+        427
+      ],
+      "source_pixels": [
+        1942,
+        809
+      ],
+      "source_sha256": "dc97e70633be26d002a506d067eb419f2e66b3a57d64078da905d78bd88992ba",
+      "sha256": "8d06214f61a21e6cf2ac75fd1919c256b065e394b05de2543919501c51103cd8",
+      "bytes": 35388
+    },
+    {
+      "id": "tianjin",
+      "city": "天津",
+      "landmark": "天津之眼",
+      "asset": "static/weather/landmarks/tianjin.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1905,
+        825
+      ],
+      "source_sha256": "dff66e8af7cca23abfd787ff8ad3e02ad2279964a2a7690ae499f4357d9c57b5",
+      "sha256": "34ba9def9dfe6c3a6ce240c72d10c8e4ac03cbbac75771a4dec050cb8bcdd12e",
+      "bytes": 111844
+    },
+    {
+      "id": "shijiazhuang",
+      "city": "石家庄",
+      "landmark": "石家庄电视塔",
+      "asset": "static/weather/landmarks/shijiazhuang.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1905,
+        825
+      ],
+      "source_sha256": "a74f8ad36102c4617f7d15fa54a22962f75eeedf667f571e0fca3f21e8323e83",
+      "sha256": "23c6c18ac6258528b7910d195569c3a15331d0e3f84ffe796874c0ce32356627",
+      "bytes": 42442
+    },
+    {
+      "id": "taiyuan",
+      "city": "太原",
+      "landmark": "双塔寺",
+      "asset": "static/weather/landmarks/taiyuan.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1905,
+        825
+      ],
+      "source_sha256": "6d0ec0a3aea5eccbfeff662c671c0cc2f2adb37405f258606fbd545edca048e5",
+      "sha256": "dd91c4146f0ec287271546f695416c7230f11f5026eafc9dc14a0165eb4b0961",
+      "bytes": 69228
+    },
+    {
+      "id": "hohhot",
+      "city": "呼和浩特",
+      "landmark": "大召寺",
+      "asset": "static/weather/landmarks/hohhot.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1905,
+        825
+      ],
+      "source_sha256": "01c7155b518326b474772b114aa2f4c34a3256822bfa389635843cc7e730c69d",
+      "sha256": "e8f39af2218b024de87b3a99908573bc31fa4d206af6685cc21f5c5fd567948a",
+      "bytes": 76510
+    },
+    {
+      "id": "shenyang",
+      "city": "沈阳",
+      "landmark": "沈阳故宫大政殿",
+      "asset": "static/weather/landmarks/shenyang.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1906,
+        825
+      ],
+      "source_sha256": "da1ad9086dbce26ec54cdcbfbf8249cd51d721c5730f3ac9cc6d62f53a22aba7",
+      "sha256": "5aceab788ceecfd84bb4bcaad9c5d2ce7255cd910451fc7b8f5b8f4319ef2954",
+      "bytes": 85504
+    },
+    {
+      "id": "changchun",
+      "city": "长春",
+      "landmark": "伪满皇宫同德殿",
+      "asset": "static/weather/landmarks/changchun.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1905,
+        825
+      ],
+      "source_sha256": "1a7825ea55249da7dacf2b42dd1854fac7be3c486c8768c4ad10a592eab18e85",
+      "sha256": "d3dafeed7cd73b0db3ffec969c60ca428889d7067e802ad2d9a28e94f21240ef",
+      "bytes": 72562
+    },
+    {
+      "id": "harbin",
+      "city": "哈尔滨",
+      "landmark": "圣索菲亚教堂",
+      "asset": "static/weather/landmarks/harbin.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1905,
+        825
+      ],
+      "source_sha256": "93e7c5c7fda2fa4fcfdaee0ee42d410da9c47a5dbd78a301bbc6115e30abc92a",
+      "sha256": "b0342718673004b6e225077c2cd4436a9ae27f8a6efa43477457f70de1c40a6d",
+      "bytes": 57566
+    },
+    {
+      "id": "dalian",
+      "city": "大连",
+      "landmark": "星海湾大桥",
+      "asset": "static/weather/landmarks/dalian.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1905,
+        825
+      ],
+      "source_sha256": "3c53db571a7e0c66b6e51c2791acc39368e21f2d922d5a50d960d6b273f608f7",
+      "sha256": "8a61703719e2f41c40e30e8707b4ae91329ed1650a9a07aa097adda8325c7eaf",
+      "bytes": 84720
+    },
+    {
+      "id": "shanghai",
+      "city": "上海",
+      "landmark": "陆家嘴天际线",
+      "asset": "static/weather/landmarks/shanghai.webp",
+      "pixels": [
+        1024,
+        427
+      ],
+      "source_pixels": [
+        1942,
+        809
+      ],
+      "source_sha256": "79f967bd95c35225af5a4ed1c479d5383fa2d9d54c6df995f7f88d4a4d7d518f",
+      "sha256": "5cd1c8f86534fb9c1a3a9432174508dd9370fa0bb08b4cc88198215f60c11c93",
+      "bytes": 40996
+    },
+    {
+      "id": "nanjing",
+      "city": "南京",
+      "landmark": "中山陵",
+      "asset": "static/weather/landmarks/nanjing.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1905,
+        825
+      ],
+      "source_sha256": "caf427d3802f0e80acf36e1323b59b33116ebdb2a3e9503b893d459b6ebeee65",
+      "sha256": "2841a3fb09d7aaa0ee96ad4ef1071546e1b18aa2c14cf7ae345f4ae9544749e7",
+      "bytes": 65230
+    },
+    {
+      "id": "hangzhou",
+      "city": "杭州",
+      "landmark": "西湖与雷峰塔",
+      "asset": "static/weather/landmarks/hangzhou.webp",
+      "pixels": [
+        1024,
+        427
+      ],
+      "source_pixels": [
+        1942,
+        809
+      ],
+      "source_sha256": "5cefa5f95627258c7d362228c96d1ab793fe6a4bb17f8e3d3111cd29c34986e6",
+      "sha256": "b118dabe5c85cdd270d8dd9f2a90124daf5a9b647f266d801d63c4aaf28b048b",
+      "bytes": 40756
+    },
+    {
+      "id": "hefei",
+      "city": "合肥",
+      "landmark": "清风阁",
+      "asset": "static/weather/landmarks/hefei.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1905,
+        825
+      ],
+      "source_sha256": "f703bf8581505f0c492fd62f3db093a19fe655da30f9637d1fa317e7e191101a",
+      "sha256": "2277f1f670293ac7ff36f6b7343f465f1e09411dd1347e7f7bc433e3751b0574",
+      "bytes": 88742
+    },
+    {
+      "id": "fuzhou",
+      "city": "福州",
+      "landmark": "白塔",
+      "asset": "static/weather/landmarks/fuzhou.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1905,
+        825
+      ],
+      "source_sha256": "9dfdd2dee7dd0eb3a0b4fa4a8e7cece4f126ab807b09169cb1d2449727db63a5",
+      "sha256": "55b562a583c8d94407cbb935dbf366de22e2ff596eff1d1e5b7668c67445a8a4",
+      "bytes": 50382
+    },
+    {
+      "id": "jinan",
+      "city": "济南",
+      "landmark": "超然楼",
+      "asset": "static/weather/landmarks/jinan.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1906,
+        825
+      ],
+      "source_sha256": "41148f04a9cd394e4a8743df4ae5e2ffd251c1b2f3863471685a9f7cdf2db5fa",
+      "sha256": "ae8eabdf3e8d0391226db503a8970813eed27e734c3c58b8641f22bcab76111d",
+      "bytes": 72128
+    },
+    {
+      "id": "nanchang",
+      "city": "南昌",
+      "landmark": "滕王阁",
+      "asset": "static/weather/landmarks/nanchang.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1905,
+        825
+      ],
+      "source_sha256": "f69a2f0e5d3437a292de78a386533488f6290d179402f65406b442b065a37958",
+      "sha256": "242477fa6b4418aaa41e4503718af3cffa29316fb2027a2fbdab4d120a233952",
+      "bytes": 76134
+    },
+    {
+      "id": "suzhou",
+      "city": "苏州",
+      "landmark": "东方之门",
+      "asset": "static/weather/landmarks/suzhou.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1905,
+        825
+      ],
+      "source_sha256": "abca57229da9026de4b48426c54d34579d80fd59ac99ba03e8567d03bb969499",
+      "sha256": "72c6685e117c8efcb315d5da7c7dc19b3a8d38a5ec585dc14bfcf2a71554a3f1",
+      "bytes": 65284
+    },
+    {
+      "id": "qingdao",
+      "city": "青岛",
+      "landmark": "栈桥回澜阁",
+      "asset": "static/weather/landmarks/qingdao.webp",
+      "pixels": [
+        1024,
+        444
+      ],
+      "source_pixels": [
+        1903,
+        826
+      ],
+      "source_sha256": "a3ad7b48d515736121e1e2c2703688b9dc193d71bf5a4db4cbb10ebd0e6de2c1",
+      "sha256": "a169cb9b4bda1f953105332361edfdf46ba0da799f7ec16e47ee23a6786a8554",
+      "bytes": 57616
+    },
+    {
+      "id": "xiamen",
+      "city": "厦门",
+      "landmark": "鼓浪屿八卦楼",
+      "asset": "static/weather/landmarks/xiamen.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1906,
+        825
+      ],
+      "source_sha256": "16998f0b96482362ae32d69a92bf790d04e104c7005355363b95ce26f90ab592",
+      "sha256": "a5138c0e5d9896d08b730ef94bd433b4c2145ba0d20938af1ddd9d287174d38d",
+      "bytes": 76250
+    },
+    {
+      "id": "taipei",
+      "city": "台北",
+      "landmark": "台北101",
+      "asset": "static/weather/landmarks/taipei.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1905,
+        825
+      ],
+      "source_sha256": "df5df77268526000e6e5e6006dd6395684cc7fad62fb5bede3fe4d92db2667df",
+      "sha256": "ae855588ade6be33cc77497ffd8867afb2cf43477f2bb9d8664b7310ddb90344",
+      "bytes": 50116
+    },
+    {
+      "id": "zhengzhou",
+      "city": "郑州",
+      "landmark": "中原福塔",
+      "asset": "static/weather/landmarks/zhengzhou.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1905,
+        825
+      ],
+      "source_sha256": "581a4a22682bcb075475c10732a90013d550fccca2ccb326c10c0b339097f389",
+      "sha256": "95da27b96389469f8e4cf1605d7500f2242832d134b6b039866d56440c085189",
+      "bytes": 40224
+    },
+    {
+      "id": "wuhan",
+      "city": "武汉",
+      "landmark": "黄鹤楼",
+      "asset": "static/weather/landmarks/wuhan.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1905,
+        825
+      ],
+      "source_sha256": "27047e3c00a76b10af39b23780e7390fed38a211a07bc3b91c028613eb82266a",
+      "sha256": "9553a09ef55e4210d10fa5cab656011c8417a953f3b3e2b99db217aa684c4cea",
+      "bytes": 70026
+    },
+    {
+      "id": "changsha",
+      "city": "长沙",
+      "landmark": "天心阁",
+      "asset": "static/weather/landmarks/changsha.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1905,
+        825
+      ],
+      "source_sha256": "8e46728828b39c6859cb42dc30ba8ac895adb3ef0b841e119608660935122ccd",
+      "sha256": "be2700ca4504932dc4e7721dfeab78b64b67ffbda1cfcc9edc88487849b60cf7",
+      "bytes": 83128
+    },
+    {
+      "id": "guangzhou",
+      "city": "广州",
+      "landmark": "广州塔",
+      "asset": "static/weather/landmarks/guangzhou.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1905,
+        825
+      ],
+      "source_sha256": "89f73991b9b01592228d3767024dbf485d58eb085c12e9a2fc071029660e2716",
+      "sha256": "9f683b48da7de2e052027c45007e8a8aff6b4548cef504ea426d11d5772f7b79",
+      "bytes": 50322
+    },
+    {
+      "id": "nanning",
+      "city": "南宁",
+      "landmark": "青秀山龙象塔",
+      "asset": "static/weather/landmarks/nanning.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1905,
+        825
+      ],
+      "source_sha256": "fa939bebd556bec8f6b33dea7620fd6fb153f21f724594fc920bd265f9ccee22",
+      "sha256": "8c28c721b06036654e82b7b860ed648c240b7f33e936f6d20e5342aaeff9d87e",
+      "bytes": 45618
+    },
+    {
+      "id": "haikou",
+      "city": "海口",
+      "landmark": "世纪大桥",
+      "asset": "static/weather/landmarks/haikou.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1905,
+        825
+      ],
+      "source_sha256": "f0ed94a4946459f40fd591836e45c5045e5b0b1ed9e690585c31b804fbcca4c2",
+      "sha256": "b9f3c40f63052b7f525a5562b46f9d0f10913f961c0d3f00d148a982f195ed90",
+      "bytes": 81804
+    },
+    {
+      "id": "shenzhen",
+      "city": "深圳",
+      "landmark": "平安金融中心",
+      "asset": "static/weather/landmarks/shenzhen.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1905,
+        825
+      ],
+      "source_sha256": "5a8f58549ae373e9258fd9777f03408c25df127cd4c65d4d9d2c5eb9c4ddc788",
+      "sha256": "9220c90c1dd192c214ba9582515cccb105a4e1d36486fdde75357fdbc916fd87",
+      "bytes": 57700
+    },
+    {
+      "id": "sanya",
+      "city": "三亚",
+      "landmark": "凤凰岛",
+      "asset": "static/weather/landmarks/sanya.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1905,
+        825
+      ],
+      "source_sha256": "6027f65284e321b592bd5a5d2269ee6479f78fc96746f9aa0e2d38096d9354ba",
+      "sha256": "a2a765b814a29033653b1aad3bcadcefb14e6316797ba713bec8d7c702b7d033",
+      "bytes": 77884
+    },
+    {
+      "id": "guilin",
+      "city": "桂林",
+      "landmark": "日月双塔",
+      "asset": "static/weather/landmarks/guilin.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1906,
+        825
+      ],
+      "source_sha256": "7e5c965e5e1dbb6e3113d78448fa7be517bd129f9cfe72e411db3de0da646e16",
+      "sha256": "d41c46e1802604621ed5592be5f2e00974f781ba97a7f1df9d733d2a38a839c2",
+      "bytes": 80494
+    },
+    {
+      "id": "hong-kong",
+      "city": "香港",
+      "landmark": "维港与中银大厦",
+      "asset": "static/weather/landmarks/hong-kong.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1906,
+        825
+      ],
+      "source_sha256": "7a6b8cd9d6e5dd07062adb71e7d9d207cd95cf73eaaeeb12d78ba71b2c5c2568",
+      "sha256": "c86728d3783d5e54c64ecbdb30e04c5ba15514faf1f2a57bbaf98aafe1f789bf",
+      "bytes": 87382
+    },
+    {
+      "id": "macao",
+      "city": "澳门",
+      "landmark": "大三巴牌坊",
+      "asset": "static/weather/landmarks/macao.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1905,
+        825
+      ],
+      "source_sha256": "e994e75dbb7e7133de79c1a03907dca259bfc85d4065a04519ce3a18cd465c0e",
+      "sha256": "6833416e04f78e279a096cb1a55e37bd3680c64d117a39638569ade2165223ae",
+      "bytes": 93598
+    },
+    {
+      "id": "chongqing",
+      "city": "重庆",
+      "landmark": "洪崖洞",
+      "asset": "static/weather/landmarks/chongqing.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1905,
+        825
+      ],
+      "source_sha256": "fe243c21885a063d355f3046cfff09f5c960568edd5139b19a32adda44360c56",
+      "sha256": "1b4785a8569b6c1233c4be28de51bd2bea388db0110d28f0c332812cf172ae51",
+      "bytes": 76014
+    },
+    {
+      "id": "chengdu",
+      "city": "成都",
+      "landmark": "安顺廊桥",
+      "asset": "static/weather/landmarks/chengdu.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1905,
+        825
+      ],
+      "source_sha256": "8a976b4dc84f09bbe213129d08924f7e32471171b3db0f0dff5381fbc2d35cfd",
+      "sha256": "5986f0eed4ccd5d7062cf1bfa37e28dedb3932cbf5c9de3172a79ae3724e1f17",
+      "bytes": 59722
+    },
+    {
+      "id": "guiyang",
+      "city": "贵阳",
+      "landmark": "甲秀楼",
+      "asset": "static/weather/landmarks/guiyang.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1905,
+        825
+      ],
+      "source_sha256": "c4c9b5407bd0b9735358edb1e8e3e456256e3f850fb986fe0456b186a4e8a532",
+      "sha256": "c1323758ccfb865817d3942931213840c934035d4880cb6d3dcd5649a3ba251b",
+      "bytes": 79414
+    },
+    {
+      "id": "kunming",
+      "city": "昆明",
+      "landmark": "金马碧鸡坊",
+      "asset": "static/weather/landmarks/kunming.webp",
+      "pixels": [
+        1024,
+        444
+      ],
+      "source_pixels": [
+        1903,
+        826
+      ],
+      "source_sha256": "7493453f93980bfb714d8f4491533dad9721ff34d9629f15a4f9f848fc0f6fcb",
+      "sha256": "7f475b860cd3f76f25a2812085402be003fceee2cb17432b5aafe605122379a7",
+      "bytes": 90674
+    },
+    {
+      "id": "lhasa",
+      "city": "拉萨",
+      "landmark": "布达拉宫",
+      "asset": "static/weather/landmarks/lhasa.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1905,
+        825
+      ],
+      "source_sha256": "c1b0c586fb62b303460eaae6aa9a64a77cf5172d41b89cb738fa237f07dc74d1",
+      "sha256": "6f06b052ab92b1738c491fd752f417878505c4d44dad9620d24365b224814d4c",
+      "bytes": 73066
+    },
+    {
+      "id": "xian",
+      "city": "西安",
+      "landmark": "钟楼",
+      "asset": "static/weather/landmarks/xian.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1905,
+        825
+      ],
+      "source_sha256": "f8e7c1a27be288667f3c8668d28814fa3d48db9a3e273e844c36f32327617230",
+      "sha256": "91e594bcc360f04871bead889957ad1bf2635cdc107eb389863eb3f987f7e0e7",
+      "bytes": 69138
+    },
+    {
+      "id": "lanzhou",
+      "city": "兰州",
+      "landmark": "中山桥",
+      "asset": "static/weather/landmarks/lanzhou.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1907,
+        825
+      ],
+      "source_sha256": "1f3a518d8447dfb4640cc97ed5d4ed38a2665cbee3b8e6a3d2a8b00dc9684f8e",
+      "sha256": "e3def22352ea1d71a21acad3779ab85fe6fb4e5c841ae5daad847bb79a7aceba",
+      "bytes": 91158
+    },
+    {
+      "id": "xining",
+      "city": "西宁",
+      "landmark": "浦宁之珠",
+      "asset": "static/weather/landmarks/xining.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1905,
+        825
+      ],
+      "source_sha256": "5bbe8ad1159d7dcb961be41332573395ab437f868e2f1854533370948a9d6238",
+      "sha256": "0ff952171bb7aa1c612b184dcf10a12e4185ff510eb7b89470b0948e9fe8f2fd",
+      "bytes": 33262
+    },
+    {
+      "id": "yinchuan",
+      "city": "银川",
+      "landmark": "鼓楼",
+      "asset": "static/weather/landmarks/yinchuan.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1905,
+        825
+      ],
+      "source_sha256": "8b0c1d5094565f4f42d2545a348f0c4a5ee24b05700ebf2af5fe5492491555ea",
+      "sha256": "5281494e2ebaa8b644e766ad13765411116c3a3e3b6b633af76e96e98f0bec0f",
+      "bytes": 77834
+    },
+    {
+      "id": "urumqi",
+      "city": "乌鲁木齐",
+      "landmark": "国际大巴扎观光塔",
+      "asset": "static/weather/landmarks/urumqi.webp",
+      "pixels": [
+        1024,
+        443
+      ],
+      "source_pixels": [
+        1905,
+        825
+      ],
+      "source_sha256": "1238ea4776f3757d6b160fcd909e1b417e7a4392e0ec986de9a25ccc9e97772d",
+      "sha256": "f2bdf7409867fdfdf4f72d7761e74337c0fa172e9ca67db131e6fc9fa4889c54",
+      "bytes": 48576
+    }
+  ]
+}

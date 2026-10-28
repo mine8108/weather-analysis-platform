@@ -47,8 +47,25 @@ def test_decode_click_persists_result():
 
 def test_add_button_appends_manual_data():
     at = AppTest.from_function(_codec_page, default_timeout=30)
-    at.session_state["codec_result"] = {"station_id": "03969", "temperature": 15.6}
     at.run()
-    at.button[1].click().run()
+    at.text_area(key="codec_input").set_value(SYNOP)
+    at.button(key="decode_btn").click().run()
+    at.button(key="codec_add_manual").click().run()
     assert not at.exception
     assert at.session_state["manual_data"][-1]["station_id"] == "03969"
+    assert at.button(key="codec_add_manual").disabled
+    at.run()
+    assert len(at.session_state["manual_data"]) == 1
+
+
+def test_metar_visibility_limit_matches_metric_and_evidence_table():
+    at = AppTest.from_function(_codec_page, default_timeout=30).run()
+    at.radio(key="codec_type").set_value("METAR (航空气象报告)")
+    at.text_area(key="codec_input").set_value("METAR ZBAA 260800Z 18005MPS 9999 SCT030 24/12 Q1018")
+    at.button(key="decode_btn").click().run()
+    assert not at.exception
+    assert next(m.value for m in at.metric if m.label == "能见度") == "≥ 10 km"
+    evidence = at.dataframe[0].value
+    row = evidence.loc[evidence["字段"] == "能见度"].iloc[0]
+    assert row["解码值"] == "≥ 10"
+    assert row["原文编码"] == "9999"

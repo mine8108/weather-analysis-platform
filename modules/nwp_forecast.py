@@ -15,6 +15,7 @@ import os
 import json
 import logging
 import time
+from html import escape
 from datetime import datetime, timezone, timedelta
 
 import numpy as np
@@ -84,7 +85,7 @@ _FC_HOURLY = [
 
 
 # 数据 schema 版本：列集合变化时递增，使旧缓存（如缺 wind_direction 列）失效强制重拉
-_GFS_FC_SCHEMA_VERSION = "v3"
+_GFS_FC_SCHEMA_VERSION = "v4"
 
 
 # 缓存网格 0.01°（约 1 km）。GFS/Open-Meteo 的网格本身是公里级，四舍五入
@@ -268,9 +269,12 @@ def fetch_gfs_forecast(lat, lon, days=7, model="gfs_seamless",
         "wind_speed": h["wind_speed_10m"],
         "wind_direction": h["wind_direction_10m"],
         "weather_code": h["weather_code"],
-        "precipitation_probability": h.get("precipitation_probability", [0] * len(h["time"])),
+        "precipitation_probability": h.get("precipitation_probability", [None] * len(h["time"])),
     })
     df["station_id"] = f"GFS({lat:.2f},{lon:.2f})"
+    df.attrs["weather_metadata"] = {"fetched_at": datetime.now(timezone.utc).isoformat(),
+        "grid_lat": data.get("latitude"), "grid_lon": data.get("longitude"),
+        "timezone": data.get("timezone", "Asia/Shanghai"), "units": data.get("hourly_units", {})}
 
     st.session_state[cache_key] = (datetime.now(timezone.utc), df)
     # 第三层落地后写入二级缓存（失败静默忽略）
@@ -281,10 +285,10 @@ def fetch_gfs_forecast(lat, lon, days=7, model="gfs_seamless",
 
 @st.cache_data(ttl=600, show_spinner=False)
 def _fetch_gfs_current(lat, lon, model="gfs_seamless"):
-    """获取单点实时实测 (Open-Meteo `current=` 参数)，TTL 600 秒。
+    """获取单点当前模式天气 (Open-Meteo `current=` 参数)，TTL 600 秒。
     返回 dict: {temperature, humidity, apparent_temperature, wind_speed,
                 precipitation, precipitation_probability, weather_code}
-    失败返回 None。**不依赖服务器时钟**，每次返回 Open-Meteo 当时的真"当前时刻"实测。
+    失败返回 None。**不依赖服务器时钟**，有效时间使用接口 current.time，数据为模式估计。
     """
     try:
         # 安全修复（SEC-02）：实况卡片同样计入每用户每日出站配额
@@ -296,7 +300,7 @@ def _fetch_gfs_current(lat, lon, model="gfs_seamless"):
             "latitude": float(lat),
             "longitude": float(lon),
             "current": "temperature_2m,relative_humidity_2m,apparent_temperature,"
-                       "wind_speed_10m,precipitation,precipitation_probability,weather_code",
+                       "wind_speed_10m,precipitation,weather_code",
             "timezone": "Asia/Shanghai",
             "temperature_unit": "celsius",
             "wind_speed_unit": "ms",
@@ -319,6 +323,7 @@ def _fetch_gfs_current(lat, lon, model="gfs_seamless"):
             "precipitation": cur.get("precipitation"),
             "precipitation_probability": cur.get("precipitation_probability"),
             "weather_code": cur.get("weather_code"),
+            "valid_at": cur.get("time"),
         }
     except Exception:
         return None
@@ -589,145 +594,12 @@ def air_quality_aqi_chart(aq_df, dark=None):
 # ============================================================
 # 四、图表渲染
 # ============================================================
-def _forecast_time_series(fdf):
-    """时间图：气温 + 体感温度(左轴) + 降水(右轴) + 精度增强
-
-    Q1: 日温度包络带 (Min-Max 半透明填充)
-    Q2: 12h 累计降水柱 (替代逐时柱，减少视觉噪音)
-    Q3: 预报可信度梯度标注 (右上角: 0-3天高/4-7天中/8+天低)
-    Q4: 降水概率幕布 (WMO 天气码 → 概率, 半透明背景层)
-    """
-    now = pd.Timestamp.now(tz="Asia/Shanghai").tz_localize(None)
-    fig = make_subplots(specs=[[{"secondary_y": True}]])
-
-    # ---- Q1: 日温度包络带 (先加，在气温线后面) ----
-    df_temp = fdf[["timestamp", "temperature"]].copy()
-    df_temp["date"] = fdf["timestamp"].dt.date
-    day_min = df_temp.groupby("date")["temperature"].min()
-    day_max = df_temp.groupby("date")["temperature"].max()
-    dmax_arr = np.array([day_max[d.date()] for d in fdf["timestamp"]])
-    dmin_arr = np.array([day_min[d.date()] for d in fdf["timestamp"]])
-    fig.add_trace(go.Scatter(
-        x=fdf["timestamp"], y=dmax_arr, mode="lines",
-        line=dict(width=0), showlegend=False, hoverinfo="skip",
-    ), secondary_y=False)
-    fig.add_trace(go.Scatter(
-        x=fdf["timestamp"], y=dmin_arr, mode="lines",
-        fill="tonexty", fillcolor="rgba(231,76,60,0.10)",
-        line=dict(width=0), name="日波动范围",
-        hoverinfo="skip",
-    ), secondary_y=False)
-
-    # ---- 主气温线 ----
-    fig.add_trace(
-        go.Scatter(x=fdf["timestamp"], y=fdf["temperature"], mode="lines",
-                   name="气温", line=dict(color=color_value("temp_color"), width=2.2),
-                   hovertemplate="%{x|%m-%d %H:%M}<br>气温: %{y:.1f}C<extra></extra>"),
-        secondary_y=False,
-    )
-    fig.add_trace(
-        go.Scatter(x=fdf["timestamp"], y=fdf["apparent_temperature"], mode="lines",
-                   name="体感温度", line=dict(color="#e67e22", width=2, dash="dot"),
-                   hovertemplate="%{x|%m-%d %H:%M}<br>体感: %{y:.1f}C<extra></extra>"),
-        secondary_y=False,
-    )
-
-    # ---- Q4: 降水概率幕布 (WMO 天气码 → 概率) ----
-    if "weather_code" in fdf.columns:
-        def _wet_prob(c):
-            if c in range(0, 20): return 0.10
-            if c in range(20, 50): return 0.50
-            if c in range(50, 70): return 0.70
-            if c in range(70, 80): return 0.80
-            if c in range(80, 87): return 0.90
-            if c in range(95, 100): return 0.95
-            return 0.10
-        probs = np.array([_wet_prob(c) for c in fdf["weather_code"]], dtype=float)
-        fig.add_trace(go.Scatter(
-            x=fdf["timestamp"], y=probs, mode="none",
-            fill="tozeroy", fillcolor="rgba(41,128,185,0.08)",
-            name="降水概率", showlegend=True,
-            hoverinfo="skip",
-            yaxis="y2",
-        ), secondary_y=True)
-        # 概率刻度 (右侧第二 Y 轴)
-        fig.add_trace(go.Scatter(
-            x=fdf["timestamp"], y=probs, mode="lines",
-            line=dict(color="rgba(41,128,185,0.35)", width=1, dash="dot"),
-            name="降水概率", showlegend=True,
-            hovertemplate="%{x|%m-%d %H:%M}<br>降水概率: %{y:.0%}<extra></extra>",
-            yaxis="y3",
-        ), secondary_y=False)
-        # 用第三个隐含 Y 轴来显示概率刻度（只用于参考线，不显示独立轴）
-        fig.update_layout(yaxis3=dict(overlaying="y2", side="right",
-                                       range=[0, 1], showticklabels=False,
-                                       showgrid=False))
-
-    # ---- Q2: 12h 累计降水柱 (替代逐时柱) ----
-    hp12 = fdf.set_index("timestamp")["precipitation"].resample("12h").sum().reset_index()
-    fig.add_trace(
-        go.Bar(x=hp12["timestamp"], y=hp12["precipitation"], name="降水 (12h)",
-               marker_color=color_value("rain_color"), opacity=0.55,
-               width=36000000,  # 12h in ms
-               hovertemplate="%{x|%m-%d %H:%M} (12h)<br>降水: %{y:.1f} mm<extra></extra>"),
-        secondary_y=True,
-    )
-
-    # ---- 当前时刻竖线 ----
-    t_min = fdf["timestamp"].min()
-    t_max = fdf["timestamp"].max()
-    if t_min <= now <= t_max:
-        fig.add_vline(x=now, line_width=2, line_dash="dash",
-                      line_color="#c0392b",
-                      annotation_text="现在",
-                      annotation_position="top left",
-                      annotation_font=dict(size=11, color="#c0392b"))
-
-    # ---- Q3: 预报可信度标注 ----
-    n_days = int((t_max - t_min).total_seconds() / 86400)
-    fig.add_annotation(
-        x=0.98, y=0.98, xref="paper", yref="paper",
-        text=("可信度: <span style='color:#2ca02c'>0-3天高</span> | "
-              "<span style='color:#d69e2e'>4-7天中</span> | "
-              "<span style='color:#c0392b'>8+天低</span>"),
-        showarrow=False, font=dict(size=10),
-        bgcolor=token_value("chart-tip-bg"),
-        bordercolor="#475569" if _is_dark() else "#ccc",
-        borderwidth=1, borderpad=5, align="right",
-    )
-
-    # ---- 轴设置 ----
-    fig.update_yaxes(title_text="温度 (C)", secondary_y=False)
-    fig.update_yaxes(title_text="降水 (mm, 12h合计)", secondary_y=True)
-    fig.update_xaxes(
-        rangeselector=dict(
-            buttons=list([
-                dict(count=3, label="3d", step="day", stepmode="backward"),
-                dict(count=7, label="7d", step="day", stepmode="backward"),
-                dict(count=14, label="14d", step="day", stepmode="backward"),
-                dict(step="all"),
-            ])
-        ),
-        rangeslider=dict(visible=True, thickness=0.15),
-        dtick=43200000,
-        tickformat="%m-%d %H:%M",
-    )
-    fig.update_layout(
-        title=dict(
-            text="GFS 温度/体感/降水 预报 (精度增强)",
-            y=0.01, x=0.5, xanchor="center", yanchor="bottom",
-            font=dict(size=14),
-        ),
-        hovermode="x unified",
-        height=500,
-        margin=dict(l=40, r=20, t=20, b=80),
-        legend=dict(
-            x=0.01, y=0.98,
-            xanchor="left", yanchor="top",
-            bgcolor=token_value("chart-tip-bg"),
-            bordercolor="#475569" if _is_dark() else "#ddd", borderwidth=1,
-        ),
-    )
+def _forecast_time_series(fdf, apparent=True, precipitation_hours=12, probability=False, context=None):
+    from modules.nwp.presentation import forecast_figure
+    fig = forecast_figure(fdf, apparent=apparent, precipitation_hours=precipitation_hours,
+                          probability=probability, dark=bool(st.session_state.get("dark_mode", False)), context=context)
+    if st.session_state.get("_weather_expanded") and not probability:
+        fig.update_layout(height=210, margin=dict(l=38, r=18, t=25, b=32), legend=dict(y=1.18))
     return fig
 
 
@@ -963,7 +835,7 @@ def _render_forecast_advice(analysis, life_indices=None):
 <b style="color:{level_color};font-size:15px">{warn['icon']} {warn['type']}{warn['level']}</b>
 <br><span style="color:{css_var('text-secondary')}">{warn['level_num']} | {warn['detail']}</span></div>""", unsafe_allow_html=True)
     else:
-        st.success("[OK] 未来预报期内未触发预警信号")
+        st.success("当前有效数据未触发本工具的预警阈值；请结合官方预警与缺测情况判断。")
 
     # ---- 生活出行指南(嵌入智能分析节内,预报精度详情之前) ----
     if life_indices:
@@ -972,7 +844,7 @@ def _render_forecast_advice(analysis, life_indices=None):
     # 精度增强面板
     prec = analysis.get("precision", {})
     if prec:
-        st.write("#### 预报精度详情")
+        st.write("#### 变化特征与数据范围")
         # 趋势数值（统一卡片样式）
         tt = prec.get("temp_trend", {})
         if tt:
@@ -1070,111 +942,30 @@ def _uni_card(label, value, unit="", delta=None, color=None):
 # ============================================================
 # 五-2、当前实况卡片
 # ============================================================
-def _render_current_conditions(fdf):
-    """渲染当前实况卡片：气温 / 风等级 / 湿度 / 降水概率
-    优先用 Open-Meteo `current=` 真实时实测；服务器时钟异常或失败时 fallback 到 fdf 当前小时行。
-    """
-    from config import get_beaufort_level
-
-    if fdf is None or fdf.empty:
-        return
-
-    # 真实时实测(独立 API 调用,不依赖服务器时钟)
-    lat = st.session_state.get("fc_lat")
-    lon = st.session_state.get("fc_lon")
-    model_label = st.session_state.get("fc_model", "GFS 无缝混合 (gfs_seamless)")
-    model_value = GFS_MODELS.get(model_label, "gfs_seamless")
-    cur = _fetch_gfs_current(lat, lon, model_value) if (lat is not None and lon is not None) else None
-
-    if cur and cur.get("temperature") is not None:
-        # 真实时实测路径
-        temp = float(cur["temperature"])
-        app_temp = float(cur.get("apparent_temperature") or temp)
-        wind = float(cur.get("wind_speed") or 0)
-        humid = float(cur.get("humidity") or 0)
-        precip_prob = float(cur.get("precipitation_probability") or 0)
-        source = "实测"
+def _render_current_conditions(fdf, context=None):
+    """Current MODEL weather, always anchored to the successful forecast context."""
+    from modules.weather_view_model import format_value, number
+    context = context or st.session_state.get("fc_result_context") or {}
+    city = context.get("city") or {}
+    lat, lon = city.get("lat"), city.get("lon")
+    cur = _fetch_gfs_current(lat, lon, context.get("model")) if lat is not None and lon is not None else None
+    if cur and number(cur.get("temperature")) is not None:
+        values, source = cur, "当前模式天气"
+        valid_time = cur.get("valid_at") or "接口未返回有效时间"
     else:
-        # Fallback: 用 fdf 当前小时行(可能受服务器时钟影响)
-        now_row = _get_now_row(fdf)
-        if now_row is None:
+        row = _get_now_row(fdf)
+        if row is None:
+            st.info("当前天气暂无可用数据。")
             return
-        temp = float(now_row.get("temperature", 0))
-        app_temp = float(now_row.get("apparent_temperature", temp))
-        wind = float(now_row.get("wind_speed", 0))
-        humid = float(now_row.get("humidity", 0))
-        precip_prob = float(now_row.get("precipitation_probability", 0))
-        source = "预报"
-
-    # 实时空气质量（AQI 分指数口径见 config.AQI_STANDARD_LABEL）
-    aq_aqi, aq_level, aq_primary, aq_color = None, "—", "—", "#94a3b8"
-    if lat is not None and lon is not None:
-        try:
-            _, _aq_cur, _aq_err = fetch_air_quality(lat, lon, 1)
-            if _aq_cur:
-                aq_aqi, aq_level, aq_primary, aq_color = _compute_cn_aqi(_aq_cur)
-        except Exception:  # noqa: BLE001
-            pass
-
-    bf_level, bf_name = get_beaufort_level(wind)
-
-    # --- 干湿描述（颜色改走 token，暗色下自动取更亮一档）---
-    if humid >= 80:
-        humid_desc, humid_color = "潮湿", css_var("humid")
-    elif humid >= 60:
-        humid_desc, humid_color = "湿润", css_var("rain")
-    elif humid >= 40:
-        humid_desc, humid_color = "舒适", css_var("pres")
-    else:
-        humid_desc, humid_color = "干燥", css_var("wind")
-
-    # --- 降水概率描述 ---
-    if precip_prob >= 70:
-        prob_desc, prob_color = "很可能下雨", css_var("humid")
-    elif precip_prob >= 40:
-        prob_desc, prob_color = "有可能下雨", css_var("rain")
-    elif precip_prob >= 10:
-        prob_desc, prob_color = "基本无雨", css_var("pres")
-    else:
-        prob_desc, prob_color = "晴朗", css_var("wind")
-
-    bg, border, label_color, val_color = _card_surface()
-
-    def _card(icon, label, value, unit, sub, color):
-        return f"""
-        <div style="background:{bg};border:1px solid {border};border-radius:12px;
-                    padding:16px 12px;text-align:center;position:relative;overflow:hidden;">
-            <div style="position:absolute;left:0;top:0;bottom:0;width:4px;background:{color};"></div>
-            <div style="font-size:1.6rem;margin-bottom:4px;">{icon}</div>
-            <div style="font-size:0.75rem;color:{label_color};margin-bottom:2px;">{label}</div>
-            <div style="font-size:1.8rem;font-weight:700;color:{val_color};line-height:1.2;">
-                {value}<span style="font-size:0.9rem;font-weight:400;color:{label_color};">{unit}</span>
-            </div>
-            <div style="font-size:0.72rem;color:{color};margin-top:4px;">{sub}</div>
-        </div>
-        """
-
-    st.write(f"### 当前实况  · {source}")
-    c1, c2, c3, c4, c5 = st.columns(5)
-    with c1:
-        st.markdown(_card("[T]", "气温", f"{temp:.1f}", "C",
-                         f"体感 {app_temp:.1f}C", css_var("temp")), unsafe_allow_html=True)
-    with c2:
-        st.markdown(_card("[W]", f"风力 {bf_level}级", f"{wind:.1f}", "m/s",
-                         bf_name, css_var("wind")), unsafe_allow_html=True)
-    with c3:
-        st.markdown(_card("[H]", "相对湿度", f"{humid:.0f}", "%",
-                         humid_desc, humid_color), unsafe_allow_html=True)
-    with c4:
-        st.markdown(_card("[P]", "降水概率", f"{precip_prob:.0f}", "%",
-                         prob_desc, prob_color), unsafe_allow_html=True)
-    with c5:
-        if aq_aqi is not None:
-            st.markdown(_card("[AQ]", "空气质量", f"{aq_aqi:.0f}", "",
-                             f"{aq_level} · {aq_primary}", aq_color), unsafe_allow_html=True)
-        else:
-            st.markdown(_card("[AQ]", "空气质量", "—", "",
-                             "暂无数据", css_var("text-muted")), unsafe_allow_html=True)
+        values, source, valid_time = row, "最近预报时次", str(row.get("timestamp", ""))
+    st.caption(f"{source} · {valid_time} · 北京时间 · Open-Meteo 模式资料")
+    columns = st.columns(4)
+    for column, label, field, suffix, digits in zip(columns,
+            ["气温", "体感温度", "相对湿度", "10 m 风速"],
+            ["temperature", "apparent_temperature", "humidity", "wind_speed"],
+            [" °C", " °C", " %", " m/s"], [1, 1, 0, 1]):
+        column.metric(label, format_value(values.get(field), suffix, digits))
+    return cur
 
 
 # ============================================================
@@ -1256,10 +1047,11 @@ def _render_forecast_verification():
     from modules.data_loader import (fetch_open_meteo, load_csv, load_excel,
                                      normalize_columns, parse_timestamp)
 
-    lat = st.session_state.get("fc_lat", 39.94)
-    lon = st.session_state.get("fc_lon", 116.85)
-    model_label = st.session_state.get("fc_model", "GFS 无缝混合 (gfs_seamless)")
-    model = GFS_MODELS.get(model_label, "gfs_seamless")
+    result = st.session_state.get("fc_result_context") or {}
+    lat = result.get("city", {}).get("lat", st.session_state.get("fc_lat", 39.94))
+    lon = result.get("city", {}).get("lon", st.session_state.get("fc_lon", 116.85))
+    model = result.get("model", GFS_MODELS.get(st.session_state.get("fc_model"), "gfs_seamless"))
+    model_label = next(k for k, v in GFS_MODELS.items() if v == model)
     st.caption(f"验证坐标：{lat:.2f}N, {lon:.2f}E ｜ 模式：{model_label}")
 
     # ---- 实况来源 ----
@@ -1365,50 +1157,133 @@ def _render_forecast_verification():
 # ============================================================
 # 六、主渲染入口
 # ============================================================
+def _save_forecast_draft():
+    st.session_state["_fc_draft"] = {
+        "lat": st.session_state.get("_fc_lat_input", 39.94), "lon": st.session_state.get("_fc_lon_input", 116.85),
+        "days": st.session_state.get("_fc_days_input", 7), "model_label": st.session_state.get("_fc_model_input", next(iter(GFS_MODELS)))}
+
+
 def render_forecast_tab():
-    """渲染「数值预报分析」Tab 全部内容"""
-    st.subheader("[预报] 数值预报分析 (GFS)")
-    st.caption("数据来源：Open-Meteo GFS 数值预报 (免注册, 最长 16 天)")
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        lat = st.number_input("纬度 (Latitude)", value=39.94,
-                              min_value=-90.0, max_value=90.0, step=0.01, key="fc_lat")
-    with col2:
-        lon = st.number_input("经度 (Longitude)", value=116.85,
-                              min_value=-180.0, max_value=180.0, step=0.01, key="fc_lon")
-    with col3:
-        days = st.slider("预报时效 (天)", 1, 16, 7, key="fc_days")
-
-    model_label = st.selectbox("数值模式", list(GFS_MODELS.keys()), key="fc_model")
-    model = GFS_MODELS[model_label]
-
-    if st.button("[预报] 获取 GFS 预报", use_container_width=True, key="fc_fetch"):
-        with st.spinner("正在获取 GFS 数值预报..."):
-            fdf, err = fetch_gfs_forecast(lat, lon, days=days, model=model)
-        if err:
-            st.error(err)
+    from modules.forecast_context import make_intent, queue_intent, consume_intent, commit_success, fail_request, restore_previous
+    from modules.nwp.presentation import forecast_summary, precipitation_windows, numeric_series
+    from modules.ui.shell import page_heading
+    from modules.weather_view_model import format_value
+    from modules.ui.navigation import MODULES, queue_navigation
+    intent = consume_intent(st.session_state)
+    existing = st.session_state.get("fc_result_context") or {}
+    initial = {"lat": existing.get("city", {}).get("lat", 39.94), "lon": existing.get("city", {}).get("lon", 116.85),
+               "days": existing.get("days", 7), "model_label": next(k for k, v in GFS_MODELS.items() if v == existing.get("model", "gfs_seamless"))}
+    draft = st.session_state.setdefault("_fc_draft", initial)
+    if intent:
+        draft = {"lat": intent["city"]["lat"], "lon": intent["city"]["lon"], "days": intent["days"],
+                 "model_label": next(k for k, v in GFS_MODELS.items() if v == intent["model"])}
+        st.session_state["_fc_draft"] = draft
+    for field, key in [("lat", "_fc_lat_input"), ("lon", "_fc_lon_input"), ("days", "_fc_days_input"), ("model_label", "_fc_model_input")]:
+        if intent and key in st.session_state and st.session_state[key] != draft[field]:
+            st.session_state[key] = draft[field]
+    current_result = st.session_state.get("fc_result_context")
+    navigation_panel = None
+    header = st.container(border=True, key="forecast_result_header")
+    with header:
+        title_col, action_col = st.columns([2, 1])
+        with title_col:
+            page_heading(f"{current_result['city']['name']} · 数值预报" if current_result else "数值预报",
+                         (f"{current_result['city']['lat']:.2f}°, {current_result['city']['lon']:.2f}° · {current_result['source']} · UTC+8"
+                          if current_result else "逐时预报与气象要素分析 · 北京时间（UTC+8）"))
+        if current_result:
+            query_action, history_action = action_col.columns(2)
+            query_panel = query_action.popover("预报参数", icon=":material/tune:", width="stretch")
+            has_navigation = bool(st.session_state.get("_forecast_previous_result")) or current_result.get("source_route", "forecast") != "forecast"
+            navigation_panel = history_action.popover("返回与历史", icon=":material/history:", disabled=not has_navigation, width="stretch")
         else:
-            st.session_state["fc_df"] = fdf
-            # 打通「预报 → 检测」数据流：检测 Tab 读取 nwp_forecast_for_analysis，
-            # 原写入键 fc_df 与之不一致，导致检测 Tab 的「数值预报驱动分析」始终为空
-            st.session_state["nwp_forecast_for_analysis"] = fdf
-            st.success(f"[OK] 获取 {len(fdf)} 条逐时预报 (未来 {days} 天)")
-
-    fdf = st.session_state.get("fc_df", None)
-    if fdf is None:
-        st.info("点击上方按钮获取 GFS 预报数据")
+            query_panel = header.container()
+        if current_result:
+            action_col.caption(f"{current_result['coverage_start'].replace('T', ' ')[:16]} 至 {current_result['coverage_end'].replace('T', ' ')[:16]}")
+    with query_panel:
+        col1, col2, col3, col4 = st.columns([1, 1, 1.3, 1.8])
+        # A closed popover may mount its inputs after later reruns. Seed the
+        # serialized defaults from the durable draft as well as any live state.
+        lat = col1.number_input("纬度", min_value=-90.0, max_value=90.0, value=float(draft["lat"]), step=.01, key="_fc_lat_input", on_change=_save_forecast_draft)
+        lon = col2.number_input("经度", min_value=-180.0, max_value=180.0, value=float(draft["lon"]), step=.01, key="_fc_lon_input", on_change=_save_forecast_draft)
+        days = col3.slider("预报天数", 1, 16, value=int(draft["days"]), key="_fc_days_input", on_change=_save_forecast_draft)
+        model_label = col4.selectbox("数值模式", list(GFS_MODELS), index=list(GFS_MODELS).index(draft["model_label"]), key="_fc_model_input", on_change=_save_forecast_draft)
+        model = GFS_MODELS[model_label]
+        if st.button("获取预报", icon=":material/refresh:", type="primary", key="fc_fetch"):
+            city = next((c for c in st.session_state.get("wall_cities", [])
+                         if abs(c["lat"] - lat) < .00001 and abs(c["lon"] - lon) < .00001),
+                        {"zh": f"{lat:.2f}°, {lon:.2f}°", "lat": lat, "lon": lon})
+            queue_intent(st.session_state, make_intent(city, int(days), model=model))
+            intent = consume_intent(st.session_state)
+    if intent:
+        with st.spinner(f"正在获取{intent['city']['name']}的预报…"):
+            fdf, err = fetch_gfs_forecast(intent["city"]["lat"], intent["city"]["lon"], days=intent["days"], model=intent["model"])
+        if err:
+            fail_request(st.session_state, intent, err)
+        else:
+            try:
+                commit_success(st.session_state, intent, fdf)
+                st.session_state["fc_model"] = next(k for k, v in GFS_MODELS.items() if v == intent["model"])
+                st.rerun()
+            except ValueError as exc:
+                fail_request(st.session_state, intent, str(exc))
+    status = st.session_state.get("_forecast_status") or {}
+    context = st.session_state.get("fc_result_context")
+    if status.get("state") == "failed":
+        st.warning(f"{status['city']['name']}加载失败。{status.get('message', '')}" + (" 下方保留上次成功的结果。" if context else ""))
+    if context is None:
+        st.info("从顶部天气卡片选择城市，或填写坐标获取预报。")
         return
-
-    # ---- 当前实况卡片 ----
-    _render_current_conditions(fdf)
-
-    # ---- 时间图 ----
-    st.write("### 时间图：逐时预报序列")
-    ts_fig = _forecast_time_series(fdf)
-    safe_chart(ts_fig, "温度/体感/降水 预报", key="fc_ts")
-    # D: 说明 rangeslider 的 Plotly 天然限制
-    st.caption("提示：底部缩放滑块仅关联左侧「气温」坐标轴（右轴降水不随滑块缩放），这是 Plotly 原生行为。")
+    fdf = context["data"]
+    lat, lon, days, model = context["city"]["lat"], context["city"]["lon"], context["days"], context["model"]
+    model_label = next(k for k, v in GFS_MODELS.items() if v == model)
+    if (abs(draft["lat"] - lat) > .00001 or abs(draft["lon"] - lon) > .00001 or draft["days"] != days
+            or GFS_MODELS[draft["model_label"]] != model):
+        st.caption("查询参数已调整；下方仍显示上次成功加载的结果，点击获取预报后更新。")
+    with header:
+        source_idx = next((i for i, (_, route, _) in enumerate(MODULES) if route == context["source_route"]), 2)
+        if source_idx != 2 and navigation_panel.button("返回来源模块", key="forecast_return_source", width="stretch"):
+            queue_navigation(source_idx, remember=False)
+            st.rerun()
+        if st.session_state.get("_forecast_previous_result") and navigation_panel.button("上一份结果", key="forecast_previous_result", width="stretch"):
+            restore_previous(st.session_state)
+            st.rerun()
+        summary = forecast_summary(fdf)
+        items = []
+        for name, record, kind in [("最高气温", summary["maximum"], "warm"), ("最低气温", summary["minimum"], "cool")]:
+            when = record["time"][:16] if record["time"] else "缺少有效数据"
+            items.append(f'<div class="wb-summary-item {kind}"><span class="wb-symbol" aria-hidden="true">thermometer</span>'
+                         f'<span class="wb-summary-label">{name}</span><strong>{escape(format_value(record["value"], " °C", 1))}</strong>'
+                         f'<small>{escape(when)}</small></div>')
+        rain_label = "累计降水" if summary["precipitation_complete"] else "有效时次降水小计"
+        items.append(f'<div class="wb-summary-item rain"><span class="wb-symbol" aria-hidden="true">water_drop</span>'
+                     f'<span class="wb-summary-label">{rain_label}</span><strong>{escape(format_value(summary["precipitation"], " mm", 1))}</strong>'
+                     f'<small>{summary["valid_rain_hours"]} / {summary["hours"]} 有效间隔</small></div>')
+        st.html('<div class="wb-summary-grid">' + ''.join(items) + '</div>')
+    with st.container(border=True, key="forecast_main_chart"):
+        chart_title, chart_options = st.columns([4, 1])
+        chart_title.markdown("#### 气温与降水趋势")
+        with chart_options.popover("图层设置", icon=":material/tune:", width="stretch"):
+            apparent = st.checkbox("显示体感温度", value=True, key="fc_show_apparent")
+            rain_hours = st.selectbox("降水累计窗口（小时）", [1, 3, 6, 12, 24], index=3, key="fc_rain_window")
+            has_probability = numeric_series(fdf, "precipitation_probability").between(0, 100).any()
+            probability = st.checkbox("显示接口提供的降水概率", value=False, disabled=not has_probability, key="fc_show_probability")
+            if not has_probability:
+                st.caption("当前返回数据未提供有效概率；不根据天气码估算。")
+        safe_chart(_forecast_time_series(fdf, apparent, rain_hours, probability, context), "气温与降水趋势", key="fc_ts")
+        windows = precipitation_windows(fdf, rain_hours)
+        incomplete = int((~windows["complete"]).sum())
+        st.caption(f"降水表示前 {rain_hours} 小时累计，柱子位于区间中心。缺测与边界不完整窗口共 {incomplete} 个，留空显示。温度缺测以断线表示。")
+        from modules.report.base import export_data_csv
+        st.download_button("下载逐时预报 CSV", export_data_csv(fdf),
+                           file_name=f"forecast_{context['city_id']}_{days}d.csv", mime="text/csv", key="fc_download_csv")
+        with st.expander("来源与时间口径"):
+            metadata = context.get("provider_metadata") or {}
+            st.caption(f"来源：{context['source']} · 时区：Asia/Shanghai · 本次结果接收：{context['received_at']}（UTC）")
+            st.caption("模式起报时次：当前接口未提供。获取时间与预报有效时间分别列示，不将获取时间当作起报时间。")
+            if metadata.get("fetched_at"):
+                st.caption(f"接口获取时间：{metadata['fetched_at']}")
+    with st.expander("当前模式天气", expanded=False):
+        _render_current_conditions(fdf, context)
 
     # ---- 空气质量预报 ----
     st.write("### 空气质量预报 (国标 AQI)")
@@ -1439,14 +1314,16 @@ def render_forecast_tab():
     max_t = float(hh["temperature"].max())
     max_app = float(hh["apparent_temperature"].max())
     hi = heat_index(hh["temperature"].values, hh["humidity"].values)
-    max_hi = float(np.nanmax(hi)) if np.isfinite(np.nanmax(hi)) else float("nan")
+    max_hi = float(np.max(hi[np.isfinite(hi)])) if np.isfinite(hi).any() else float("nan")
     if max_t >= 35:
         msg = f"未来 72 小时将出现高温：最高气温 {max_t:.1f}℃，最大体感温度 {max_app:.1f}℃"
         if np.isfinite(max_hi):
             msg += f"，Rothfusz 热指数峰值 {max_hi:.1f}℃"
         st.warning("[高温] " + msg)
+    elif np.isfinite(max_t):
+        st.info(f"有效预报时次未达到 35℃（峰值 {max_t:.1f}℃）。缺测时次及其他热风险不在此判断范围内。")
     else:
-        st.success(f"[OK] 未来 72 小时无高温风险 (气温 < 35℃，峰值 {max_t:.1f}℃)")
+        st.info("未来 72 小时缺少有效气温数据，无法判断是否达到高温阈值。")
 
     # ---- 风玫瑰预报（替换原降水预报板块）----
     st.write("### 风玫瑰预报 (全预报期)")
@@ -1475,16 +1352,8 @@ def render_forecast_tab():
         analysis = _analyze_forecast(fdf)
     st.session_state["fc_analysis"] = analysis
 
-    # 生活指南计算提前到此处(将作为子节嵌入智能分析节)
-    # 实时观测在入口处取好再传入，计算层不读 session_state、不联网。
-    _lat = st.session_state.get("fc_lat")
-    _lon = st.session_state.get("fc_lon")
-    _model_label = st.session_state.get(
-        "fc_model", "GFS 无缝混合 (gfs_seamless)")
-    _cur = None
-    if _lat is not None and _lon is not None:
-        _cur = _fetch_gfs_current(
-            _lat, _lon, GFS_MODELS.get(_model_label, "gfs_seamless"))
+    # Every derived panel uses the same successful city/model, including after a failed query.
+    _cur = _fetch_gfs_current(lat, lon, model)
     life_indices = _calc_life_indices(fdf, current=_cur)
     st.session_state["life_indices"] = life_indices
 

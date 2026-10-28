@@ -1,0 +1,11 @@
+# Jinan / 超然楼
+
+- Generator: built-in image_gen, transparent_background=true
+- Original: `$CODEX_HOME/generated_images/01a18174-d384-7653-abc6-f9e5239c80aa/exec-fb07c5d3-dba2-4911-a143-5a2fe46c0939.png`
+- Saved source: `assets/landmarks/source/jinan.png`, original RGBA preserved
+- Exact dimensions, alpha statistics and hash: `jinan-metadata.json`
+- Visual inspection via view_image: pale walls and red columns with dark blue-gray broad eaves, elevated pale stone terrace, lakeside willow trees and narrow water strip match Jinan panel's overall silhouette. Five exterior roof tiers are visible; internal seven-story count is not inferable from this decorative view. Architecture entirely in right half, base haze extends to x47%, no sky or weather.
+
+## Prompt
+
+Create ONE isolated transparent architectural landmark illustration of Chaoran Tower beside Daming Lake, Jinan (济南超然楼). Use SECOND ROW RIGHT Jinan panel of the supplied east-city board for the landmark architecture and silhouette; follow that panel rather than copying the neighboring towers. Depict a stately upright multi-story traditional Chinese seven-story pavilion on a substantial high pale stone base, pale ivory wall panels alternating with muted red timber columns, broad dark blue-gray tiled roofs and pronounced upturned eaves, a compact refined central apex with a small gold finial. Vertical rhythm and wide lower terrace should read as the Jinan reference, not the red Tengwang Pavilion and not the yellow-roof Yellow Crane Tower. Include a few low lakeside trees and only a slim quiet Daming Lake water strip at the very base. Semi-realistic fine painted architectural style matching the supplied Beijing PNG, cool desaturated blue-gray with restrained warm accents. Wide approximately1920x832 true RGBA transparency. Left half and top margin entirely empty transparent; entire landmark grouped bottomright x54..96%, y23..95%. Keep all roof tips and base inside edges. The trees and tiny water strip fade softly through pale mist into genuine transparency. No distant skyline, no sky, no sun or clouds, no weather icons, text, UI, labels, signage, border, black background or checkerboard. A compositable subtle landmark easter egg for a weather card.

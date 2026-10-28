@@ -76,3 +76,14 @@ data/raw/
 # 报告含可利用细节；公开仓库在修复完成前不应跟踪，避免变成攻击手册。
 # 修复并验证后可删除本行、再按需提交。
 research/audit-2026-10-18/
+
+# Original generated artwork and exhaustive local captures are retained in the
+# local release archive. The deployed app uses the checked-in optimized assets.
+assets/weather/source/
+assets/landmarks/source/
+docs/design/workbench-20261026/evidence/*
+!docs/design/workbench-20261026/evidence/fixtures/
+docs/design/workbench-20261026/landmark-release/evidence/*check.png
+docs/design/workbench-20261026/landmark-release/evidence/initial-*.png
+docs/design/workbench-20261026/landmark-release/evidence/six-landmarks-*.png
+docs/design/workbench-20261026/evidence/fixtures/*.html

@@ -238,7 +238,7 @@ def test_direct_report_export_includes_warnings_and_invalidates_when_data_change
     hot.loc[12, "temperature"] = 41
     at.session_state["df"] = hot
     at.session_state["source"] = "synthetic"
-    at.session_state["active_tab"] = 4
+    at.session_state["_route_request"] = 4
     at.run()
     assert not at.exception
     at.button(key="gen_report").click().run()

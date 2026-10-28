@@ -1,0 +1,187 @@
+{
+  "origin": "Built-in image generation; approved workbench reference",
+  "assets": [
+    {
+      "name": "brand-cloud",
+      "source": "assets/weather/source/brand-cloud.png",
+      "source_sha256": "b53962327fdb5e15a5981409b0c9694a2c8d85da1385c909be8c6beb4fd8b7bf",
+      "file": "static/weather/brand-cloud.png",
+      "size": [
+        192,
+        192
+      ],
+      "bytes": 17566,
+      "sha256": "51db5d13f0c61df03d2bc18028bbeca491aa93b4264f0a9cbba6b140fd7c5858",
+      "generation_file": "C:\\Users\\ASUS\\.codex\\generated_images\\01a17599-957c-7ff0-aae9-4069a80bf331\\exec-bfbbd325-e005-47da-95ff-9cda8dc45bfb.png",
+      "generation_sha256": "b53962327fdb5e15a5981409b0c9694a2c8d85da1385c909be8c6beb4fd8b7bf"
+    },
+    {
+      "name": "cloud-layer",
+      "source": "assets/weather/source/cloud-layer.png",
+      "source_sha256": "770701635cd41023f4565166f7c87ba1cc1c839badba6a8b545b938ef311f62b",
+      "file": "static/weather/cloud-layer.png",
+      "size": [
+        1280,
+        533
+      ],
+      "bytes": 434888,
+      "sha256": "9a54728ccc5eb55b73dcf38b7a9e8e122ee0f114b8a73fbb4da8b4e235634f5d",
+      "generation_file": "C:\\Users\\ASUS\\.codex\\generated_images\\01a177d2-afeb-7f12-b880-f8ab1547f28a\\exec-840faba3-0c33-4cdb-beda-35180e8afe88.png",
+      "generation_sha256": "770701635cd41023f4565166f7c87ba1cc1c839badba6a8b545b938ef311f62b"
+    },
+    {
+      "name": "cloudy",
+      "source": "assets/weather/source/cloudy.png",
+      "source_sha256": "924075ac4f8bd05a6d1714d87a580c0c6942906246f1860c9ac807762acfcdde",
+      "file": "static/weather/cloudy.jpg",
+      "size": [
+        1280,
+        533
+      ],
+      "bytes": 78307,
+      "sha256": "4c3bc9ddd8681d4abddbb5e56e1a82ae02188cb63652ceca8b3db21cd837ab21",
+      "generation_file": "C:\\Users\\ASUS\\.codex\\generated_images\\01a177d2-afeb-7f12-b880-f8ab1547f28a\\exec-5cf35197-1637-4345-bbb3-f0a70de41080.png",
+      "generation_sha256": "924075ac4f8bd05a6d1714d87a580c0c6942906246f1860c9ac807762acfcdde"
+    },
+    {
+      "name": "fog",
+      "source": "assets/weather/source/fog.png",
+      "source_sha256": "74cfb6abc706bd24b3bf05574f5d79493f679bdc236ad1b29ad49f2fdc152e15",
+      "file": "static/weather/fog.jpg",
+      "size": [
+        1280,
+        533
+      ],
+      "bytes": 61829,
+      "sha256": "277c0776b3d155757eedfad5a2c9f7de2a105e2c335128ad0fdb3f8443eb5b3f",
+      "generation_file": "C:\\Users\\ASUS\\.codex\\generated_images\\01a177d2-91e6-7ea0-b3a9-913448893b53\\exec-6eb7e2be-9f92-4670-9256-931cbeb0678a.png",
+      "generation_sha256": "74cfb6abc706bd24b3bf05574f5d79493f679bdc236ad1b29ad49f2fdc152e15"
+    },
+    {
+      "name": "night",
+      "source": "assets/weather/source/night.png",
+      "source_sha256": "3524ec9773541be83ecb4964b5c2733bd565719b4946e1c152056cd31602a7ee",
+      "file": "static/weather/night.jpg",
+      "size": [
+        1280,
+        533
+      ],
+      "bytes": 56741,
+      "sha256": "01e880de58a90af6b0799342ccf037cec50f68bc6e7f9cb20c7020e7319c80f0",
+      "generation_file": "C:\\Users\\ASUS\\.codex\\generated_images\\01a177d2-91e6-7ea0-b3a9-913448893b53\\exec-fdee65bc-e35f-4f27-8994-2bb8ee2885c0.png",
+      "generation_sha256": "3524ec9773541be83ecb4964b5c2733bd565719b4946e1c152056cd31602a7ee"
+    },
+    {
+      "name": "overcast",
+      "source": "assets/weather/source/overcast.png",
+      "source_sha256": "0748388c2f1a1faa080b1bd47d82342c24231777e2a15af773ea599c14ecc5c3",
+      "file": "static/weather/overcast.jpg",
+      "size": [
+        1280,
+        533
+      ],
+      "bytes": 53886,
+      "sha256": "69e2f7ce450df8303d7ba810cbea2c20f29dfcbe03cd07e17bde07f09834db97",
+      "generation_file": "C:\\Users\\ASUS\\.codex\\generated_images\\01a177d2-cccc-7a51-9c25-fb8539c802a8\\exec-56785b92-b240-4631-8a97-db260e343faf.png",
+      "generation_sha256": "0748388c2f1a1faa080b1bd47d82342c24231777e2a15af773ea599c14ecc5c3"
+    },
+    {
+      "name": "partly-cloudy",
+      "source": "assets/weather/source/partly-cloudy.png",
+      "source_sha256": "10a7b37b99b45dc0c6a125c174440c7af1e0dd86d4c7c61f9010d1d01539229f",
+      "file": "static/weather/partly-cloudy.jpg",
+      "size": [
+        1280,
+        534
+      ],
+      "bytes": 82267,
+      "sha256": "92a168e5d7c224b867ea2ab947a80585abe8371baf49cdf841be25210a9d36ef",
+      "generation_file": "C:\\Users\\ASUS\\.codex\\generated_images\\01a177d2-afeb-7f12-b880-f8ab1547f28a\\exec-961dfb03-02bc-43b0-957b-2a731ac10c8c.png",
+      "generation_sha256": "10a7b37b99b45dc0c6a125c174440c7af1e0dd86d4c7c61f9010d1d01539229f"
+    },
+    {
+      "name": "rain-layer",
+      "source": "assets/weather/source/rain-layer.png",
+      "source_sha256": "06ec8f54e40476c0ff8324b35b70078e08559a72c9e5f14f03549c3ff2b27d16",
+      "file": "static/weather/rain-layer.png",
+      "size": [
+        1280,
+        801
+      ],
+      "bytes": 89948,
+      "sha256": "add72fbc9cfbe7543901c860a77fbaee2f62ecc68f396525f0acb2c06fa41d53",
+      "generation_file": "C:\\Users\\ASUS\\.codex\\generated_images\\01a177d2-cccc-7a51-9c25-fb8539c802a8\\exec-f060a734-e16c-498d-914f-ede0d1e6826f.png",
+      "generation_sha256": "06ec8f54e40476c0ff8324b35b70078e08559a72c9e5f14f03549c3ff2b27d16"
+    },
+    {
+      "name": "rain",
+      "source": "assets/weather/source/rain.png",
+      "source_sha256": "4f2ab0dee2b3a22c955e38d5b99f17bd9ccf412927150745ea601f65477b9500",
+      "file": "static/weather/rain.jpg",
+      "size": [
+        1280,
+        533
+      ],
+      "bytes": 81524,
+      "sha256": "9f31fcd9bdff9b7a3b0bf3da7df0c0d0409f627279c42a747b552d6ab2c879e4",
+      "generation_file": "C:\\Users\\ASUS\\.codex\\generated_images\\01a177d2-cccc-7a51-9c25-fb8539c802a8\\exec-221d3732-392a-40c4-8688-fe89e5b77efa.png",
+      "generation_sha256": "4f2ab0dee2b3a22c955e38d5b99f17bd9ccf412927150745ea601f65477b9500"
+    },
+    {
+      "name": "snow-layer",
+      "source": "assets/weather/source/snow-layer.png",
+      "source_sha256": "56f75ef68de3f0f7571dd6149bd430ae734f10da2008a3c5ff74c5426c476f5e",
+      "file": "static/weather/snow-layer.png",
+      "size": [
+        1280,
+        801
+      ],
+      "bytes": 118263,
+      "sha256": "33827915a6870c3d255ca7821accc6cbcb27e9a5d325b3dd18cc7089b732c7b6",
+      "generation_file": "C:\\Users\\ASUS\\.codex\\generated_images\\01a177d2-91e6-7ea0-b3a9-913448893b53\\exec-0228cdf8-48e7-43c6-be6d-928ab0b8255a.png",
+      "generation_sha256": "56f75ef68de3f0f7571dd6149bd430ae734f10da2008a3c5ff74c5426c476f5e"
+    },
+    {
+      "name": "snow",
+      "source": "assets/weather/source/snow.png",
+      "source_sha256": "d2fbcdc607fb7003d74974d08e3ad97e1967bebf1b8d45c0da9f62c6140429b7",
+      "file": "static/weather/snow.jpg",
+      "size": [
+        1280,
+        533
+      ],
+      "bytes": 78806,
+      "sha256": "2680bcfa0a2b8a7dcffac37ed9c4458686578ea3b1d633a575a4acfc3c8a2ef8",
+      "generation_file": "C:\\Users\\ASUS\\.codex\\generated_images\\01a177d2-cccc-7a51-9c25-fb8539c802a8\\exec-2edff0f0-9b09-4bfd-8bfe-4730386b0072.png",
+      "generation_sha256": "d2fbcdc607fb7003d74974d08e3ad97e1967bebf1b8d45c0da9f62c6140429b7"
+    },
+    {
+      "name": "sunny",
+      "source": "assets/weather/source/sunny.png",
+      "source_sha256": "25705368fda646e6939ac061e2142df33c678376e7666068c3f49047f306e965",
+      "file": "static/weather/sunny.jpg",
+      "size": [
+        1280,
+        533
+      ],
+      "bytes": 62914,
+      "sha256": "c5735bd7119573a28af0b92f89c73bcfd637d832a4cbaa5dd0604067954e6f19",
+      "generation_file": "C:\\Users\\ASUS\\.codex\\generated_images\\01a177d2-91e6-7ea0-b3a9-913448893b53\\exec-043413ac-cf45-47f8-bffb-cf97f71c7999.png",
+      "generation_sha256": "25705368fda646e6939ac061e2142df33c678376e7666068c3f49047f306e965"
+    },
+    {
+      "name": "thunder",
+      "source": "assets/weather/source/thunder.png",
+      "source_sha256": "08ef3780659c75225ff318297a2e969fe2b46b095fa621ffe2b598a0c2d00f73",
+      "file": "static/weather/thunder.jpg",
+      "size": [
+        1280,
+        533
+      ],
+      "bytes": 79293,
+      "sha256": "bedcd8a1c3f4bf60e4b1e3143ccf1c9301d38872781d6ab2dbb81e3705b27c41",
+      "generation_file": "C:\\Users\\ASUS\\.codex\\generated_images\\01a177d2-afeb-7f12-b880-f8ab1547f28a\\exec-c64ac8cc-19a6-45e2-a486-88e3171fa414.png",
+      "generation_sha256": "08ef3780659c75225ff318297a2e969fe2b46b095fa621ffe2b598a0c2d00f73"
+    }
+  ]
+}

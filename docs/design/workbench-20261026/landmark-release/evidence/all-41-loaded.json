@@ -1,0 +1,252 @@
+{
+  "assets": [
+    {
+      "hidden": false,
+      "id": "beijing",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/beijing.webp"
+    },
+    {
+      "hidden": false,
+      "id": "tianjin",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/tianjin.webp"
+    },
+    {
+      "hidden": false,
+      "id": "shijiazhuang",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/shijiazhuang.webp"
+    },
+    {
+      "hidden": false,
+      "id": "taiyuan",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/taiyuan.webp"
+    },
+    {
+      "hidden": false,
+      "id": "hohhot",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/hohhot.webp"
+    },
+    {
+      "hidden": false,
+      "id": "shenyang",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/shenyang.webp"
+    },
+    {
+      "hidden": false,
+      "id": "changchun",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/changchun.webp"
+    },
+    {
+      "hidden": false,
+      "id": "harbin",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/harbin.webp"
+    },
+    {
+      "hidden": false,
+      "id": "dalian",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/dalian.webp"
+    },
+    {
+      "hidden": false,
+      "id": "shanghai",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/shanghai.webp"
+    },
+    {
+      "hidden": false,
+      "id": "nanjing",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/nanjing.webp"
+    },
+    {
+      "hidden": false,
+      "id": "hangzhou",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/hangzhou.webp"
+    },
+    {
+      "hidden": false,
+      "id": "hefei",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/hefei.webp"
+    },
+    {
+      "hidden": false,
+      "id": "fuzhou",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/fuzhou.webp"
+    },
+    {
+      "hidden": false,
+      "id": "jinan",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/jinan.webp"
+    },
+    {
+      "hidden": false,
+      "id": "nanchang",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/nanchang.webp"
+    },
+    {
+      "hidden": false,
+      "id": "suzhou",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/suzhou.webp"
+    },
+    {
+      "hidden": false,
+      "id": "qingdao",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/qingdao.webp"
+    },
+    {
+      "hidden": false,
+      "id": "xiamen",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/xiamen.webp"
+    },
+    {
+      "hidden": false,
+      "id": "taipei",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/taipei.webp"
+    },
+    {
+      "hidden": false,
+      "id": "zhengzhou",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/zhengzhou.webp"
+    },
+    {
+      "hidden": false,
+      "id": "wuhan",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/wuhan.webp"
+    },
+    {
+      "hidden": false,
+      "id": "changsha",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/changsha.webp"
+    },
+    {
+      "hidden": false,
+      "id": "guangzhou",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/guangzhou.webp"
+    },
+    {
+      "hidden": false,
+      "id": "nanning",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/nanning.webp"
+    },
+    {
+      "hidden": false,
+      "id": "haikou",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/haikou.webp"
+    },
+    {
+      "hidden": false,
+      "id": "shenzhen",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/shenzhen.webp"
+    },
+    {
+      "hidden": false,
+      "id": "sanya",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/sanya.webp"
+    },
+    {
+      "hidden": false,
+      "id": "guilin",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/guilin.webp"
+    },
+    {
+      "hidden": false,
+      "id": "hong-kong",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/hong-kong.webp"
+    },
+    {
+      "hidden": false,
+      "id": "macao",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/macao.webp"
+    },
+    {
+      "hidden": false,
+      "id": "chongqing",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/chongqing.webp"
+    },
+    {
+      "hidden": false,
+      "id": "chengdu",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/chengdu.webp"
+    },
+    {
+      "hidden": false,
+      "id": "guiyang",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/guiyang.webp"
+    },
+    {
+      "hidden": false,
+      "id": "kunming",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/kunming.webp"
+    },
+    {
+      "hidden": false,
+      "id": "lhasa",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/lhasa.webp"
+    },
+    {
+      "hidden": false,
+      "id": "xian",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/xian.webp"
+    },
+    {
+      "hidden": false,
+      "id": "lanzhou",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/lanzhou.webp"
+    },
+    {
+      "hidden": false,
+      "id": "xining",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/xining.webp"
+    },
+    {
+      "hidden": false,
+      "id": "yinchuan",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/yinchuan.webp"
+    },
+    {
+      "hidden": false,
+      "id": "urumqi",
+      "loaded": true,
+      "url": "http://127.0.0.1:8502/app/static/weather/landmarks/urumqi.webp"
+    }
+  ],
+  "count": 41,
+  "overflow": false
+}

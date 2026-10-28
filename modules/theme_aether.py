@@ -221,7 +221,7 @@ def theme_attr_js() -> str:
     """
     theme = "dark" if is_dark() else "light"
     # 外层 div 仅用于承载脚本，display:none 保证不影响布局
-    return f"""<div style="display:none" aria-hidden="true"><script>
+    return f"""<div class="dsh-theme-marker" style="display:none" aria-hidden="true"><script>
 (function() {{
   var ATTR = "{THEME_ATTR}", WANT = "{theme}";
   function apply() {{
@@ -265,7 +265,7 @@ def inject_theme() -> None:
     if not os.environ.get("DSH_THEME_NO_DARK_CSS"):
         parts += ["/* ===== Streamlit 原生组件暗色覆盖 ===== */", theme_css.dark_extra_css()]
 
-    st.markdown(f"<style>{chr(10).join(parts)}</style>", unsafe_allow_html=True)
+    st.markdown(f'<style class="dsh-theme-styles">{chr(10).join(parts)}</style>', unsafe_allow_html=True)
     # 脚本必须走 st.html：markdown 的 unsafe_allow_html 会被 DOMPurify 剥掉 <script>
     if not os.environ.get("DSH_THEME_NO_JS"):
         st.html(theme_attr_js(), unsafe_allow_javascript=True)

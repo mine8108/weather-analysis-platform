@@ -222,9 +222,9 @@ def call_vision_llm(prompt, images_b64, api_key, base_url=None, model=None,
 # ============================================================
 
 def parse_sections(text):
-    """按 【标题】 切片为 [(title, body), ...]；无标记则整体作为「解读摘要」。"""
+    """Recognize section headings at line starts; inline citations remain body text."""
     import re
-    parts = re.split(r"【([^】]{1,24})】", text or "")
+    parts = re.split(r"(?m)^[ \t]*(?:#{1,6}[ \t]+)?(?:\d+[.、．][ \t]*)?(?:\*\*)?【([^】\n]{1,24})】(?:\*\*)?[ \t]*", text or "")
     sections = []
     preamble = parts[0].strip()
     if preamble:
@@ -239,8 +239,9 @@ def parse_sections(text):
 
 def build_report_meta(scope, title="气象读图解析报告"):
     """构造报告元信息。版本号由页面注入，正文不硬编码。"""
+    from zoneinfo import ZoneInfo
     return {"scope": scope, "title": title,
-            "generated": datetime.now().strftime("%Y-%m-%d %H:%M")}
+            "generated": datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M UTC+8")}
 
 
 _CSS = """

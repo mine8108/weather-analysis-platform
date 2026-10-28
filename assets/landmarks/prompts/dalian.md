@@ -1,0 +1,16 @@
+# Dalian / 星海湾大桥
+
+- Generator: built-in image_gen, transparent_background=true
+- First generation: `$CODEX_HOME/generated_images/01a18174-d384-7653-abc6-f9e5239c80aa/exec-0f7a9355-3746-4dd1-a612-44be54641380.png`
+- Selected after transparency edit: `$CODEX_HOME/generated_images/01a18174-d384-7653-abc6-f9e5239c80aa/exec-5062bc88-69b2-49de-a4b9-5aca8dc2d3b7.png`
+- Saved source: `assets/landmarks/source/dalian.png`, original RGBA preserved
+- Exact dimensions, alpha statistics and hash: `dalian-metadata.json`
+- Visual inspection via view_image: twin portal towers, curved main suspension cables and vertical hangers match suspension bridge reference, with sea and distant shore at base. First image had pale alpha haze between cables; targeted edit improved some gaps but residual semitransparent haze remains among dense fine cables. Both towers intact; bridge deck continues to right frame edge, sea base extends to x33%. Runtime low-opacity compositing must be reviewed. No code or browser changes.
+
+## Initial prompt
+
+Create ONE isolated transparent city landmark illustration of Xinghai Bay Bridge, Dalian (大连星海湾大桥). Match the bottom-right Dalian panel in the provided north/northeast board as architectural reference; use the Beijing cutout only for the refined semi-realistic illustration style and transparency. The landmark is a LONG TWO-TOWER SEA-CROSSING SUSPENSION BRIDGE. Show two gray rectangular portal towers, smoothly sagging CURVED MAIN SUSPENSION CABLES between tower tops, numerous slender VERTICAL HANGERS from the curved main cables to the long road deck, and double-deck-looking horizontal structure on piers. Perspective from sea level with nearer tower on right and second tower receding left. Do NOT draw a cable-stayed bridge with a fan of diagonal cables. Cool pale desaturated blue-gray palette. A tiny strip of calm blue sea beneath and faint distant shore may appear only at the base, dissolving gently into transparent mist. Wide approximately1920x832 true RGBA canvas. Left50% and upperquarter empty transparent; entire bridge composition in bottom-right x52..98%, y28..96%, all towers fully visible inside canvas. No sky or clouds, sun, weather symbols, UI, writing, labels, black or checkerboard background. Open spaces between bridge cables must be fully transparent so the existing sky card shines through. Detailed but gentle right-aligned weather-card easter egg asset.
+
+## Transparency correction prompt
+
+Edit this Dalian Xinghai Bay suspension-bridge cutout. Keep the two bridge towers, curved main cables, thin vertical suspenders, roadway, perspective, entire wide canvas, right-side placement and blue-gray illustration style exactly as they are. Correct transparency only: remove ALL pale blue/gray haze or filled sheets between the suspension cables above the roadway. The open air holes between each thin vertical cable must be completely clear with alpha=0, just like the empty upper left background. Leave only the solid bridge structural elements visible there. Keep a small amount of sea beneath the bridge and a faint shoreline behind the piers, with soft feathered transparent edge, but do not add any sky. Ensure no opaque or translucent sky remains behind the cables, no blue outline glow. True RGBA transparent PNG. No text, no added design elements.

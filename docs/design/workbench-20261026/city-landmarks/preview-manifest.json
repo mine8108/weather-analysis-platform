@@ -1,0 +1,65 @@
+{
+  "updated": "2026-10-26",
+  "status": "preview_only_pending_user_review",
+  "generationMode": "built-in image_gen",
+  "applicationIntegration": false,
+  "totalCities": 41,
+  "groups": [
+    {
+      "group": "北方与东北",
+      "cityCount": 9,
+      "file": "north-northeast-preview-v1.png",
+      "prompt": "north-preview-prompt.md",
+      "source": "C:\\Users\\ASUS\\.codex\\generated_images\\01a17599-957c-7ff0-aae9-4069a80bf331\\exec-5ff4b8af-3bef-4803-a0a5-779db2299546.png",
+      "width": 1586,
+      "height": 992,
+      "mode": "RGB",
+      "bytes": 2093372,
+      "sha256": "3ade027acc997ca605a3f1c1bbc4c7d961e7d675a67180ee284c6f67b11307a0",
+      "unchanged_from_generation": true,
+      "prompt_exists": true
+    },
+    {
+      "group": "华东",
+      "cityCount": 11,
+      "file": "east-preview-v1.png",
+      "prompt": "east-preview-prompt.md",
+      "source": "C:\\Users\\ASUS\\.codex\\generated_images\\01a177d2-afeb-7f12-b880-f8ab1547f28a\\exec-eb3421f3-c20a-47bc-8c15-4641b50cbaa7.png",
+      "width": 1448,
+      "height": 1086,
+      "mode": "RGB",
+      "bytes": 2089163,
+      "sha256": "03702df4f4af3bb8e88bd490bf6c3ef8a84722990edf5c05efe37b6cf3c55779",
+      "unchanged_from_generation": true,
+      "prompt_exists": true
+    },
+    {
+      "group": "中南与港澳",
+      "cityCount": 11,
+      "file": "central-south-preview-v1.png",
+      "prompt": "central-south-preview-prompt.md",
+      "source": "C:\\Users\\ASUS\\.codex\\generated_images\\01a177d2-cccc-7a51-9c25-fb8539c802a8\\exec-71167ba6-a0af-4f15-be97-6b7fe1611f75.png",
+      "width": 1448,
+      "height": 1086,
+      "mode": "RGB",
+      "bytes": 2139739,
+      "sha256": "bec3885b86ed43f1f9030feb25c6cb96100c0bff852505936b3bd3ea8f8d1669",
+      "unchanged_from_generation": true,
+      "prompt_exists": true
+    },
+    {
+      "group": "西部",
+      "cityCount": 10,
+      "file": "west-preview-v1.png",
+      "prompt": "west-preview-prompt.md",
+      "source": "C:\\Users\\ASUS\\.codex\\generated_images\\01a177d2-91e6-7ea0-b3a9-913448893b53\\exec-b7811f41-945c-4e5d-8749-8d89aa2c5b48.png",
+      "width": 1448,
+      "height": 1086,
+      "mode": "RGB",
+      "bytes": 1970775,
+      "sha256": "e50aa43e34801148f1b931f940bf2d8ca848bf1f2553f8a5ca42538fb5a5a811",
+      "unchanged_from_generation": true,
+      "prompt_exists": true
+    }
+  ]
+}

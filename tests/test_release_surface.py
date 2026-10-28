@@ -28,7 +28,7 @@ def _read(rel):
 
 def test_version_bumped():
     from config import APP_VERSION
-    assert APP_VERSION == "2.3.9", APP_VERSION
+    assert APP_VERSION == "2.4.0", APP_VERSION
 
 
 def test_live_artifacts_carry_current_version():

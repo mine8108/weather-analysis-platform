@@ -1,0 +1,11 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>地标双态设计对照</title>
+<style>body{margin:24px;font-family:'Microsoft YaHei',sans-serif;color:#173459;background:#f1f5fb}h1{font-size:24px}p{line-height:1.6}main{display:grid;grid-template-columns:1fr 1fr;gap:24px}.panel{background:white;border:1px solid #dbe4ef;border-radius:12px;padding:16px;min-width:0}img{display:block;width:100%;height:auto}.actual{display:grid;grid-template-columns:1fr 1fr;gap:12px}.actual h3{font-size:15px;margin:6px 0}.actual img{border-radius:10px}small{display:block;margin-top:20px;color:#61748a;line-height:1.6}</style>
+<h1>城市地标 · 首轮淡显方案留档</h1>
+<p>左侧为用户已选双态概念图，右侧为首次实现的历史浏览器截图（默认淡显），已由 2026-10-28 的仅悬停显现方案取代。等宽比较各状态；实际天气卡片保留工作台的数据密度与原有天空素材。天气数值均为合成示例。</p>
+<main><section class="panel"><h2>选定视觉参考</h2><img src="../city-landmarks/preview-v1.png" alt="三城双态参考"></section>
+<section class="panel"><h2>实际界面</h2><div class="actual"><h3>默认 · 28% 地标不透明度</h3><h3>悬停 · 62% 地标不透明度</h3>
+<img src="evidence/beijing-rest.png" alt="北京默认"><img src="evidence/beijing-hover.png" alt="北京悬停">
+<img src="evidence/hangzhou-rest.png" alt="杭州默认"><img src="evidence/hangzhou-hover.png" alt="杭州悬停">
+<img src="evidence/shanghai-rest.png" alt="上海默认"><img src="evidence/shanghai-hover.png" alt="上海悬停"></div>
+<small>截图来自 1487 × 1059 CSS 视口，每卡约 456 × 178 CSS 像素。静态对照采用系统“减少动态”模式，地标位置与尺寸保持不变。正常动效另有状态检查，未通过修改 DOM 强制显现。</small></section></main>
+</html>

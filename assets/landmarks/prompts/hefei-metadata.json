@@ -1,0 +1,20 @@
+{
+  "size": [
+    1905,
+    825
+  ],
+  "mode": "RGBA",
+  "alpha": [
+    0,
+    255
+  ],
+  "transparent_percent": 71.7797,
+  "bbox_alpha32": [
+    753,
+    92,
+    1904,
+    823
+  ],
+  "bytes": 1211511,
+  "sha256": "f703bf8581505f0c492fd62f3db093a19fe655da30f9637d1fa317e7e191101a"
+}

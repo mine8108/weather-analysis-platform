@@ -85,6 +85,7 @@ def _safe_reset():
     """
     from modules.app_state import reset_session
     reset_session(st.session_state)
+    st.session_state["_route_request"] = 0
 
 
 # Tab 名称映射由注册表派生，避免两处顺序漂移
@@ -118,17 +119,8 @@ def _reset_current_tab():
 
 
 def _navigate_to(tab_idx):
-    """统一跳转入口：入栈当前 tab，跳转目标 tab"""
-    cur = st.session_state.get("active_tab", 0)
-    if cur != tab_idx:
-        stack = st.session_state.get("_nav_stack", [])
-        stack.append(cur)
-        # 保留最近 10 层
-        if len(stack) > 10:
-            stack = stack[-10:]
-        st.session_state["_nav_stack"] = stack
-    st.session_state["active_tab"] = tab_idx
-    st.rerun()
+    from modules.ui.navigation import navigate
+    navigate(tab_idx)
 
 
 def _render_data_summary_card():
@@ -178,7 +170,7 @@ def _render_data_summary_card():
             dmax = ts.max().to_pydatetime() if hasattr(ts.max(), "to_pydatetime") else ts.max()
             date_range = st.date_input(
                 "📅 数据时间范围筛选",
-                value=(dmin.date(), dmax.date()),
+                value=st.session_state.get("_filter_date_range") or (dmin.date(), dmax.date()),
                 key="_filter_date_range_input",
             )
             if len(date_range) == 2:
@@ -418,7 +410,7 @@ def _adopt_dataset(df, *, source=None, quality_score=None):
 
 
 # 页面配置
-st.set_page_config(**PAGE_CONFIG)
+st.set_page_config(**{**PAGE_CONFIG, "initial_sidebar_state": "collapsed"})
 
 # ============================================================
 # 视觉系统 — 单次注入，覆盖亮/暗两套 token + Streamlit 原生组件覆盖层
@@ -448,11 +440,6 @@ if st.session_state.get("_manual_open"):
     render_manual_page()
     st.stop()
 
-
-# 头部
-st.markdown('<div class="main-header">[天气] 气象数据交互分析平台</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">数据导入 · 可视化分析 · 数值预报 · AI 读图解析 · 报告导出 · 报文解码</div>',
-            unsafe_allow_html=True)
 
 # 初始化 session_state
 def init_session():
@@ -604,12 +591,14 @@ with st.sidebar:
     st.checkbox("[调试] 显示详细错误信息", value=False, key="debug_mode",
                 help="需同时在 Secrets 中设置 DEBUG_MODE=true 才会生效；"
                      "开启后图表/报告渲染失败时会展示完整 Python 报错堆栈。")
-    # 老用户回封面入口：有数据时仍可随时回到天气墙封面（_wall_cover 控制主区分支）
+    # 已有数据时可在当前模块展开全站天气墙，分析结果保持原位。
     if st.session_state.get("df") is not None:
-        if st.button("☁️ 天气墙封面", key="sb_wall_cover",
+        if st.button("展开城市天气墙", key="sb_wall_cover",
                      use_container_width=True,
-                     help="回到首页天气墙（数据保留，返回后自动恢复摘要卡）"):
-            st.session_state["_wall_cover"] = True
+                     help="在当前模块展开天气墙，保留分析内容"):
+            st.session_state["_weather_expanded"] = True
+            st.session_state["_wall_show"] = True
+            st.session_state["wall_show_toggle"] = True
             st.rerun()
     dark = st.checkbox("[显示] 暗色模式", value=st.session_state.get("dark_mode", False), key="dark_toggle",
                        help="切换「梦幻夜空 / 清透天空」主题，选择自动保存，重启后保持")
@@ -617,7 +606,7 @@ with st.sidebar:
         # 需求 3：切换写入持久化（本地文件 + 登录时 Supabase user_metadata）
         theme_aether.set_theme(dark)
         st.rerun()
-    # 天气墙显示开关：用户可自主显示/隐藏首页天气墙，选择持久化（刷新保持）
+    # 天气墙显示开关：用户可自主显示/隐藏全站天气带，选择持久化（刷新保持）
     #
     # 单一真相源：以 widget 键 ``wall_show_toggle`` 为准，``_wall_show`` 只是它的
     # 一份只读镜像，供主区渲染时判断。
@@ -631,7 +620,7 @@ with st.sidebar:
     # 开关值在本次渲染中立刻对主区生效（st.checkbox 同步返回新值）。
     wall_show = st.checkbox("[显示] 天气墙", value=st.session_state.get("_wall_show", True),
                             key="wall_show_toggle",
-                            help="显示/隐藏首页天气墙，选择自动保存")
+                            help="显示/隐藏全站天气带，选择自动保存")
     if st.session_state.get("_wall_show") != wall_show:
         st.session_state["_wall_show"] = wall_show
         from modules.city_prefs import save_show_wall
@@ -655,243 +644,44 @@ with st.sidebar:
     # 版本号展示：线上版本肉眼可辨（排查部署问题的重要依据）
     st.caption(f"© 气象数据交互分析平台 {APP_VERSION}")
 
-# ============================================================
-# 主内容区：无数据时显示引导页，有数据时显示提示+摘要
-# ============================================================
-has_any_data = st.session_state.get("df") is not None
-if not has_any_data or st.session_state.get("_wall_cover", False):
-    _render_onboarding_page()
-else:
-    _render_next_step_hint()
-    _render_data_summary_card()
+# The native router owns URLs; the visible module selector sits below the brand.
+from modules.ui.navigation import render_navigation
+from modules.ui.shell import inject_workbench_style, render_brand, page_heading
+from modules.ui.weather_region import render_weather_region
+from modules.views.import_data import render_import_page
 
-# ---- 标签页导航（支持编程跳转） ----
-if "active_tab" not in st.session_state:
-    st.session_state["active_tab"] = 0
-
-tab_labels = [
-    "[导入] 数据导入",
-    "[图表] 可视化分析",
-    "[预报] 数值预报",
-    "[读图] AI 读图解析",
-    "[导出] 报告导出",
-    "[雷达] 报文解码",
-]
+inject_workbench_style()
+render_brand()
 
 
-# 使用 radio 替代 tabs，支持 index 参数实现编程跳转
-# 注意：不使用 key 参数！否则 session_state 旧值会覆盖 index，
-# 导致 active_tab 被反向重置，跳转失效
-selected = st.radio(
-    "导航",
-    tab_labels,
-    index=st.session_state["active_tab"],
-    horizontal=True,
-    label_visibility="collapsed",
-)
-# 同步：用户手动切换时更新 session_state
-active_idx = tab_labels.index(selected) if selected in tab_labels else 0
-if active_idx != st.session_state["active_tab"]:
-    st.session_state["active_tab"] = active_idx
-    st.rerun()
+def _page_import():
+    render_import_page(_safe_render, _adopt_dataset, _navigate_to, _render_data_summary_card)
 
-# ---- 导入向导初始化 ----
-if "import_step" not in st.session_state:
-    st.session_state["import_step"] = 0
-if "import_method" not in st.session_state:
-    st.session_state["import_method"] = None
 
-# ---- Tab 0: 数据导入向导 ----
-if st.session_state["active_tab"] == 0:
-    step = st.session_state["import_step"]
+def _page_visualization():
+    _safe_render("可视化", render_visualization_tab, st.session_state.get("df"), st.session_state.get("source", ""))
 
-    col_w, col_s = st.columns([5, 1])
-    with col_s:
-        if st.button("跳过向导", key="skip_wizard"):
-            st.session_state["import_step"] = 999
-            st.rerun()
 
-    # ===== 向导模式 =====
-    if step == 0:
-        st.write("### 选择数据导入方式")
-        st.caption("选择以下任一方式开始导入数据")
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            if st.button("📁 上传文件\n\nCSV / Excel", use_container_width=True, key="wiz_file"):
-                st.session_state["import_method"] = "file"
-                st.session_state["import_step"] = 1
-                st.rerun()
-        with c2:
-            if st.button("✏️ 手动录入\n\n逐条添加观测数据", use_container_width=True, key="wiz_manual"):
-                st.session_state["import_method"] = "manual"
-                st.session_state["import_step"] = 1
-                st.rerun()
-        with c3:
-            if st.button("🌐 API获取\n\nOpen-Meteo在线数据", use_container_width=True, key="wiz_api"):
-                st.session_state["import_method"] = "api"
-                st.session_state["import_step"] = 1
-                st.rerun()
+def _page_forecast():
+    _safe_render("数值预报", render_forecast_tab)
 
-    elif step == 1:
-        method = st.session_state["import_method"]
-        labels = {"file": "📁 上传文件", "manual": "✏️ 手动录入", "api": "🌐 API获取"}
-        st.write(f"### Step 1: {labels.get(method, method)}")
 
-        # 返回按钮
-        if st.button("← 返回选择方式", key="wiz_back_step0"):
-            st.session_state["import_step"] = 0
-            st.session_state["import_method"] = None
-            st.rerun()
-
-        if method == "file":
-            df_file, source_file = _safe_render("导入-文件", render_file_upload_section) or (None, None)
-            _safe_render("导入-模板", render_template_download)
-            if df_file is not None:
-                _adopt_dataset(df_file, source=source_file)
-                st.session_state["import_step"] = 2
-                st.rerun()
-        elif method == "manual":
-            df_manual = _safe_render("导入-手动", render_manual_input_section)
-            if df_manual is not None:
-                _adopt_dataset(merge_manual_rows(
-                    st.session_state.get("df"), df_manual),
-                    source=st.session_state.get("source") or "手动录入")
-                st.session_state["import_step"] = 2
-                st.rerun()
-        elif method == "api":
-            df_api, source_api = _safe_render("导入-API", render_api_section) or (None, None)
-            if df_api is not None:
-                _adopt_dataset(df_api, source=source_api or "Open-Meteo API")
-                st.session_state["import_step"] = 2
-                st.rerun()
-
-    elif step == 2:
-        st.write("### Step 2: 数据预览与质量检查")
-        df = st.session_state.get("df")
-        if df is not None:
-            col_a, col_b, col_c = st.columns(3)
-            with col_a:
-                st.metric("记录数", f"{len(df)} 条")
-            with col_b:
-                na_ratio = df.isna().sum().sum() / (df.shape[0] * df.shape[1]) * 100 if df.shape[0] > 0 else 0
-                st.metric("缺失率", f"{na_ratio:.1f}%")
-            with col_c:
-                outlier_count = 0
-                if "temperature" in df.columns:
-                    try:
-                        temp = pd.to_numeric(df["temperature"], errors="coerce")
-                        outlier_count += int(((temp > 55) | (temp < -50)).sum())
-                    except Exception:
-                        pass
-                if "humidity" in df.columns:
-                    try:
-                        hum = pd.to_numeric(df["humidity"], errors="coerce")
-                        outlier_count += int(((hum > 100) | (hum < 0)).sum())
-                    except Exception:
-                        pass
-                st.metric("疑似异常值", f"{outlier_count} 个" if outlier_count > 0 else "0")
-
-            st.dataframe(df.head(10), use_container_width=True)
-
-            # 数据质量控制：导入后默认显示（R-09 接入）。
-            # 返回的百分制评分写入 session_state，供报告导出与摘要卡复用；
-            # 原实现该键恒为 0.0，Word 报告里的「质量评分」一直是 0 分。
-            _qr = _safe_render("导入-质控", render_quality_report, df)
-            if _qr:
-                st.session_state["quality_score"] = _qr[0]
-
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                if st.button("✅ 确认数据，前往可视化分析", use_container_width=True, key="wiz_confirm"):
-                    st.session_state["import_step"] = 0
-                    _navigate_to(1)  # 可视化 Tab 已互换至 index 1
-            with c2:
-                if st.button("← 返回上一步", use_container_width=True, key="wiz_back_step1"):
-                    st.session_state["import_step"] = 1
-                    st.rerun()
-            with c3:
-                if st.button("🔄 重新导入", use_container_width=True, key="wiz_retry"):
-                    st.session_state["import_step"] = 0
-                    st.session_state["import_method"] = None
-                    st.session_state["df"] = None
-                    st.session_state["source"] = ""
-                    st.session_state["_dataset_schema_version"] = None
-                    st.session_state["_dataset_created_at"] = None
-                    st.session_state["warnings_list"] = []
-                    st.session_state["quality_score"] = 0.0
-                    st.session_state["climate_data"] = None
-                    st.session_state["climate_extreme"] = None
-                    st.session_state["fc_df"] = None
-                    st.session_state["fc_analysis"] = None
-                    st.session_state["_import_history"] = []
-                    st.session_state["_filter_date_range"] = None
-                    st.rerun()
-        else:
-            st.warning("未检测到数据，请返回重新导入")
-            if st.button("← 返回", key="wiz_back"):
-                st.session_state["import_step"] = 0
-                st.rerun()
-
-    else:
-        # 跳过向导：传统多标签模式
-        sub_tab1, sub_tab2, sub_tab3 = st.tabs(["[文件] 文件导入", "[编辑] 手动录入", "[网络] API 获取"])
-        with sub_tab1:
-            df_file, source_file = _safe_render("导入-文件", render_file_upload_section) or (None, None)
-            if df_file is not None:
-                _adopt_dataset(df_file, source=source_file)
-            _safe_render("导入-模板", render_template_download)
-        with sub_tab2:
-            df_manual = _safe_render("导入-手动", render_manual_input_section)
-            if df_manual is not None:
-                _adopt_dataset(merge_manual_rows(
-                    st.session_state.get("df"), df_manual),
-                    source=st.session_state.get("source") or "手动录入")
-        with sub_tab3:
-            df_api, source_api = _safe_render("导入-API", render_api_section) or (None, None)
-            if df_api is not None:
-                _adopt_dataset(df_api, source=source_api or "Open-Meteo API")
-
-        if st.session_state["df"] is not None:
-            st.divider()
-            c_a, c_b = st.columns(2)
-            with c_a:
-                st.metric("当前数据", f"{len(st.session_state['df'])} 条记录")
-            with c_b:
-                st.metric("数据来源", st.session_state.get("source", "多源"))
-            # 数据质量控制：跳过向导时同样默认展示（R-09）
-            _qr_skip = _safe_render("导入-质控", render_quality_report,
-                                    st.session_state["df"])
-            if _qr_skip:
-                st.session_state["quality_score"] = _qr_skip[0]
-            if st.button("🔄 返回向导模式", key="back_to_wizard"):
-                st.session_state["import_step"] = 0
-                st.rerun()
-
-# ---- Tab 1: 可视化分析 ----
-if st.session_state["active_tab"] == 1:
-    _viz_df = _safe_render("可视化-数据", _get_filtered_df)
-    _safe_render("可视化", render_visualization_tab, _viz_df)
-
-# ---- Tab 3: AI 读图解析 ----
-if st.session_state["active_tab"] == 3:
-    # 读图解析不依赖已导入数据，无条件渲染（详见 modules/chart_reader）
+def _page_chart_reader():
     _safe_render("读图解析", render_chart_reader_tab)
 
-# ---- Tab 4: 报告导出 ----
-if st.session_state["active_tab"] == 4:
-    _safe_render(
-        "报告导出",
-        render_export_tab,
-        st.session_state["df"],
-        st.session_state.get("warnings_list", []),
-        st.session_state.get("quality_score", 0.0),
-        st.session_state.get("source", ""),
-    )
 
-# ---- Tab 5: 报文解码 ----
-if st.session_state["active_tab"] == 5:
+def _page_export():
+    _safe_render("报告导出", render_export_tab, _safe_render("报告-数据", _get_filtered_df),
+                 st.session_state.get("warnings_list", []), st.session_state.get("quality_score", 0.0),
+                 st.session_state.get("source", ""))
+
+
+def _page_codec():
     _safe_render("报文解码", render_codec_tab)
 
-# ---- Tab 2: 数值预报 ----
-if st.session_state["active_tab"] == 2:
-    _safe_render("数值预报", render_forecast_tab)
+
+_page, _route = render_navigation([_page_import, _page_visualization, _page_forecast,
+                                   _page_chart_reader, _page_export, _page_codec])
+_safe_render("城市天气", render_weather_region, _route)
+with st.container(key="workbench_content"):
+    _page.run()

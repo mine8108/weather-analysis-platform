@@ -154,7 +154,7 @@ def test_app_wires_manual_entry_and_interception():
     assert "_manual_open" in source
     assert "render_manual_page" in source
     # 拦截必须发生在 Tab 导航之前，否则手册页会与 Tab 内容叠加
-    assert source.index("render_manual_page") < source.index("tab_labels = [")
+    assert source.index("render_manual_page") < source.index("_page, _route = render_navigation(")
 
 
 def test_app_manual_interception_stops_script():
@@ -171,7 +171,7 @@ def test_app_manual_entry_is_in_sidebar_block():
     sidebar_start = source.index("with st.sidebar:")
     entry_idx = source.index("render_sidebar_entry")
     # 入口位于侧边栏块内：在侧边栏开始之后、主内容区之前的范围内
-    main_start = source.index("# 主内容区")
+    main_start = source.index("from modules.ui.navigation import render_navigation")
     assert sidebar_start < entry_idx < main_start
 
 
@@ -240,8 +240,8 @@ def test_manual_mentions_current_navigation():
 def test_manual_documents_upload_limits_and_terminal_path():
     """第 8 章需写明图片与配额上限，第 11 章需写明手动打开终端与许可接受。"""
     text = _manual_text()
-    assert "1.5 MB" in text
-    assert "7.5 MB" in text
+    assert "1.5 MiB" in text
+    assert "7.5 MiB" in text
     assert "最多 5 张" in text
     assert "80,000" in text
     assert "终端" in text
@@ -262,11 +262,13 @@ def test_manual_does_not_describe_removed_main_area_expander():
     assert "使用手册折叠块" not in _manual_text()
 
 
-def test_manual_matches_renamed_summary_card_button():
-    """摘要卡第三个按钮已由「🔔 检测」改为「🖼 读图」，手册须同步。"""
+def test_manual_documents_global_weather_and_evidence_workflow():
+    """操作手册须描述当前全站导航与原图核对流程。"""
     text = _manual_text()
-    assert "🔔 检测" not in text
-    assert "🖼 读图" in text
+    assert "全站城市天气带" in text
+    assert "核心结论" in text and "生成时冻结" in text
+    assert "3、7 或 16 天" in text
+    assert "默认预置全国 34" not in text
 
 
 if __name__ == "__main__":

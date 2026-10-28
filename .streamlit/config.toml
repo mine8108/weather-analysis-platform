@@ -7,6 +7,8 @@ enableCORS = true
 enableXsrfProtection = true
 # 安全修复（SEC-03/31）：与业务层 20MB 上限对齐，作为服务器层兜底
 maxUploadSize = 20
+# Public, application-owned weather artwork only; uploads and secrets stay outside static/.
+enableStaticServing = true
 
 [client]
 # 安全修复（SEC-12）：不把未捕获异常的完整 traceback 渲染到浏览器

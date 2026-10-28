@@ -620,7 +620,8 @@ WARN_STYLES = {
 #        单图 1.5 MB、合计 7.5 MB；移除单次 token 上限，token 只受每日配额约束。
 #        sql/schema.sql 第 9 节新增一次性迁移，升级后重跑脚本可把仍为旧默认
 #        配额的用户迁到新默认。
-APP_VERSION = "2.3.9"
+# 2.4.0：六模块工作台、全站天气带、城市预报联动与 41 城地标彩蛋。
+APP_VERSION = "2.4.0"
 
 PAGE_CONFIG = {
     "page_title": "气象数据交互分析平台",

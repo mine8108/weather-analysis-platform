@@ -10,6 +10,8 @@
 
 import html as _html
 import math
+from datetime import datetime, timezone
+from uuid import uuid4
 
 import streamlit as st
 
@@ -19,6 +21,7 @@ from modules.quota import take_outbound
 from .geocode import format_candidate, forward_geocode, parse_lat_lon, reverse_geocode
 from .geolocate import geo_locator
 from .city_prefs import load_cities, save_cities
+from .weather_view_model import city_id
 
 # ============================================================
 # 零、不可信文本的清洗与转义（SEC-05 / SEC-35）
@@ -146,7 +149,7 @@ def city_by_zh(zh: str) -> dict | None:
 # ============================================================
 # 二、数据层：Open-Meteo 批量当前天气
 # ============================================================
-@retry_with_backoff(max_retries=2, base_delay=1, backoff_factor=2, max_delay=8)
+@retry_with_backoff(max_retries=2, base_delay=1, backoff_factor=2, max_delay=8, fallback=False)
 def _fetch_batch_retry(lats: tuple, lons: tuple):
     """多坐标合并单次请求，带指数退避重试（429/瞬断）。
 
@@ -169,6 +172,8 @@ def _fetch_batch_retry(lats: tuple, lons: tuple):
             "daily": "temperature_2m_max,temperature_2m_min",
             "timezone": "auto",
             "forecast_days": 1,
+            "wind_speed_unit": "ms",
+            "temperature_unit": "celsius",
         },
         timeout=30,
     )
@@ -179,7 +184,7 @@ def _fetch_batch_retry(lats: tuple, lons: tuple):
 
 
 @st.cache_data(ttl=600, show_spinner=False)
-def _fetch_batch(lats: tuple, lons: tuple) -> list:
+def _fetch_batch(lats: tuple, lons: tuple, refresh_token="", schema=2) -> list:
     """批量请求缓存层（10 分钟 TTL）。
 
     st.cache_data 只缓存正常返回、不缓存异常，因此这里把 retry 层的
@@ -190,23 +195,25 @@ def _fetch_batch(lats: tuple, lons: tuple) -> list:
     if not isinstance(rows, list):
         detail = rows[1] if isinstance(rows, tuple) and len(rows) > 1 else rows
         raise RuntimeError(f"Open-Meteo 批量请求失败: {detail}")
-    return rows
+    fetched_at = datetime.now(timezone.utc).isoformat()
+    return [dict(row, _fetched_at=fetched_at) for row in rows]
 
 
-def fetch_wall_weather(cities: list[dict]) -> dict:
-    """返回 {城市中文名: 天气字典}；失败时降级到上次成功的会话缓存。"""
+def fetch_wall_weather(cities: list[dict], *, identity_keys=False) -> dict:
+    """Stable-coordinate weather mapping; name keys remain for the legacy renderer."""
     if not cities:
         return {}
     try:
         rows = _fetch_batch(
             tuple(c["lat"] for c in cities),
             tuple(c["lon"] for c in cities),
+            refresh_token=st.session_state.get("_weather_refresh", ""),
         )
         out = {}
         for c, row in zip(cities, rows):
             cur = row.get("current", {}) or {}
             daily = row.get("daily", {}) or {}
-            out[c["zh"]] = {
+            out[city_id(c)] = {
                 "temp": cur.get("temperature_2m"),
                 "humidity": cur.get("relative_humidity_2m"),
                 "wind": cur.get("wind_speed_10m"),
@@ -214,24 +221,31 @@ def fetch_wall_weather(cities: list[dict]) -> dict:
                 "is_day": cur.get("is_day", 1),
                 "t_max": (daily.get("temperature_2m_max") or [None])[0],
                 "t_min": (daily.get("temperature_2m_min") or [None])[0],
+                "valid_at": cur.get("time"), "timezone": row.get("timezone", ""),
+                "fetched_at": row.get("_fetched_at"), "stale": False,
             }
         # 成功结果写入会话缓存，供后续请求失败时降级
+        prior = st.session_state.get("_wall_fallback", {})
+        for c in cities:
+            identity = city_id(c)
+            if identity not in out and identity in prior:
+                out[identity] = dict(prior[identity], stale=True)
         st.session_state["_wall_fallback"] = out
-        return out
     except Exception:
-        return st.session_state.get("_wall_fallback", {})
+        prior = st.session_state.get("_wall_fallback", {})
+        out = {city_id(c): dict(prior[city_id(c)], stale=True) for c in cities if city_id(c) in prior}
+    return out if identity_keys else {c["zh"]: out[city_id(c)] for c in cities if city_id(c) in out}
 
 
 def refresh_weather() -> None:
-    """手动刷新：清空批量缓存，下一次渲染重新请求。"""
-    _fetch_batch.clear()
-    _aqi_batch.clear()
+    """Refresh this session's query without evicting other users' caches."""
+    st.session_state["_weather_refresh"] = uuid4().hex
 
 
 # ============================================================
 # 二·五、空气质量（国标 AQI，复用 nwp_forecast 换算）
 # ============================================================
-@retry_with_backoff(max_retries=2, base_delay=1, backoff_factor=2, max_delay=8)
+@retry_with_backoff(max_retries=2, base_delay=1, backoff_factor=2, max_delay=8, fallback=False)
 def _aqi_batch_retry(lats: tuple, lons: tuple):
     """Open-Meteo Air Quality API 当前浓度（多坐标批量一次请求）。"""
     import requests
@@ -257,7 +271,7 @@ def _aqi_batch_retry(lats: tuple, lons: tuple):
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
-def _aqi_batch(lats: tuple, lons: tuple) -> list:
+def _aqi_batch(lats: tuple, lons: tuple, refresh_token="") -> list:
     """空气质量缓存层（30 分钟 TTL）。失败契约转译为异常（见 _fetch_batch）。"""
     rows = _aqi_batch_retry(lats, lons)
     if not isinstance(rows, list):
@@ -266,7 +280,7 @@ def _aqi_batch(lats: tuple, lons: tuple) -> list:
     return rows
 
 
-def fetch_wall_aqi(cities: list[dict]) -> dict:
+def fetch_wall_aqi(cities: list[dict], *, identity_keys=False) -> dict:
     """{城市中文名: {aqi, level, color, primary}}，按 HJ 633-2012 国标换算。
 
     CO 浓度 Open-Meteo 返回 μg/m³，国标限值表用 mg/m³，必须 ÷1000
@@ -282,6 +296,7 @@ def fetch_wall_aqi(cities: list[dict]) -> dict:
         rows = _aqi_batch(
             tuple(c["lat"] for c in cities),
             tuple(c["lon"] for c in cities),
+            refresh_token=st.session_state.get("_weather_refresh", ""),
         )
         out = {}
         for c, row in zip(cities, rows):
@@ -302,11 +317,12 @@ def fetch_wall_aqi(cities: list[dict]) -> dict:
                 aqi = result["aqi"]
                 level = result["level"]
                 color = aqi_color(level)
-            out[c["zh"]] = {"aqi": aqi, "level": level, "color": color}
+            out[city_id(c)] = {"aqi": aqi, "level": level, "color": color}
         st.session_state["_wall_aqi_fallback"] = out
-        return out
     except Exception:
-        return st.session_state.get("_wall_aqi_fallback", {})
+        prior = st.session_state.get("_wall_aqi_fallback", {})
+        out = {city_id(c): dict(prior[city_id(c)], stale=True) for c in cities if city_id(c) in prior}
+    return out if identity_keys else {c["zh"]: out[city_id(c)] for c in cities if city_id(c) in out}
 
 
 # ============================================================
@@ -605,10 +621,10 @@ MAX_CITIES = 6  # 首页最多同时展示的卡片数（需求 4）
 def _can_add(city: dict) -> tuple[bool, str]:
     """添加前校验：是否已在列表 / 是否达到 6 卡上限。返回 (可否, 提示文案)。"""
     cities = st.session_state.setdefault("wall_cities", [])
-    if any(c["zh"] == city["zh"] for c in cities):
-        return False, f"{city['zh']} 已在列表中"
     if len(cities) >= MAX_CITIES:
         return False, f"最多展示 {MAX_CITIES} 个城市，请先移除部分城市"
+    if any(city_id(c) == city_id(city) for c in cities):
+        return False, f"{city['zh']} 已在列表中"
     return True, ""
 
 

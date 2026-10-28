@@ -1,0 +1,50 @@
+[
+  {
+    "city": "beijing",
+    "mode": "rest",
+    "id": "beijing",
+    "motion": "static",
+    "opacity": "0.28",
+    "reveal": "false"
+  },
+  {
+    "city": "beijing",
+    "mode": "hover",
+    "id": "beijing",
+    "motion": "static",
+    "opacity": "0.62",
+    "reveal": "true"
+  },
+  {
+    "city": "hangzhou",
+    "mode": "rest",
+    "id": "hangzhou",
+    "motion": "static",
+    "opacity": "0.28",
+    "reveal": "false"
+  },
+  {
+    "city": "hangzhou",
+    "mode": "hover",
+    "id": "hangzhou",
+    "motion": "static",
+    "opacity": "0.62",
+    "reveal": "true"
+  },
+  {
+    "city": "shanghai",
+    "mode": "rest",
+    "id": "shanghai",
+    "motion": "static",
+    "opacity": "0.28",
+    "reveal": "false"
+  },
+  {
+    "city": "shanghai",
+    "mode": "hover",
+    "id": "shanghai",
+    "motion": "static",
+    "opacity": "0.62",
+    "reveal": "true"
+  }
+]

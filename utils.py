@@ -109,7 +109,7 @@ def _api_cache_key(func, args, kwargs) -> str:
     return "_api_cache_%s_%s" % (func.__name__, digest)
 
 
-def retry_with_backoff(max_retries=3, base_delay=2, backoff_factor=2, max_delay=60):
+def retry_with_backoff(max_retries=3, base_delay=2, backoff_factor=2, max_delay=60, *, fallback=True):
     """带指数退避的重试装饰器，针对 429 做特殊处理"""
     def decorator(func):
         @functools.wraps(func)
@@ -165,7 +165,7 @@ def retry_with_backoff(max_retries=3, base_delay=2, backoff_factor=2, max_delay=
                             )
             # 全部重试失败，降级（只复用同一参数集的缓存）
             cached = st.session_state.get(cache_key)
-            if cached is not None:
+            if fallback and cached is not None:
                 st.warning("请求失败，使用同一请求的上次缓存数据（可能过期）。")
                 return cached
             return None, f"API 不可用: {str(last_error)[:200]}"
@@ -185,6 +185,7 @@ def go_back(fallback=0):
         st.session_state["_nav_stack"] = stack
     else:
         st.session_state["active_tab"] = fallback
+    st.session_state["_route_request"] = st.session_state["active_tab"]
     st.rerun()
 
 

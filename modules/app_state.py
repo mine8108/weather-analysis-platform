@@ -46,6 +46,11 @@ _register(("active_tab", "import_step", "import_method"), "keep")
 _register((
     "_auto_load_done", "_import_history", "_wall_show", "_manual_open",
     "_warn_fp", "_analysis_result", "_pending_vision_usage",
+    "_route_request", "_workbench_session", "_workbench_route", "_workbench_entry",
+    "wall_cities", "wall_query", "wall_candidate_pick", "_resolve_candidates",
+    "_wall_notice", "_geo_consumed", "_relocate", "_wall_cover",
+    "_wall_fallback", "_wall_aqi_fallback", "_weather_expanded", "_weather_manage",
+    "_weather_last_event", "_weather_refresh", "_weather_locate", "_weather_locate_clear",
 ), "global")
 
 _register((
@@ -57,27 +62,26 @@ _register((
     "era5_product", "era5_preset_pick", "_era5_preset_applied",
     "_template_cache",
     "climate_data", "climate_extreme", "_date_is_synthetic", "_filter_date_range",
-    # 首页天气墙（随导入 Tab 渲染）
-    "wall_cities", "wall_query", "wall_candidate_pick", "_resolve_candidates",
-    "_wall_notice", "_geo_consumed", "_relocate", "_wall_cover",
-    "_wall_fallback", "_wall_aqi_fallback",
 ), "tab", tab=TAB_IMPORT)
 
 _register((
     "fc_df", "fc_analysis", "fc_lat", "fc_lon", "fc_model", "life_indices",
     "nwp_forecast_for_analysis", "nwp_air_quality_for_analysis",
+    "fc_result_context", "_forecast_intent", "_forecast_status", "_forecast_consumed",
+    "_forecast_history", "_forecast_previous_result", "_fc_draft",
 ), "tab", tab=TAB_FORECAST)
 
 _register((
     "chart_reader_images", "chart_reader_text", "chart_reader_meta",
     "chart_reader_report_images", "chart_reader_last_gen",
     "chart_reader_gen_count", "chart_reader_usage_last",
-    "chart_reader_usage_total",
+    "chart_reader_usage_total", "chart_reader_result", "chart_reader_input_fingerprint",
+    "chart_reader_selected_evidence", "chart_reader_upload_version", "chart_reader_note_saved", "chart_reader_source_image",
 ), "tab", tab=TAB_CHART)
 
-_register(("report_data", "_report_fp"), "tab", tab=TAB_EXPORT)
-_register(("codec_result", "codec_errors"), "tab", tab=TAB_CODEC)
-_register(("multi_station_selected",), "tab", tab=TAB_VISUAL)
+_register(("report_data", "_report_fp", "_report_preview_bytes", "_report_preview_fp", "report_style_saved"), "tab", tab=TAB_EXPORT)
+_register(("codec_result", "codec_errors", "codec_snapshot", "codec_draft", "codec_added_ids"), "tab", tab=TAB_CODEC)
+_register(("multi_station_selected", "visualization_mode"), "tab", tab=TAB_VISUAL)
 
 # 动态键前缀：以变量拼出的会话键，注册表用前缀覆盖
 KNOWN_PREFIXES = (
@@ -87,6 +91,8 @@ KNOWN_PREFIXES = (
     "load_",           # app.py 数据集载入按钮
     "del_",            # app.py 数据集删除按钮
     "ww_del_",         # weather_wall 城市删除按钮
+    "_preview_",       # isolated preview_workbench.py fixtures, never read by app.py
+    "chart_input_upload_", "ai_evidence_", "ai_source_",
 )
 
 # widget key 注册表：只用于 CI 校验，不参与重置（Streamlit 会自行重建）
@@ -94,6 +100,12 @@ WIDGET_KEYS = {
     name: {"owner": "ui"}
     for name in (
         "_filter_date_range_input", "admin_pw", "admin_unlock_btn",
+        "_module_nav", "weather_manage_close", "weather_show", "import_complete_analysis", "import_complete_new",
+        "_fc_lat_input", "_fc_lon_input", "_fc_days_input", "_fc_model_input", "forecast_return_source",
+        "fc_show_apparent", "fc_rain_window", "fc_show_probability", "fc_download_csv",
+        "forecast_previous_result",
+        "chart_reader_input_preview", "chart_reader_clear", "chart_reader_raw_download",
+        "report_word_download", "report_obs_csv", "report_fc_csv", "viz_filtered_csv", "import_check_file",
         "admin_user_sel", "api_aq_date", "api_aq_fetch", "api_aq_lat",
         "api_aq_lon", "api_date", "api_fetch", "api_lat", "api_lon",
         "api_merge", "api_merge_solo_a", "api_merge_solo_w", "api_use_aq_merged",

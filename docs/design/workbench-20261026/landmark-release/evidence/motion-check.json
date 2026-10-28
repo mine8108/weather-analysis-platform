@@ -1,0 +1,63 @@
+{
+  "entry": [
+    {
+      "city": "廊坊，10°，多云。查看城市预报",
+      "mode": "entry"
+    },
+    {
+      "city": "北京，12°，晴。查看城市预报",
+      "mode": "entry"
+    },
+    {
+      "city": "南昌，22°，小雨。查看城市预报",
+      "mode": "entry"
+    },
+    {
+      "city": "上海，20°，阴。查看城市预报",
+      "mode": "entry"
+    },
+    {
+      "city": "广州，27°，多云。查看城市预报",
+      "mode": "entry"
+    },
+    {
+      "city": "成都，18°，雾。查看城市预报",
+      "mode": "entry"
+    }
+  ],
+  "rest": [
+    {
+      "mode": "static"
+    },
+    {
+      "mode": "static"
+    },
+    {
+      "mode": "static"
+    },
+    {
+      "mode": "static"
+    },
+    {
+      "mode": "static"
+    },
+    {
+      "mode": "static"
+    }
+  ],
+  "hover": {
+    "mode": "hover",
+    "reveal": "true"
+  },
+  "animations": {
+    "result": {
+      "type": "string",
+      "value": "[\"running\",\"running\",\"running\"]"
+    }
+  },
+  "afterLeave": {
+    "mode": "static",
+    "opacity": "0.28",
+    "reveal": "false"
+  }
+}

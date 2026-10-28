@@ -159,9 +159,9 @@ def compute_quality_score(df, issues):
     return max(0.0, round(score, 1))
 
 
-def render_quality_report(df):
+def render_quality_report(df, compact=False):
     """渲染数据质量报告"""
-    st.subheader("[质控] 数据质量控制")
+    st.markdown("#### 检查结果") if compact else st.subheader("[质控] 数据质量控制")
 
     if df is None or df.empty:
         st.info("请先导入数据")
@@ -174,24 +174,27 @@ def render_quality_report(df):
 
     score = compute_quality_score(df, issues)
 
-    # 质量评分
-    col1, col2, col3 = st.columns([1, 1, 2])
+    if compact:
+        st.caption(f"质量评分 {score}/100 · 评分依据现有范围、完整性和时间一致性规则。")
+    else:
+        # 质量评分
+        col1, col2, col3 = st.columns([1, 1, 2])
 
-    with col1:
-        if score >= 90:
-            st.success(f"### [统计] {score}/100 分")
-            st.caption("数据质量：优秀")
-        elif score >= 70:
-            st.warning(f"### [统计] {score}/100 分")
-            st.caption("数据质量：一般")
-        else:
-            st.error(f"### [统计] {score}/100 分")
-            st.caption("数据质量：较差，建议检查")
+        with col1:
+            if score >= 90:
+                st.success(f"### [统计] {score}/100 分")
+                st.caption("数据质量：优秀")
+            elif score >= 70:
+                st.warning(f"### [统计] {score}/100 分")
+                st.caption("数据质量：一般")
+            else:
+                st.error(f"### [统计] {score}/100 分")
+                st.caption("数据质量：较差，建议检查")
 
-    with col2:
-        st.metric("总记录数", len(df))
-    with col3:
-        st.metric("有效字段数", len([c for c in df.columns if c != "station_id"]))
+        with col2:
+            st.metric("总记录数", len(df))
+        with col3:
+            st.metric("有效字段数", len([c for c in df.columns if c != "station_id"]))
 
     # 详细问题列表
     if issues:
@@ -201,7 +204,8 @@ def render_quality_report(df):
             col = issue["field"]
             if col == "timestamp":
                 col = "时间"
-            st.write(f"{sev_icon} **{col}** — {issue['detail']} ({issue['type']})")
+            message = f"{col} · {issue['type']}：{issue['detail']}"
+            (st.warning if issue["severity"] in ("error", "warning") else st.info)(message)
     else:
         st.success("[OK] 未检测到数据质量问题")
 

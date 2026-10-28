@@ -193,7 +193,7 @@ def dashboard_view(df):
             fig.add_trace(
                 go.Scatter(x=x_data, y=rolled, mode="lines",
                            line=dict(color="#ff7f0e", width=1.5, dash="dash"),
-                           name="5日滑动均温", showlegend=False),
+                           name="5 个样本滑动均温", showlegend=False),
                 row=1, col=1,
             )
 
@@ -225,10 +225,10 @@ def dashboard_view(df):
 
     fig.update_layout(
         title="气象要素综合看板",
-        height=720,
+        height=540,
         showlegend=False,
         hovermode="x unified",
-        margin=dict(l=40, r=20, t=90, b=60),
+        margin=dict(l=40, r=20, t=55, b=45),
         title_y=0.98,
     )
     fig.update_xaxes(tickangle=-45, nticks=8)
@@ -775,9 +775,13 @@ def _render_correlation_analysis(corr, labels_map):
         st.caption(line)
 
 
-def render_visualization_tab(df):
+def render_visualization_tab(df, source=""):
     """渲染可视化 Tab 全部内容"""
-    st.subheader("[图表] 可视化分析")
+    from modules.ui.shell import page_heading
+    from modules.ui.data_context import render_data_context
+    from modules.report.base import export_data_csv
+    page_heading("可视化分析", "观测数据 · 多要素探索。图表、统计与导出使用同一筛选范围。")
+    df = render_data_context(df, source)
 
     if df is None or df.empty:
         st.info("请先导入数据")
@@ -785,13 +789,22 @@ def render_visualization_tab(df):
             stack = st.session_state.get("_nav_stack", [])
             st.session_state["active_tab"] = stack.pop() if stack else 0
             st.session_state["_nav_stack"] = stack
+            st.session_state["_route_request"] = st.session_state["active_tab"]
             st.rerun()
         return
 
     # 惰性子模块选择（避免 7 个Tab 全量渲染）
     subtab_labels = ["综合看板", "风场分析", "要素关系", "统计摘要", "要素分布", "空气质量", "时序双要素"]
-    active = st.selectbox("图表模块", subtab_labels, key="viz_subtab",
-                          label_visibility="collapsed")
+    if "viz_subtab" not in st.session_state:
+        st.session_state["viz_subtab"] = st.session_state.get("visualization_mode", subtab_labels[0])
+    with st.container(key="visualization_nav"):
+        active = st.segmented_control("图表模块", subtab_labels, key="viz_subtab", width="stretch",
+                                      label_visibility="collapsed", on_change=lambda: st.session_state.update(
+                                          visualization_mode=st.session_state.get("viz_subtab") or subtab_labels[0]))
+    active = active or subtab_labels[0]
+    st.caption("时间与单位沿用当前数据集。缺测显示为空缺；大于 3,000 条的部分图表会抽稀，统计和 CSV 保留完整筛选数据。")
+    with st.popover("导出当前范围数据", icon=":material/download:"):
+        st.download_button("下载观测 CSV", export_data_csv(df), file_name="观测分析当前范围.csv", mime="text/csv", key="viz_filtered_csv")
     active_idx = subtab_labels.index(active) if active in subtab_labels else 0
 
     if active_idx == 0:
@@ -839,7 +852,7 @@ def render_visualization_tab(df):
                 if len(ws) > 0:
                     avg_ws = ws.mean()
                     bf_level, bf_name = get_beaufort_level(avg_ws)
-                    dom_dir = "N/A"
+                    dom_dir_label = "缺少有效风向"
                     if "wind_direction" in df.columns:
                         wd = df["wind_direction"].dropna()
                         if len(wd) > 0:

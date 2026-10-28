@@ -66,7 +66,7 @@ weather_app/
 │   ├── test_data_quality.py    # 数据质控 9 条
 │   ├── test_auth_session.py    # 登录会话 9 条
 │   ├── test_codec.py           # 报文解码回归
-│   ├── test_codec_render.py    # 解码结果跨 rerun 持久化 3 条
+│   ├── test_codec_render.py    # 解码持久化与能见度展示 4 条
 │   ├── test_era5_guide.py      # ERA5 catalogue 与 payload 26 条
 │   ├── test_era5_script_pack.py # ERA5 脚本包 ZIP 与换算函数 29 条
 │   ├── test_dataset.py         # 数据集归一 / 版本化序列化 / 云端往返 9 条
@@ -112,7 +112,7 @@ weather_app/
     ├── era5_guide.py           # ERA5 变量 catalogue / payload 构建 / 规模预警 / 引导页
     ├── era5_script_pack.py     # ERA5 脚本包六个文件与 ZIP 打包
     ├── manual.py               # 用户手册加载 / 章节解析 / 应用内渲染 / HTML 导出
-    ├── weather_wall.py         # 封面页天气墙（城市天气卡片）
+    ├── weather_wall.py         # 城市天气获取与关注城市管理
     ├── theme_aether.py         # 主题注入与明暗切换（会话级，无需重载）
     ├── design_tokens.py        # 配色 token 单一真相源（浅色/暗色双套，含对比度校验）
     ├── theme_css.py            # 全站主题样式表（暗色覆盖层按 html[data-dsh-theme] 作用域）
@@ -172,7 +172,7 @@ python -B tests/test_supabase_backend.py # Supabase 后端契约 26 条
 python -B tests/test_release_surface.py  # 版本/依赖/Secrets/CI 契约 18 条
 ```
 
-其余用例用 pytest 运行全部（当前共 **533** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
+其余用例用 pytest 运行全部（当前共 **565** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
 
 ```bash
 pip install -r requirements-dev.txt -c constraints.txt
@@ -209,7 +209,7 @@ python -B research/check_era5_variables.py --cache .cache-era5   # ERA5 变量�
 **发布后请肉眼核对一次线上版本号。** `git push` 成功、远端 `main` 已更新，**不等于**
 Streamlit Cloud 已经重建容器：v2.3.0 发布时就遇到过推送十余分钟后线上仍返回旧版本号、
 容器启动时间停在推送之前的情况，而这一状态是静默的，不主动核对就会误以为线上已是新版。
-（当前版本：**2.3.9**。）
+（当前版本：**2.4.0**。）
 
 做法很简单——侧边栏页脚始终显示 `© 气象数据交互分析平台 <版本号>`，与 `config.py` 的
 `APP_VERSION` 对一眼即可。若不一致，去 Streamlit Cloud 面板对该应用执行 **Reboot app**

@@ -298,7 +298,7 @@ def _analyze_forecast(fdf):
         types = set(w["type"] for w in results["warnings"])
         parts.append(f"触发{'/'.join(types)}预警信号")
     else:
-        parts.append("无预警风险")
+        parts.append("有效数据未触发本工具的预警阈值")
     results["summary"] = "。".join(parts) + "。"
 
     # ----- 8. 建议（比原有更细） -----

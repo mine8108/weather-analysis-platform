@@ -63,113 +63,80 @@ def export_report_word(df, warnings_list, score, source="",
 
 
 def render_export_tab(df, warnings_list, score, source=""):
-    """渲染增强版报告导出 Tab"""
-    st.subheader("[导出] 报告导出")
     from modules.analysis_service import ensure_analysis, analysis_key
-    from utils import df_fingerprint
     from modules.nwp.calc import _analyze_forecast
+    from modules.report.preview import preview_html
+    from modules.ui.shell import page_heading
+    from utils import df_fingerprint
+    page_heading("报告导出", "选择报告风格，核对内容，再下载文档与数据。")
     assessment = ensure_analysis(st.session_state, df)
     warnings_list, score = assessment["warnings"], assessment["score"]
-    if assessment["notes"]:
-        st.info("观测分析存在数据限制，详见报告中的分析范围说明。")
-
-    # ---- 数据导出 ----
-    st.write("#### [统计] 数据导出")
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        if df is not None and not df.empty:
-            csv_data = export_data_csv(df)
-            if csv_data:
-                st.download_button(
-                    label="[下载] 处理后数据 (CSV)",
-                    data=csv_data,
-                    file_name=f"气象数据_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                    mime="text/csv",
-                    use_container_width=True,
-                )
-    with c2:
-        fc_df = st.session_state.get("fc_df", None)
-        if fc_df is not None and not fc_df.empty:
-            fc_csv = export_data_csv(fc_df)
-            if fc_csv:
-                st.download_button(
-                    label="[下载] GFS 预报数据 (CSV)",
-                    data=fc_csv,
-                    file_name=f"GFS预报_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                    mime="text/csv",
-                    use_container_width=True,
-                )
-    with c3:
-        pass
-
-    # ---- Word 报告 ----
-    st.write("---")
-    st.write("#### [文档] Word 分析报告 (含统计 + 预报)")
-
-    report_style = st.radio("报告风格", ["📊 专业版", "💬 通俗版"],
-                            horizontal=True, key="report_style")
-    if report_style == "💬 通俗版":
-        st.caption("用生活化语言叙述数据，减少术语，适合非专业用户阅读。"
-                   "包含「这天气怎么样」一句话回答、问答式预警、出门穿衣指南等。")
-    else:
-        st.caption("完整章节结构：封面 + 目录 + 报告说明 + 观测统计 + 预报概况 "
-                   "+ 事件检测 + 生活指南 + 防御建议 + 技术说明。报告以表格化排版"
-                   "呈现（不含图片），交互式图表请回应用界面查看。")
-
     fc_df = st.session_state.get("fc_df")
-    fc_analysis = _analyze_forecast(fc_df) if fc_df is not None and not fc_df.empty else None
-    report_key = (analysis_key(df), df_fingerprint(fc_df), source, report_style,
-                  repr(st.session_state.get("life_indices")))
-    if st.session_state.get("_report_fp") != report_key:
-        st.session_state.pop("report_data", None)
-
-    btn_label = ("[生成] 生成通俗版叙述报告"
-                 if report_style == "💬 通俗版"
-                 else "[生成] 生成专业版表格报告")
-    if st.button(btn_label, use_container_width=True, key="gen_report"):
-        with st.spinner("正在生成图文报告..."):
+    has_obs = df is not None and not df.empty
+    has_fc = fc_df is not None and not fc_df.empty
+    if not has_obs and not has_fc:
+        st.info("导入观测数据或获取数值预报后，即可生成分析报告。")
+        return
+    options, preview = st.columns([1, 2.6])
+    with options, st.container(border=True, key="report_options_panel"):
+        st.markdown("#### 导出设置")
+        if "report_style" not in st.session_state:
+            st.session_state["report_style"] = st.session_state.get("report_style_saved", "📊 专业版")
+        report_style = st.radio("报告风格", ["📊 专业版", "💬 通俗版"],
+                                format_func=lambda value: value.split(" ", 1)[-1], key="report_style",
+                                on_change=lambda: st.session_state.update(report_style_saved=st.session_state["report_style"]))
+        plain = report_style == "💬 通俗版"
+        st.caption("用日常语言解释天气特点与注意事项。" if plain else "保留统计、事件检测、预报与技术说明，适合分析留档。")
+        st.markdown("**包含的数据**")
+        if has_obs:
+            st.caption(f"观测数据 {len(df):,} 条 · {source or '当前数据集'}")
+            if "timestamp" in df:
+                st.caption(f"{df['timestamp'].min()} 至 {df['timestamp'].max()}")
+        if has_fc:
+            result = st.session_state.get("fc_result_context") or {}
+            city = result.get("city", {}).get("name", "当前预报")
+            st.caption(f"{city} · 预报数据 {len(fc_df):,} 条")
+        if assessment["notes"]:
+            st.info("报告包含观测分析范围与数据限制说明。")
+        st.caption("本报告采用文本与表格；图表请在可视化页面导出。AI 读图报告在 AI 模块单独下载并包含原图。")
+        fc_analysis = _analyze_forecast(fc_df) if has_fc else None
+        report_key = (analysis_key(df), df_fingerprint(fc_df), source, report_style,
+                      repr(st.session_state.get("life_indices")), repr(warnings_list), score, repr(assessment["notes"]))
+        if st.session_state.get("_report_fp") != report_key:
+            st.session_state.pop("report_data", None)
+        if st.session_state.get("_report_preview_fp") != report_key:
+            st.session_state.pop("_report_preview_bytes", None)
             try:
-                doc_data = export_report_word(
-                    df, warnings_list, score, source,
-                    forecast_df=st.session_state.get("fc_df"),
-                    forecast_analysis=fc_analysis,
-                    plain_language=(report_style == "💬 通俗版"),
-                    life_indices=st.session_state.get("life_indices"),
-                    analysis_notes=assessment["notes"],
-                )
-                if doc_data:
-                    st.session_state["report_data"] = doc_data
-                    st.session_state["_report_fp"] = report_key
-                    st.success("报告已生成，点击下方按钮下载。")
-                    st.rerun()
-            except Exception as e:
-                st.error(f"报告生成失败: {e}")
-                # 安全修复（SEC-12）：调试输出统一受 Secrets 的 DEBUG_MODE 控制
+                prepared = export_report_word(df, warnings_list, score, source,
+                    forecast_df=fc_df, forecast_analysis=fc_analysis, plain_language=plain,
+                    life_indices=st.session_state.get("life_indices"), analysis_notes=assessment["notes"])
+                if prepared:
+                    st.session_state["_report_preview_bytes"] = prepared
+                    st.session_state["_report_preview_fp"] = report_key
+            except Exception as exc:
+                st.error(f"内容预览生成失败：{str(exc)[:180]}")
                 if get_debug_mode():
                     st.code(traceback.format_exc(), language="python")
-
-    if "report_data" in st.session_state:
-        st.download_button(
-            label="[下载] 下载 Word 分析报告",
-            data=st.session_state["report_data"],
-            file_name=f"气象分析报告_{datetime.now().strftime('%Y%m%d_%H%M')}.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            use_container_width=True,
-        )
-
-    # ---- 统计摘要 ----
-    if df is not None and not df.empty:
-        stats_fields = ["temperature", "pressure", "humidity",
-                        "wind_speed", "visibility", "precipitation"]
-        label_map = {"temperature": "气温", "pressure": "气压", "humidity": "湿度",
-                     "wind_speed": "风速", "visibility": "能见度",
-                     "precipitation": "降水量"}
-        resolved = _resolve_stats(df, stats_fields)
-        if resolved:
-            st.write("---")
-            st.write("#### [列表] 快速统计摘要")
-            cols = st.columns(min(len(resolved), 6))
-            for i, f in enumerate(stats_fields):
-                if f in resolved:
-                    with cols[i % len(cols)]:
-                        st.metric(label_map.get(f, f), f"{resolved[f].mean():.1f}")
+        prepared = st.session_state.get("_report_preview_bytes")
+        if st.button("生成 Word 文件", icon=":material/description:", type="primary", width="stretch", key="gen_report", disabled=not prepared):
+            st.session_state["report_data"] = prepared
+            st.session_state["_report_fp"] = report_key
+        if st.session_state.get("report_data"):
+            st.download_button("下载 Word 报告", st.session_state["report_data"], file_name="气象分析报告.docx",
+                               mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                               width="stretch", key="report_word_download")
+            st.caption("文档已就绪，与右侧预览使用同一份内容。")
+        st.divider()
+        st.markdown("**数据文件**")
+        if has_obs:
+            st.download_button("处理后观测 CSV", export_data_csv(df), file_name="气象观测数据.csv", mime="text/csv",
+                               width="stretch", key="report_obs_csv")
+        if has_fc:
+            st.download_button("逐时预报 CSV", export_data_csv(fc_df), file_name="气象预报数据.csv", mime="text/csv",
+                               width="stretch", key="report_fc_csv")
+    with preview:
+        st.markdown("#### 报告内容预览")
+        st.caption("内容与下载文档同步；字体换行、目录域与最终分页以 Word 中的显示为准。")
+        if prepared:
+            with st.container(height=700, border=True):
+                st.markdown(preview_html(prepared), unsafe_allow_html=True)

@@ -362,9 +362,9 @@ def _source(rel):
 
 
 def test_app_tab_label_renamed_to_chart_reader():
-    source = _source("app.py")
-    assert "[读图] AI 读图解析" in source
-    assert "智能分析与建议" not in source
+    from modules.ui.navigation import MODULES
+    assert MODULES[3][0] == "AI 读图解析"
+    assert MODULES[3][1] == "chart-reader"
 
 
 def test_app_tab_names_and_reset_keys_updated():
@@ -391,18 +391,22 @@ def test_app_renders_chart_tab_without_data():
     except ImportError:
         return  # 无 Streamlit 环境（本文件的直跑模式）跳过
 
-    at = AppTest.from_file(os.path.join(_APP_DIR, "app.py"),
-                           default_timeout=60)
+    from unittest.mock import patch
+    at = AppTest.from_file(os.path.join(_APP_DIR, "app.py"), default_timeout=60)
     at.secrets["ADMIN_PASSWORD"] = "test-admin"
     at.secrets["SUPABASE_URL"] = "https://example.supabase.co"
     at.secrets["SUPABASE_ANON_KEY"] = "test-anon-key"
     at.session_state["auth_user"] = {"id": "u1", "email": "t@example.com"}
-    at.session_state["active_tab"] = 3
+    at.session_state["_route_request"] = 3
+    at.session_state["_wall_show"] = False
     at.session_state["_auto_load_done"] = True
-    at.run()
+    with patch("auth.ensure_session", lambda: None), patch("db.get_storage_usage_bytes", lambda *a: 0), \
+         patch("db.get_storage_quota_bytes", lambda *a: 1), patch("db.list_datasets", lambda *a: []), \
+         patch("modules.ai_narrative.resolve_vision_config", lambda: None):
+        at.run()
     assert not at.exception
-    text = "\n".join(m.value for m in at.markdown)
-    assert "AI 读图解析" in text
+    assert at.button(key="chart_reader_generate").disabled
+    assert any("读图服务尚未配置" in item.value for item in at.info)
 
 
 def test_analyzer_dropped_dead_renderers():

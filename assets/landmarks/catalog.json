@@ -1,0 +1,544 @@
+{
+  "version": 1,
+  "cities": [
+    {
+      "id": "beijing",
+      "city": "北京",
+      "landmark": "天坛祈年殿",
+      "lat": 39.9,
+      "lon": 116.41,
+      "aliases": [
+        "北京",
+        "Beijing"
+      ],
+      "asset": "beijing.webp",
+      "region": "华北"
+    },
+    {
+      "id": "tianjin",
+      "city": "天津",
+      "landmark": "天津之眼",
+      "lat": 39.13,
+      "lon": 117.2,
+      "aliases": [
+        "天津",
+        "Tianjin"
+      ],
+      "asset": "tianjin.webp",
+      "region": "华北"
+    },
+    {
+      "id": "shijiazhuang",
+      "city": "石家庄",
+      "landmark": "石家庄电视塔",
+      "lat": 38.04,
+      "lon": 114.51,
+      "aliases": [
+        "石家庄",
+        "Shijiazhuang"
+      ],
+      "asset": "shijiazhuang.webp",
+      "region": "华北"
+    },
+    {
+      "id": "taiyuan",
+      "city": "太原",
+      "landmark": "双塔寺",
+      "lat": 37.87,
+      "lon": 112.55,
+      "aliases": [
+        "太原",
+        "Taiyuan"
+      ],
+      "asset": "taiyuan.webp",
+      "region": "华北"
+    },
+    {
+      "id": "hohhot",
+      "city": "呼和浩特",
+      "landmark": "大召寺",
+      "lat": 40.84,
+      "lon": 111.75,
+      "aliases": [
+        "呼和浩特",
+        "Hohhot"
+      ],
+      "asset": "hohhot.webp",
+      "region": "华北"
+    },
+    {
+      "id": "shenyang",
+      "city": "沈阳",
+      "landmark": "沈阳故宫大政殿",
+      "lat": 41.8,
+      "lon": 123.43,
+      "aliases": [
+        "沈阳",
+        "Shenyang"
+      ],
+      "asset": "shenyang.webp",
+      "region": "东北"
+    },
+    {
+      "id": "changchun",
+      "city": "长春",
+      "landmark": "伪满皇宫同德殿",
+      "lat": 43.88,
+      "lon": 125.32,
+      "aliases": [
+        "长春",
+        "Changchun"
+      ],
+      "asset": "changchun.webp",
+      "region": "东北"
+    },
+    {
+      "id": "harbin",
+      "city": "哈尔滨",
+      "landmark": "圣索菲亚教堂",
+      "lat": 45.8,
+      "lon": 126.53,
+      "aliases": [
+        "哈尔滨",
+        "Harbin"
+      ],
+      "asset": "harbin.webp",
+      "region": "东北"
+    },
+    {
+      "id": "dalian",
+      "city": "大连",
+      "landmark": "星海湾大桥",
+      "lat": 38.91,
+      "lon": 121.61,
+      "aliases": [
+        "大连",
+        "Dalian"
+      ],
+      "asset": "dalian.webp",
+      "region": "东北"
+    },
+    {
+      "id": "shanghai",
+      "city": "上海",
+      "landmark": "陆家嘴天际线",
+      "lat": 31.23,
+      "lon": 121.47,
+      "aliases": [
+        "上海",
+        "Shanghai"
+      ],
+      "asset": "shanghai.webp",
+      "region": "华东"
+    },
+    {
+      "id": "nanjing",
+      "city": "南京",
+      "landmark": "中山陵",
+      "lat": 32.06,
+      "lon": 118.8,
+      "aliases": [
+        "南京",
+        "Nanjing"
+      ],
+      "asset": "nanjing.webp",
+      "region": "华东"
+    },
+    {
+      "id": "hangzhou",
+      "city": "杭州",
+      "landmark": "西湖与雷峰塔",
+      "lat": 30.27,
+      "lon": 120.16,
+      "aliases": [
+        "杭州",
+        "Hangzhou"
+      ],
+      "asset": "hangzhou.webp",
+      "region": "华东"
+    },
+    {
+      "id": "hefei",
+      "city": "合肥",
+      "landmark": "清风阁",
+      "lat": 31.86,
+      "lon": 117.28,
+      "aliases": [
+        "合肥",
+        "Hefei"
+      ],
+      "asset": "hefei.webp",
+      "region": "华东"
+    },
+    {
+      "id": "fuzhou",
+      "city": "福州",
+      "landmark": "白塔",
+      "lat": 26.08,
+      "lon": 119.3,
+      "aliases": [
+        "福州",
+        "Fuzhou"
+      ],
+      "asset": "fuzhou.webp",
+      "region": "华东"
+    },
+    {
+      "id": "jinan",
+      "city": "济南",
+      "landmark": "超然楼",
+      "lat": 36.65,
+      "lon": 117.12,
+      "aliases": [
+        "济南",
+        "Jinan"
+      ],
+      "asset": "jinan.webp",
+      "region": "华东"
+    },
+    {
+      "id": "nanchang",
+      "city": "南昌",
+      "landmark": "滕王阁",
+      "lat": 28.68,
+      "lon": 115.86,
+      "aliases": [
+        "南昌",
+        "Nanchang"
+      ],
+      "asset": "nanchang.webp",
+      "region": "华东"
+    },
+    {
+      "id": "suzhou",
+      "city": "苏州",
+      "landmark": "东方之门",
+      "lat": 31.3,
+      "lon": 120.62,
+      "aliases": [
+        "苏州",
+        "Suzhou"
+      ],
+      "asset": "suzhou.webp",
+      "region": "华东"
+    },
+    {
+      "id": "qingdao",
+      "city": "青岛",
+      "landmark": "栈桥回澜阁",
+      "lat": 36.07,
+      "lon": 120.38,
+      "aliases": [
+        "青岛",
+        "Qingdao"
+      ],
+      "asset": "qingdao.webp",
+      "region": "华东"
+    },
+    {
+      "id": "xiamen",
+      "city": "厦门",
+      "landmark": "鼓浪屿八卦楼",
+      "lat": 24.48,
+      "lon": 118.09,
+      "aliases": [
+        "厦门",
+        "Xiamen"
+      ],
+      "asset": "xiamen.webp",
+      "region": "华东"
+    },
+    {
+      "id": "taipei",
+      "city": "台北",
+      "landmark": "台北101",
+      "lat": 25.03,
+      "lon": 121.57,
+      "aliases": [
+        "台北",
+        "Taipei",
+        "Taipei, Taiwan, China",
+        "臺北"
+      ],
+      "asset": "taipei.webp",
+      "region": "华东"
+    },
+    {
+      "id": "zhengzhou",
+      "city": "郑州",
+      "landmark": "中原福塔",
+      "lat": 34.75,
+      "lon": 113.63,
+      "aliases": [
+        "郑州",
+        "Zhengzhou"
+      ],
+      "asset": "zhengzhou.webp",
+      "region": "华中"
+    },
+    {
+      "id": "wuhan",
+      "city": "武汉",
+      "landmark": "黄鹤楼",
+      "lat": 30.59,
+      "lon": 114.31,
+      "aliases": [
+        "武汉",
+        "Wuhan"
+      ],
+      "asset": "wuhan.webp",
+      "region": "华中"
+    },
+    {
+      "id": "changsha",
+      "city": "长沙",
+      "landmark": "天心阁",
+      "lat": 28.23,
+      "lon": 112.94,
+      "aliases": [
+        "长沙",
+        "Changsha"
+      ],
+      "asset": "changsha.webp",
+      "region": "华中"
+    },
+    {
+      "id": "guangzhou",
+      "city": "广州",
+      "landmark": "广州塔",
+      "lat": 23.13,
+      "lon": 113.26,
+      "aliases": [
+        "广州",
+        "Guangzhou"
+      ],
+      "asset": "guangzhou.webp",
+      "region": "华南"
+    },
+    {
+      "id": "nanning",
+      "city": "南宁",
+      "landmark": "青秀山龙象塔",
+      "lat": 22.82,
+      "lon": 108.37,
+      "aliases": [
+        "南宁",
+        "Nanning"
+      ],
+      "asset": "nanning.webp",
+      "region": "华南"
+    },
+    {
+      "id": "haikou",
+      "city": "海口",
+      "landmark": "世纪大桥",
+      "lat": 20.04,
+      "lon": 110.2,
+      "aliases": [
+        "海口",
+        "Haikou"
+      ],
+      "asset": "haikou.webp",
+      "region": "华南"
+    },
+    {
+      "id": "shenzhen",
+      "city": "深圳",
+      "landmark": "平安金融中心",
+      "lat": 22.54,
+      "lon": 114.06,
+      "aliases": [
+        "深圳",
+        "Shenzhen"
+      ],
+      "asset": "shenzhen.webp",
+      "region": "华南"
+    },
+    {
+      "id": "sanya",
+      "city": "三亚",
+      "landmark": "凤凰岛",
+      "lat": 18.25,
+      "lon": 109.51,
+      "aliases": [
+        "三亚",
+        "Sanya"
+      ],
+      "asset": "sanya.webp",
+      "region": "华南"
+    },
+    {
+      "id": "guilin",
+      "city": "桂林",
+      "landmark": "日月双塔",
+      "lat": 25.27,
+      "lon": 110.29,
+      "aliases": [
+        "桂林",
+        "Guilin"
+      ],
+      "asset": "guilin.webp",
+      "region": "华南"
+    },
+    {
+      "id": "hong-kong",
+      "city": "香港",
+      "landmark": "维港与中银大厦",
+      "lat": 22.32,
+      "lon": 114.17,
+      "aliases": [
+        "中国香港",
+        "Hong Kong",
+        "Hong Kong, China"
+      ],
+      "asset": "hong-kong.webp",
+      "region": "华南"
+    },
+    {
+      "id": "macao",
+      "city": "澳门",
+      "landmark": "大三巴牌坊",
+      "lat": 22.2,
+      "lon": 113.55,
+      "aliases": [
+        "中国澳门",
+        "Macao",
+        "Macao, China",
+        "Macau",
+        "澳門"
+      ],
+      "asset": "macao.webp",
+      "region": "华南"
+    },
+    {
+      "id": "chongqing",
+      "city": "重庆",
+      "landmark": "洪崖洞",
+      "lat": 29.56,
+      "lon": 106.55,
+      "aliases": [
+        "重庆",
+        "Chongqing"
+      ],
+      "asset": "chongqing.webp",
+      "region": "西南"
+    },
+    {
+      "id": "chengdu",
+      "city": "成都",
+      "landmark": "安顺廊桥",
+      "lat": 30.57,
+      "lon": 104.07,
+      "aliases": [
+        "成都",
+        "Chengdu"
+      ],
+      "asset": "chengdu.webp",
+      "region": "西南"
+    },
+    {
+      "id": "guiyang",
+      "city": "贵阳",
+      "landmark": "甲秀楼",
+      "lat": 26.65,
+      "lon": 106.63,
+      "aliases": [
+        "贵阳",
+        "Guiyang"
+      ],
+      "asset": "guiyang.webp",
+      "region": "西南"
+    },
+    {
+      "id": "kunming",
+      "city": "昆明",
+      "landmark": "金马碧鸡坊",
+      "lat": 24.88,
+      "lon": 102.83,
+      "aliases": [
+        "昆明",
+        "Kunming"
+      ],
+      "asset": "kunming.webp",
+      "region": "西南"
+    },
+    {
+      "id": "lhasa",
+      "city": "拉萨",
+      "landmark": "布达拉宫",
+      "lat": 29.65,
+      "lon": 91.14,
+      "aliases": [
+        "拉萨",
+        "Lhasa"
+      ],
+      "asset": "lhasa.webp",
+      "region": "西南"
+    },
+    {
+      "id": "xian",
+      "city": "西安",
+      "landmark": "钟楼",
+      "lat": 34.34,
+      "lon": 108.94,
+      "aliases": [
+        "西安",
+        "Xi'an"
+      ],
+      "asset": "xian.webp",
+      "region": "西北"
+    },
+    {
+      "id": "lanzhou",
+      "city": "兰州",
+      "landmark": "中山桥",
+      "lat": 36.06,
+      "lon": 103.83,
+      "aliases": [
+        "兰州",
+        "Lanzhou"
+      ],
+      "asset": "lanzhou.webp",
+      "region": "西北"
+    },
+    {
+      "id": "xining",
+      "city": "西宁",
+      "landmark": "浦宁之珠",
+      "lat": 36.62,
+      "lon": 101.78,
+      "aliases": [
+        "西宁",
+        "Xining"
+      ],
+      "asset": "xining.webp",
+      "region": "西北"
+    },
+    {
+      "id": "yinchuan",
+      "city": "银川",
+      "landmark": "鼓楼",
+      "lat": 38.49,
+      "lon": 106.23,
+      "aliases": [
+        "银川",
+        "Yinchuan"
+      ],
+      "asset": "yinchuan.webp",
+      "region": "西北"
+    },
+    {
+      "id": "urumqi",
+      "city": "乌鲁木齐",
+      "landmark": "国际大巴扎观光塔",
+      "lat": 43.83,
+      "lon": 87.62,
+      "aliases": [
+        "乌鲁木齐",
+        "Urumqi"
+      ],
+      "asset": "urumqi.webp",
+      "region": "西北"
+    }
+  ]
+}

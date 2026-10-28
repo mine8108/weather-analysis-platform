@@ -1,0 +1,742 @@
+{
+  "rest": [
+    {
+      "city": "廊坊",
+      "focus": false,
+      "motion": "static",
+      "opacity": null,
+      "reveal": "false",
+      "scene": "cloudy",
+      "zone": {
+        "x": 395.7633743286133,
+        "y": 255.1616897583008
+      }
+    },
+    {
+      "city": "北京",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "sunny",
+      "zone": {
+        "x": 868.1825332641602,
+        "y": 255.1616897583008
+      }
+    },
+    {
+      "city": "南昌",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "rain",
+      "zone": {
+        "x": 1340.5860977172852,
+        "y": 255.1616897583008
+      }
+    },
+    {
+      "city": "上海",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "overcast",
+      "zone": {
+        "x": 395.7633743286133,
+        "y": 449.1448745727539
+      }
+    },
+    {
+      "city": "广州",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "cloudy",
+      "zone": {
+        "x": 868.1825332641602,
+        "y": 449.1448745727539
+      }
+    },
+    {
+      "city": "成都",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "fog",
+      "zone": {
+        "x": 1340.5860977172852,
+        "y": 449.1448745727539
+      }
+    }
+  ],
+  "hover": [
+    {
+      "city": "廊坊",
+      "focus": false,
+      "motion": "static",
+      "opacity": null,
+      "reveal": "false",
+      "scene": "cloudy",
+      "zone": {
+        "x": 395.7633743286133,
+        "y": 255.1616897583008
+      }
+    },
+    {
+      "city": "北京",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0.62",
+      "reveal": "true",
+      "scene": "sunny",
+      "zone": {
+        "x": 868.1825332641602,
+        "y": 255.1616897583008
+      }
+    },
+    {
+      "city": "南昌",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "rain",
+      "zone": {
+        "x": 1340.5860977172852,
+        "y": 255.1616897583008
+      }
+    },
+    {
+      "city": "上海",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "overcast",
+      "zone": {
+        "x": 395.7633743286133,
+        "y": 449.1448745727539
+      }
+    },
+    {
+      "city": "广州",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "cloudy",
+      "zone": {
+        "x": 868.1825332641602,
+        "y": 449.1448745727539
+      }
+    },
+    {
+      "city": "成都",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "fog",
+      "zone": {
+        "x": 1340.5860977172852,
+        "y": 449.1448745727539
+      }
+    }
+  ],
+  "leave": [
+    {
+      "city": "廊坊",
+      "focus": false,
+      "motion": "static",
+      "opacity": null,
+      "reveal": "false",
+      "scene": "cloudy",
+      "zone": {
+        "x": 395.7633743286133,
+        "y": 255.1616897583008
+      }
+    },
+    {
+      "city": "北京",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "sunny",
+      "zone": {
+        "x": 868.1825332641602,
+        "y": 255.1616897583008
+      }
+    },
+    {
+      "city": "南昌",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "rain",
+      "zone": {
+        "x": 1340.5860977172852,
+        "y": 255.1616897583008
+      }
+    },
+    {
+      "city": "上海",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "overcast",
+      "zone": {
+        "x": 395.7633743286133,
+        "y": 449.1448745727539
+      }
+    },
+    {
+      "city": "广州",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "cloudy",
+      "zone": {
+        "x": 868.1825332641602,
+        "y": 449.1448745727539
+      }
+    },
+    {
+      "city": "成都",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "fog",
+      "zone": {
+        "x": 1340.5860977172852,
+        "y": 449.1448745727539
+      }
+    }
+  ],
+  "keyboard": [
+    {
+      "city": "廊坊",
+      "focus": false,
+      "motion": "static",
+      "opacity": null,
+      "reveal": "false",
+      "scene": "cloudy",
+      "zone": {
+        "x": 395.7633743286133,
+        "y": 255.1616897583008
+      }
+    },
+    {
+      "city": "北京",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "sunny",
+      "zone": {
+        "x": 868.1825332641602,
+        "y": 255.1616897583008
+      }
+    },
+    {
+      "city": "南昌",
+      "focus": true,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "rain",
+      "zone": {
+        "x": 1340.5860977172852,
+        "y": 255.1616897583008
+      }
+    },
+    {
+      "city": "上海",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "overcast",
+      "zone": {
+        "x": 395.7633743286133,
+        "y": 449.1448745727539
+      }
+    },
+    {
+      "city": "广州",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "cloudy",
+      "zone": {
+        "x": 868.1825332641602,
+        "y": 449.1448745727539
+      }
+    },
+    {
+      "city": "成都",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "fog",
+      "zone": {
+        "x": 1340.5860977172852,
+        "y": 449.1448745727539
+      }
+    }
+  ],
+  "fogHover": [
+    {
+      "city": "廊坊",
+      "focus": false,
+      "motion": "static",
+      "opacity": null,
+      "reveal": "false",
+      "scene": "cloudy",
+      "zone": {
+        "x": 395.7633743286133,
+        "y": 255.1616897583008
+      }
+    },
+    {
+      "city": "北京",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "sunny",
+      "zone": {
+        "x": 868.1825332641602,
+        "y": 255.1616897583008
+      }
+    },
+    {
+      "city": "南昌",
+      "focus": true,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "rain",
+      "zone": {
+        "x": 1340.5860977172852,
+        "y": 255.1616897583008
+      }
+    },
+    {
+      "city": "上海",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "overcast",
+      "zone": {
+        "x": 395.7633743286133,
+        "y": 449.1448745727539
+      }
+    },
+    {
+      "city": "广州",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "cloudy",
+      "zone": {
+        "x": 868.1825332641602,
+        "y": 449.1448745727539
+      }
+    },
+    {
+      "city": "成都",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0.54",
+      "reveal": "true",
+      "scene": "fog",
+      "zone": {
+        "x": 1340.5860977172852,
+        "y": 449.1448745727539
+      }
+    }
+  ],
+  "entry": [
+    {
+      "city": "廊坊",
+      "focus": false,
+      "motion": "static",
+      "opacity": null,
+      "scene": "cloudy",
+      "zone": {
+        "x": 395.7633743286133,
+        "y": 255.1616897583008
+      }
+    },
+    {
+      "city": "北京",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "scene": "sunny",
+      "zone": {
+        "x": 868.1825332641602,
+        "y": 255.1616897583008
+      }
+    },
+    {
+      "city": "南昌",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "scene": "rain",
+      "zone": {
+        "x": 1340.5860977172852,
+        "y": 255.1616897583008
+      }
+    },
+    {
+      "city": "上海",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "scene": "overcast",
+      "zone": {
+        "x": 395.7633743286133,
+        "y": 449.1448745727539
+      }
+    },
+    {
+      "city": "广州",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "scene": "cloudy",
+      "zone": {
+        "x": 868.1825332641602,
+        "y": 449.1448745727539
+      }
+    },
+    {
+      "city": "成都",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "scene": "fog",
+      "zone": {
+        "x": 1340.5860977172852,
+        "y": 449.1448745727539
+      }
+    }
+  ],
+  "settled": [
+    {
+      "city": "廊坊",
+      "focus": false,
+      "motion": "static",
+      "opacity": null,
+      "reveal": "false",
+      "scene": "cloudy",
+      "zone": {
+        "x": 395.7633743286133,
+        "y": -47.32587432861328
+      }
+    },
+    {
+      "city": "北京",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "sunny",
+      "zone": {
+        "x": 868.1825332641602,
+        "y": -47.32587432861328
+      }
+    },
+    {
+      "city": "南昌",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "rain",
+      "zone": {
+        "x": 1340.5860977172852,
+        "y": -47.32587432861328
+      }
+    },
+    {
+      "city": "上海",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "overcast",
+      "zone": {
+        "x": 395.7633743286133,
+        "y": 146.65733337402344
+      }
+    },
+    {
+      "city": "广州",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "cloudy",
+      "zone": {
+        "x": 868.1825332641602,
+        "y": 146.65733337402344
+      }
+    },
+    {
+      "city": "成都",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "fog",
+      "zone": {
+        "x": 1340.5860977172852,
+        "y": 146.65733337402344
+      }
+    }
+  ],
+  "darkRest": [
+    {
+      "city": "廊坊",
+      "focus": false,
+      "motion": "static",
+      "opacity": null,
+      "reveal": "false",
+      "scene": "cloudy",
+      "zone": {
+        "x": 395.7633743286133,
+        "y": 255.1616897583008
+      }
+    },
+    {
+      "city": "北京",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "sunny",
+      "zone": {
+        "x": 868.1825332641602,
+        "y": 255.1616897583008
+      }
+    },
+    {
+      "city": "南昌",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "rain",
+      "zone": {
+        "x": 1340.5860977172852,
+        "y": 255.1616897583008
+      }
+    },
+    {
+      "city": "上海",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "overcast",
+      "zone": {
+        "x": 395.7633743286133,
+        "y": 449.1448745727539
+      }
+    },
+    {
+      "city": "广州",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "cloudy",
+      "zone": {
+        "x": 868.1825332641602,
+        "y": 449.1448745727539
+      }
+    },
+    {
+      "city": "成都",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "fog",
+      "zone": {
+        "x": 1340.5860977172852,
+        "y": 449.1448745727539
+      }
+    }
+  ],
+  "compactHover": [
+    {
+      "city": "廊坊",
+      "focus": false,
+      "motion": "static",
+      "opacity": null,
+      "reveal": "false",
+      "scene": "cloudy",
+      "zone": {
+        "x": 251.1271743774414,
+        "y": 206.2966423034668
+      }
+    },
+    {
+      "city": "北京",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0.62",
+      "reveal": "true",
+      "scene": "sunny",
+      "zone": {
+        "x": 538.4406051635742,
+        "y": 206.2966423034668
+      }
+    },
+    {
+      "city": "南昌",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "rain",
+      "zone": {
+        "x": 825.7540512084961,
+        "y": 206.2966423034668
+      }
+    },
+    {
+      "city": "上海",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "overcast",
+      "zone": {
+        "x": 1113.0674057006836,
+        "y": 206.2966423034668
+      }
+    },
+    {
+      "city": "广州",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "cloudy",
+      "zone": {
+        "x": 1400.3808822631836,
+        "y": 206.2966423034668
+      }
+    },
+    {
+      "city": "成都",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "fog",
+      "zone": {
+        "x": 1687.6943588256836,
+        "y": 206.2966423034668
+      }
+    }
+  ],
+  "mobile": [
+    {
+      "city": "廊坊",
+      "focus": false,
+      "motion": "static",
+      "opacity": null,
+      "reveal": "false",
+      "scene": "cloudy",
+      "zone": {
+        "x": 189.79322052001953,
+        "y": 255.28606796264648
+      }
+    },
+    {
+      "city": "北京",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "sunny",
+      "zone": {
+        "x": 419.78389739990234,
+        "y": 255.28606796264648
+      }
+    },
+    {
+      "city": "南昌",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "rain",
+      "zone": {
+        "x": 649.7745590209961,
+        "y": 255.28606796264648
+      }
+    },
+    {
+      "city": "上海",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "overcast",
+      "zone": {
+        "x": 879.7652206420898,
+        "y": 255.28606796264648
+      }
+    },
+    {
+      "city": "广州",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "cloudy",
+      "zone": {
+        "x": 1109.7559432983398,
+        "y": 255.28606796264648
+      }
+    },
+    {
+      "city": "成都",
+      "focus": false,
+      "motion": "static",
+      "opacity": "0",
+      "reveal": "false",
+      "scene": "fog",
+      "zone": {
+        "x": 1339.7465438842771,
+        "y": 255.28606796264648
+      }
+    }
+  ],
+  "media": {
+    "result": {
+      "type": "string",
+      "value": "{\"hover\":false,\"width\":390}"
+    }
+  }
+}

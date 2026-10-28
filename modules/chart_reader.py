@@ -154,7 +154,7 @@ def _process_image_uncached(raw, name):
         return _fail(name, "文件为空")
 
     if len(raw) > MAX_RAW_BYTES:
-        return _fail(name, "文件过大（原始 %.2f MB，上限 %.1f MB），请先自行压缩后上传"
+        return _fail(name, "文件过大（原始 %.2f MiB，上限 %.1f MiB），请先自行压缩后上传"
                      % (len(raw) / 1048576.0, MAX_RAW_BYTES / 1048576.0),
                      len(raw))
 
@@ -202,7 +202,7 @@ def _process_image_uncached(raw, name):
         return _fail(name, "图片处理失败（文件可能已损坏或不完整）", len(raw))
 
     if len(data) > MAX_IMAGE_BYTES:
-        return _fail(name, "处理后的字节仍超过单图上限（%.2f MB > %.1f MB），请先自行压缩后上传"
+        return _fail(name, "处理后的字节仍超过单图上限（%.2f MiB > %.1f MiB），请先自行压缩后上传"
                      % (len(data) / 1048576.0, MAX_IMAGE_BYTES / 1048576.0), len(raw))
 
     return {"name": name, "ok": True, "error": None,
@@ -215,7 +215,7 @@ def check_total_size(images):
     """合计体积校验：只统计成功的图片；超限返回提示文本，否则 None。"""
     total_kb = sum(item.get("new_kb", 0) for item in images if item.get("ok"))
     if total_kb * 1024 > MAX_TOTAL_BYTES:
-        return ("提交合计 %.1f MB，超过上限 %.1f MB，请减少图片张数或先自行压缩"
+        return ("提交合计 %.1f MiB，超过上限 %.1f MiB，请减少图片张数或先自行压缩"
                 % (total_kb / 1024.0, MAX_TOTAL_BYTES / 1048576.0))
     return None
 
@@ -355,7 +355,7 @@ def build_chart_prompt(images_meta, user_note):
         "你是一名气象业务分析师。下面会给出用户上传的气象图（天气图、卫星云图、"
         "雷达回波、模式形势图等）。请**只依据图面可见信息**输出结构化解读。",
         "",
-        "输出必须严格包含以下六段，段标题逐字保留：",
+        "JSON 的 sections 必须严格包含以下六段，title 使用括号内标题文字：",
         "1. %s 图片数量、文件名与像素尺寸；能读出的图种、时间、区域、层次。" % _SECTIONS[0],
         "2. %s 坐标轴、色标、图例、单位、等值线间隔分别是什么。" % _SECTIONS[1],
         "3. %s 可判读的天气系统与分布特征（高低压、槽脊、锋面、雨带、回波强度分布等）。"
@@ -376,13 +376,27 @@ def build_chart_prompt(images_meta, user_note):
         "本次上传的图片：",
     ]
     for index, meta in enumerate(images_meta or [], start=1):
-        lines.append("- 图 %d：%s（%s × %s 像素）"
-                     % (index, meta.get("name", "未命名"),
+        lines.append("- 图 %d（image_id=img_%d）：%s（%s × %s 像素）"
+                     % (index, index, meta.get("name", "未命名"),
                         meta.get("width", "?"), meta.get("height", "?")))
     note = (user_note or "").strip()
     if note:
         lines += ["", "用户补充说明（请优先结合它判读）：", note]
-    lines += ["", "请直接输出六段正文，不要重复上述指令。"]
+    lines += ["", "只输出一个 JSON 对象，不附带代码围栏。结构如下，示例占位内容须替换为本次图面内容：",
+              '{"schema_version":1,"findings":[{"id":"F1","text":"简洁核心结论",'
+              '"kind":"visible","evidence_ids":["E1"],"limitation_ids":["L1"]}],'
+              '"evidence":[{"id":"E1","image_id":"img_1","location":"原图中的具体位置",'
+              '"feature":"在该位置可直接看见的图例、数值或形态"}],'
+              '"limitations":[{"id":"L1","missing":"缺失或读不清的信息",'
+              '"impact":"这会限制哪项结论","next_input":"建议补充的图像或信息"}],'
+              '"sections":[{"title":"图像信息","body":"正文"},'
+              '{"title":"图面要素识别","body":"正文"},{"title":"主要分布特征","body":"正文"},'
+              '{"title":"关键数值与极值","body":"正文"},{"title":"趋势与演变","body":"正文"},'
+              '{"title":"风险提示与结论","body":"正文"}]}',
+              "核心结论最多 3 条，依据最多 8 条，不确定性最多 4 条。每条结论必须引用实际存在的依据编号。",
+              "kind=visible 表示图面描述；kind=conditional 表示条件性推断，必须引用限制编号。",
+              "至少说明一项适用边界；不给出数值置信度，不输出未经核验的框选坐标。所有引用只使用本次 img_1…img_N。",
+              "若图不可判读，直接说明不可判读及原因，不为了填满结构编造结论。"]
     return "\n".join(lines)
 
 
@@ -410,7 +424,7 @@ _FAILURE_TABLE = """
 |---|---|---|
 | 提示「读图解析尚未配置」 | 未设置 `LLM_VISION_MODEL` | 按上方说明在 Secrets 中配置后重启应用 |
 | 某张图标记为失败 | 超过体积/像素上限、分辨率过低或文件不是有效图片 | 按该图给出的原因处理；伪装扩展名的文件会被拒绝 |
-| 整体拒绝上传 | 张数超过 5 张、单图超过 1.5 MB，或提交合计超过 7.5 MB | 减少张数或先自行压缩 |
+| 整体拒绝上传 | 张数超过 5 张、单图超过 1.5 MiB，或提交合计超过 7.5 MiB | 减少张数或先自行压缩 |
 | 生成失败并给出可读错误 | 模型服务超时、密钥无效、当日额度不足，或输出被服务商截断 | 原图已保留，可直接重试；错误文本会带出 `finish_reason`、模型名与响应片段，据此处置；当日 token 不足可次日再试或请管理员调整每日配额 |
 | 解读里出现「图中未标注」 | 图中确实没有该信息 | 这是刻意的反幻觉约束，不是故障 |
 | 解读与图不符 | 模型判读能力有限，尤其是等值线密集或非中文标注的图 | 在补充说明里指明图种、层次与关注点可显著改善 |
@@ -503,125 +517,126 @@ def _generate(cfg, images, note):
             return
 
     _record_usage(usage, quota_state["call_id"])
+    from modules.ai_report_model import decode_report, freeze_images, input_fingerprint
+    frozen = freeze_images(images)
     st.session_state["chart_reader_text"] = text
     st.session_state["chart_reader_meta"] = build_report_meta(
         "上传气象图 %d 张（模型：%s）" % (len(images), cfg["model"]))
     # 固化当次图片：报告与图片的对应关系在此刻固定，导出不再依赖上传区现状
-    st.session_state["chart_reader_report_images"] = cached_report_images(images)
+    st.session_state["chart_reader_report_images"] = frozen
+    st.session_state["chart_reader_result"] = decode_report(text, frozen)
+    st.session_state["chart_reader_input_fingerprint"] = input_fingerprint(images, note)
+    st.session_state.pop("chart_reader_selected_evidence", None)
     st.session_state["chart_reader_last_gen"] = time.time()
     st.session_state["chart_reader_gen_count"] = count + 1
 
 
 def render_chart_reader_tab():
-    """渲染 AI 读图解析页。不依赖任何已导入数据。"""
-    from modules.ai_narrative import display_report, resolve_vision_config
-    from db import record_vision_usage
+    """Upload and review share one immutable result snapshot; no calls on layout changes."""
+    from modules.ai_narrative import resolve_vision_config
+    from modules.ai_report_model import decode_report, input_fingerprint
+    from modules.ui.ai_result import render_ai_result
+    from modules.ui.shell import page_heading
+    from db import record_vision_usage, get_vision_quota
 
     pending = st.session_state.get("_pending_vision_usage", {})
     for call_id, usage in list(pending.items()):
         if record_vision_usage(usage, call_id):
             pending.pop(call_id, None)
     st.session_state["_pending_vision_usage"] = pending
-
-    st.subheader("[读图] AI 读图解析")
-    st.caption("上传气象图（天气图 / 卫星云图 / 雷达回波 / 模式形势图），"
-               "由多模态模型输出六段式结构化解读。本页不需要先导入数据。")
-    st.info("隐私提示：上传的图片会发送至所配置的 AI 服务商。"
-            "含涉密或未公开信息的图片请勿上传。")
-
     cfg = resolve_vision_config()
-    if cfg is None:
-        st.warning(_SETUP_HINT)
-        _render_failure_table()
-        return
-
-    uploads = st.file_uploader(
-        "上传气象图（最多 %d 张，单图 %.1f MB 以内）"
-        % (MAX_IMAGES, MAX_IMAGE_BYTES / 1048576.0),
-        type=ALLOWED_UPLOAD_TYPES, accept_multiple_files=True,
-        key="chart_reader_uploader")
-
-    images = []
-    if uploads:
-        if len(uploads) > MAX_IMAGES:
-            st.error("最多上传 %d 张，当前选了 %d 张，请先精简后再上传。"
-                     % (MAX_IMAGES, len(uploads)))
-        else:
-            for item in uploads:
-                images.append(process_image(item.getvalue(),
-                                            item.name or "未命名"))
-    st.session_state["chart_reader_images"] = images
-
-    if images:
-        st.write("**图片处理结果**")
-        rows = []
-        for item in images:
-            rows.append({
-                "文件名": item["name"],
-                "状态": "✓ 已就绪" if item["ok"] else "✗ " + (item["error"] or "失败"),
-                "原始 (KB)": item["orig_kb"],
-                "提交 (KB)": item["new_kb"],
-                "尺寸": ("%d × %d" % (item["width"], item["height"]))
-                        if item["width"] else "—",
-            })
-        st.dataframe(rows, use_container_width=True, hide_index=True)
-
-    ok_images = [item for item in images if item.get("ok")]
-    total_error = check_total_size(images)
-    if total_error:
-        st.error(total_error)
-
-    note = st.text_area("补充说明（可选，最多 500 字）",
-                        placeholder="例如：这是 500hPa 高空图，请重点关注槽脊位置与急流",
-                        max_chars=500, key="chart_reader_note")
-
-    count = int(st.session_state.get("chart_reader_gen_count", 0) or 0)
-    tokens = estimate_image_tokens(ok_images)
-    total_usage = st.session_state.get("chart_reader_usage_total") or {}
-    remaining = max(0, MAX_GENERATIONS_PER_SESSION - count)
-    st.caption("本会话已尝试 %d/%d 次（剩余 %d 次）；本次就绪图片 %d 张，"
-               "提交合计约 %d KB，估算图像 token ≈ %d。"
-               % (count, MAX_GENERATIONS_PER_SESSION, remaining,
-                  len(ok_images), sum(item["new_kb"] for item in ok_images), tokens))
-
-    from db import get_vision_quota
-    quota_state = get_vision_quota()
-    quota_line = format_daily_quota(quota_state)
-    if quota_line:
-        st.caption("%s（每日 0 点北京时间重置；单次调用不另设 token 上限）"
-                   % quota_line)
-    elif quota_state is None and st.session_state.get("auth_user"):
-        st.caption("⚠️ 未能读取今日配额，恢复服务后才能生成解读。")
-
-    if total_usage.get("completion"):
-        st.caption("本会话累计消耗 %s。" % format_usage(total_usage))
+    has_result = bool(st.session_state.get("chart_reader_text"))
+    if has_result:
+        title, settings = st.columns([3, 1], vertical_alignment="center")
+        with title:
+            page_heading("AI 读图解析", "以原图为依据，突出核心结论、图面特征和判断边界。")
+        input_panel = settings.popover("上传图片与解读设置", width="stretch")
     else:
-        st.caption("失败调用同样计费，故配额按尝试次数计数。")
-
-    daily_blocked = daily_quota_exhausted(quota_state)
-    disabled = (not ok_images) or bool(total_error) or daily_blocked \
-        or count >= MAX_GENERATIONS_PER_SESSION
-    if daily_blocked and quota_state.get("tokens_reserved"):
-        st.info("已有请求占用预算，请等待其完成或重新打开此页重试结算。")
-    elif daily_blocked:
-        st.error("今日读图配额已用完，生成按钮已禁用。次日自动重置，"
-                 "或请管理员调整你的配额。")
-    elif remaining <= 0:
-        st.warning("本会话尝试次数已用完（%d 次）。刷新页面可重置，"
-                   "但每次调用都会真实计费，请留意用量。"
-                   % MAX_GENERATIONS_PER_SESSION)
-    if st.button("生成读图解析", key="chart_reader_generate", type="primary",
-                 disabled=disabled, use_container_width=True):
-        _generate(cfg, ok_images, note)
-
+        page_heading("AI 读图解析", "以原图为依据，突出核心结论、图面特征和判断边界。")
+        input_panel = st.container(border=True)
+    with input_panel:
+        left, right = st.columns([1.15, 1])
+        with left:
+            st.markdown("#### 气象图像")
+            version = st.session_state.get("chart_reader_upload_version", 0)
+            uploads = st.file_uploader("上传气象图（最多 5 张，单图 1.5 MiB 以内）", type=ALLOWED_UPLOAD_TYPES,
+                                      accept_multiple_files=True, max_upload_size=2, key=f"chart_input_upload_{version}")
+            st.caption("单图实际限制 1.5 MiB，合计 7.5 MiB；上传器显示的 2 MB 为传输上限。")
+            images = list(st.session_state.get("chart_reader_images") or [])
+            upload_error = ""
+            if uploads:
+                if len(uploads) > MAX_IMAGES:
+                    upload_error = f"最多上传 {MAX_IMAGES} 张，当前选了 {len(uploads)} 张，请精简后再生成。"
+                    st.error(upload_error)
+                else:
+                    images = [process_image(item.getvalue(), item.name or "未命名") for item in uploads]
+                    st.session_state["chart_reader_images"] = images
+            ok_images = [item for item in images if item.get("ok")]
+            if ok_images:
+                names = [f"图 {i + 1} · {item['name']}" for i, item in enumerate(ok_images)]
+                index = st.selectbox("预览原图", range(len(ok_images)), format_func=lambda i: names[i], key="chart_reader_input_preview")
+                st.image(ok_images[index]["data_bytes"], caption=names[index], width="stretch")
+            else:
+                st.info("添加天气图、卫星云图、雷达回波或模式形势图。图例、单位和时间标注越清楚，越便于核查。")
+            if images:
+                with st.expander("图片处理详情"):
+                    st.dataframe([{"文件名": i["name"], "状态": "已就绪" if i["ok"] else i.get("error", "失败"),
+                                   "原始 (KB)": i["orig_kb"], "提交 (KB)": i["new_kb"],
+                                   "尺寸": f"{i['width']} × {i['height']}" if i.get("width") else "—"} for i in images],
+                                 hide_index=True, width="stretch")
+                if st.button("清空待解析图片", key="chart_reader_clear"):
+                    st.session_state["chart_reader_images"] = []
+                    st.session_state["chart_reader_upload_version"] = version + 1
+                    st.rerun()
+        with right:
+            st.markdown("#### 解读关注点")
+            if "chart_reader_note" not in st.session_state:
+                st.session_state["chart_reader_note"] = st.session_state.get("chart_reader_note_saved", "")
+            note = st.text_area("补充说明", placeholder="例如：500 hPa 形势图，请关注槽脊位置、数值标注与可能影响。",
+                                max_chars=500, height=140, key="chart_reader_note", label_visibility="collapsed",
+                                on_change=lambda: st.session_state.update(chart_reader_note_saved=st.session_state["chart_reader_note"]))
+            total_error = check_total_size(images) or upload_error
+            if total_error:
+                st.error(total_error)
+            count = int(st.session_state.get("chart_reader_gen_count", 0) or 0)
+            remaining = max(0, MAX_GENERATIONS_PER_SESSION - count)
+            quota_state = get_vision_quota() if cfg else None
+            quota_line = format_daily_quota(quota_state)
+            if quota_line:
+                st.caption(quota_line + " · 每日北京时间 0 点重置")
+            daily_blocked = daily_quota_exhausted(quota_state)
+            if not cfg:
+                st.info("读图服务尚未配置。可以准备图片，配置完成后再生成。")
+                with st.expander("服务配置说明"):
+                    st.markdown(_SETUP_HINT)
+            if daily_blocked:
+                st.warning("今日额度暂不可用；若存在待结算请求，请等待结算完成。")
+            disabled = not cfg or not ok_images or bool(total_error) or daily_blocked or remaining <= 0
+            st.caption("点击生成后，图片及补充说明会发送至已配置的 AI 服务商。")
+            if st.button("生成读图解析", key="chart_reader_generate", type="primary", icon=":material/auto_awesome:",
+                         disabled=disabled, width="stretch"):
+                _generate(cfg, ok_images, note)
+            with st.expander("额度与图片提交详情"):
+                st.caption(f"本会话已尝试 {count}/{MAX_GENERATIONS_PER_SESSION} 次，剩余 {remaining} 次。就绪图片 {len(ok_images)} 张。")
+                st.caption(f"提交合计约 {sum(i['new_kb'] for i in ok_images)} KiB，估算图像 token ≈ {estimate_image_tokens(ok_images)}。")
+                st.caption("失败调用也可能消耗服务商用量；以返回的实际用量和服务端结算为准。")
+                total_usage = st.session_state.get("chart_reader_usage_total") or {}
+                if total_usage:
+                    st.caption("本会话累计 " + format_usage(total_usage))
+                if pending:
+                    st.caption("有待结算请求，预算仍保留；重新进入本页时会重试结算。")
+            st.markdown("**完整解读结构**")
+            st.caption("图像信息 · 图面要素 · 分布特征 · 数值与极值 · 趋势演变 · 风险与结论")
     text = st.session_state.get("chart_reader_text")
     meta = st.session_state.get("chart_reader_meta")
     if text and meta:
-        display_report(text, meta, report_images_for_export(
-            st.session_state.get("chart_reader_report_images"), ok_images))
-
-    if not ok_images and not uploads:
-        st.caption("上传图片后即可生成解读。支持 PNG / JPEG / WebP，"
-                   "建议长边不低于 200 像素、不超过 1600 像素以获得最佳识别效果。")
-
+        # Empty legacy snapshots must not be rebound to a later upload.
+        frozen = report_images_for_export(st.session_state.get("chart_reader_report_images"), [])
+        model = st.session_state.get("chart_reader_result")
+        if not model or model.get("raw_response") != text:
+            model = decode_report(text, frozen)
+        generated_fp = st.session_state.get("chart_reader_input_fingerprint")
+        if generated_fp and generated_fp != input_fingerprint(ok_images, note):
+            st.info("待解析图片或关注点已改变；下方保留上次生成结果及其原图，重新生成后更新。")
+        render_ai_result(model, meta, frozen)
     _render_failure_table()

@@ -25,7 +25,26 @@ def _report_time(day, hour, minute=0, reference_time=None):
     return min(candidates, key=lambda value: abs(value - reference))
 
 
-def decode_synop(report, reference_time=None):
+class _DecodedResult(dict):
+    """Capture the token at the actual assignment site without re-parsing heuristics."""
+    def __init__(self, provenance):
+        super().__init__(station_id="UNKNOWN", timestamp=None)
+        self.provenance = provenance
+        self.source = None
+
+    def set_source(self, index, token):
+        self.source = {"index": index, "token": token}
+
+    def __setitem__(self, key, value):
+        super().__setitem__(key, value)
+        if self.provenance is not None and self.source is not None:
+            if value is None:
+                self.provenance.pop(key, None)
+            else:
+                self.provenance[key] = dict(self.source)
+
+
+def decode_synop(report, reference_time=None, *, provenance=None):
     """解码 SYNOP 陆地地面天气报告（简化版）。
 
     支持 FM-12 SYNOP 基本段：
@@ -38,7 +57,7 @@ def decode_synop(report, reference_time=None):
     - 温度 / 露点符号规则改为「0 为正、1 为负」（原实现把 0~4 全当正号）
     - iRixhVV 的 h 是云底高度码，不再被误当成总云量
     """
-    result = {"station_id": "UNKNOWN", "timestamp": None}
+    result = _DecodedResult(provenance)
     wind_indicator = None
 
     try:
@@ -56,6 +75,7 @@ def decode_synop(report, reference_time=None):
         # YYGGiw - 日期 / 小时 / 风力指示码
         if idx < len(tokens) and len(tokens[idx]) == 5 and tokens[idx].isdigit():
             group = tokens[idx]
+            result.set_source(idx, group)
             try:
                 day = int(group[0:2])
                 hour = int(group[2:4])
@@ -68,12 +88,14 @@ def decode_synop(report, reference_time=None):
 
         # IIiii - 区站号
         if idx < len(tokens) and len(tokens[idx]) == 5 and tokens[idx].isdigit():
+            result.set_source(idx, tokens[idx])
             result["station_id"] = tokens[idx]
             idx += 1
 
         # iRixhVV - 降水指示 / 天气指示 / 云底高 / 能见度
         if idx < len(tokens) and len(tokens[idx]) == 5:
             group = tokens[idx]
+            result.set_source(idx, group)
             try:
                 vis_code = int(group[3:5]) if group[3:5].isdigit() else None
 
@@ -99,6 +121,7 @@ def decode_synop(report, reference_time=None):
         if (idx < len(tokens) and len(tokens[idx]) == 5
                 and all(char in "0123456789/" for char in tokens[idx])):
             group = tokens[idx]
+            result.set_source(idx, group)
             try:
                 # WMO 2700 的十分量对照；区间采用代表值，不能把码值直接当云量成数。
                 # https://www.nodc.noaa.gov/gtspp/document/codetbls/wmocodes/table2700.html
@@ -120,7 +143,8 @@ def decode_synop(report, reference_time=None):
             idx += 1
 
         # 在报文中搜索温度组 (1sTTT)
-        for token in tokens[idx:]:
+        for token_index, token in enumerate(tokens[idx:], start=idx):
+            result.set_source(token_index, token)
             if len(token) == 5 and token[0] == "1":
                 try:
                     sign = -1 if token[1] == "1" else 1
@@ -130,7 +154,8 @@ def decode_synop(report, reference_time=None):
                     continue
 
         # 露点组 (2sTdTdTd)
-        for token in tokens[idx:]:
+        for token_index, token in enumerate(tokens[idx:], start=idx):
+            result.set_source(token_index, token)
             if len(token) == 5 and token[0] == "2":
                 try:
                     sign = -1 if token[1] == "1" else 1
@@ -140,7 +165,8 @@ def decode_synop(report, reference_time=None):
                     continue
 
         # 气压组 (3PPPP 或 4PPPP)
-        for token in tokens[idx:]:
+        for token_index, token in enumerate(tokens[idx:], start=idx):
+            result.set_source(token_index, token)
             if len(token) == 5 and token[0] == "3":
                 try:
                     pres = int(token[1:]) / 10.0
@@ -150,7 +176,8 @@ def decode_synop(report, reference_time=None):
                     continue
 
         # 降水量组 (6RRR1)
-        for token in tokens[idx:]:
+        for token_index, token in enumerate(tokens[idx:], start=idx):
+            result.set_source(token_index, token)
             if len(token) >= 4 and token[0] == "6":
                 try:
                     precip = int(token[1:4])
@@ -161,7 +188,8 @@ def decode_synop(report, reference_time=None):
 
         # 现在天气组 (7wwWW)：天气现象码的真正来源
         # （原实现误把 iRixhVV 的 R+ix 两位当作天气码）
-        for token in tokens[idx:]:
+        for token_index, token in enumerate(tokens[idx:], start=idx):
+            result.set_source(token_index, token)
             if len(token) == 5 and token[0] == "7":
                 try:
                     result["weather_code"] = int(token[1:3])
@@ -175,11 +203,11 @@ def decode_synop(report, reference_time=None):
     return result, []
 
 
-def decode_metar(report, reference_time=None):
+def decode_metar(report, reference_time=None, *, provenance=None):
     """
     解码 METAR/SPECI 航空气象报告（简化版）
     """
-    result = {"station_id": "UNKNOWN", "timestamp": None}
+    result = _DecodedResult(provenance)
 
     try:
         tokens = report.strip().split()
@@ -194,12 +222,14 @@ def decode_metar(report, reference_time=None):
 
         # 机场 ICAO 码
         if idx < len(tokens) and len(tokens[idx]) == 4 and tokens[idx].isalpha():
+            result.set_source(idx, tokens[idx])
             result["station_id"] = tokens[idx]
             idx += 1
 
         # 日期时间组 (DDHHMMZ)
         if idx < len(tokens) and len(tokens[idx]) == 7 and tokens[idx].endswith("Z"):
             group = tokens[idx]
+            result.set_source(idx, group)
             try:
                 day = int(group[0:2])
                 hour = int(group[2:4])
@@ -210,7 +240,8 @@ def decode_metar(report, reference_time=None):
             idx += 1
 
         # 遍历剩余组
-        for token in tokens[idx:]:
+        for token_index, token in enumerate(tokens[idx:], start=idx):
+            result.set_source(token_index, token)
             token = token.strip()
 
             # 风向风速组 (dddssKT 或 dddssGggKT 或 VRBssKT)
@@ -311,73 +342,104 @@ def decode_metar(report, reference_time=None):
     return result, []
 
 
+def _save_codec_draft():
+    st.session_state["codec_draft"] = {"type": st.session_state.get("codec_type"), "text": st.session_state.get("codec_input", "")}
+
+
 def render_codec_tab():
-    """渲染气象报文解码 Tab"""
-    st.subheader("[雷达] 气象报文解码")
-
-    codec_type = st.radio("报文类型", ["SYNOP (地面天气报告)", "METAR (航空气象报告)"],
-                          horizontal=True, key="codec_type")
-
-    report_text = st.text_area(
-        "粘贴气象报文",
-        height=120,
-        placeholder="例如 SYNOP: AAXX 54511 ...\n或 METAR: METAR ZBAA 010800Z ...",
-        key="codec_input"
-    )
-
-    if st.button("[搜索] 解码", use_container_width=True, key="decode_btn"):
-        if not report_text.strip():
-            st.warning("请输入报文内容")
+    import hashlib
+    import json
+    from modules.ui.shell import page_heading
+    from modules.weather_view_model import format_value
+    page_heading("报文解码", "将报文中的已识别字段与原始编码对应，保留未解析内容供核查。")
+    draft = st.session_state.get("codec_draft") or {}
+    options = ["SYNOP (地面天气报告)", "METAR (航空气象报告)"]
+    if "codec_type" not in st.session_state:
+        st.session_state["codec_type"] = draft.get("type") or options[0]
+    if "codec_input" not in st.session_state:
+        st.session_state["codec_input"] = draft.get("text", "")
+    entry, output = st.columns([1, 1.7])
+    with entry, st.container(border=True, key="codec_input_panel"):
+        st.markdown("#### 原始报文")
+        codec_type = st.radio("报文类型", options, key="codec_type", on_change=_save_codec_draft)
+        report_text = st.text_area("粘贴气象报文", height=190, placeholder="METAR ZBAA 260800Z 18005MPS 9999 SCT030 24/12 Q1018",
+                                  key="codec_input", on_change=_save_codec_draft)
+        st.caption("报文时间按 UTC 解析；年、月以当前 UTC 时间为参照，选择最近的合法相邻月份。历史报文需另行核对年月。")
+        if st.button("解码报文", icon=":material/code:", type="primary", width="stretch", key="decode_btn"):
+            if not report_text.strip():
+                st.warning("请输入报文内容。")
+            else:
+                provenance = {}
+                decoder = decode_synop if "SYNOP" in codec_type else decode_metar
+                reference = datetime.now(timezone.utc)
+                result, errors = decoder(report_text, reference_time=reference, provenance=provenance)
+                st.session_state["codec_result"] = dict(result) or None
+                st.session_state["codec_errors"] = list(errors or [])
+                st.session_state["codec_snapshot"] = {"raw": report_text, "type": codec_type, "provenance": provenance,
+                    "reference": reference.isoformat(), "id": hashlib.sha256((codec_type + report_text + str(result.get("timestamp"))).encode()).hexdigest()}
+        with st.expander("支持范围与示例"):
+            st.caption("当前为简化解析器，未覆盖全部云层、阵风、趋势组与地区扩展组。未识别内容会保留，不计作成功解码字段。")
+            st.code("METAR ZBAA 260800Z 18005MPS 9999 SCT030 24/12 Q1018", language=None, wrap_lines=True)
+            st.code("AAXX 26081 54511 11580 81805 10240 20120 30180 60001 70000", language=None, wrap_lines=True)
+    with output:
+        result = st.session_state.get("codec_result")
+        errors = st.session_state.get("codec_errors") or []
+        snapshot = st.session_state.get("codec_snapshot") or {}
+        if not result:
+            with st.container(border=True):
+                st.markdown("#### 解码结果")
+                st.info("粘贴报文并点击解码，可查看字段、单位和原文对应关系。")
             return
-
-        if "SYNOP" in codec_type:
-            with st.spinner("正在解码 SYNOP 报文..."):
-                result, errors = decode_synop(report_text)
-        else:
-            with st.spinner("正在解码 METAR 报文..."):
-                result, errors = decode_metar(report_text)
-
-        # 结果落会话状态：否则任何一次 rerun 都会丢掉结果，写在点击分支里的
-        # 「添加到手动录入区」按钮也就永远渲染不出来，点击事件无法命中。
-        st.session_state["codec_result"] = result or None
-        st.session_state["codec_errors"] = list(errors or [])
-
-    result = st.session_state.get("codec_result")
-    errors = st.session_state.get("codec_errors") or []
-
-    for err in errors:
-        st.error(err)
-
-    if not result:
-        return
-
-    st.success(f"[OK] 解码成功 | 站点: {result.get('station_id', 'N/A')}")
-
-    cols = st.columns(4)
-    field_config = [
-        ("temperature", "气温", "℃"),
-        ("pressure", "气压", "hPa"),
-        ("dewpoint", "露点温度", "℃"),
-        ("wind_speed", "风速", "m/s"),
-        ("wind_direction", "风向", "°"),
-        ("visibility", "能见度", "km"),
-        ("cloud_cover", "云量", "成"),
-        ("weather_code", "天气码", ""),
-        ("precipitation", "降水量", "mm"),
-    ]
-
-    for i, (key, label, unit) in enumerate(field_config):
-        if key in result and result[key] is not None:
-            val = result[key]
-            cols[i % 4].metric(
-                label,
-                f"{val:.1f} {unit}" if isinstance(val, (int, float)) else str(val)
-            )
-
-    # 提供"添加到当前数据"按钮。它必须渲染在点击分支之外，才能被点中。
-    if st.button("[+] 将此记录添加到手动录入区",
-                 use_container_width=True, key="codec_add_manual"):
-        if "manual_data" not in st.session_state:
-            st.session_state["manual_data"] = []
-        st.session_state["manual_data"].append(result)
-        st.success("已添加！请切换到数据导入 Tab 查看")
+        if snapshot and (report_text != snapshot["raw"] or codec_type != snapshot["type"]):
+            st.info("输入已调整；下方仍为上次解码结果，点击解码后更新。")
+        for err in errors:
+            st.error(err)
+        provenance = snapshot.get("provenance") or {}
+        valid = {k: v for k, v in result.items() if v is not None and v != "UNKNOWN"}
+        with st.container(border=True, key="codec_result_panel"):
+            st.markdown(f"#### {result.get('station_id', '未知站点')} · 解码结果")
+            st.caption(f"{snapshot.get('type', '旧版结果')} · 已解析 {len(valid)} 个字段 · 简化解析")
+            timestamp = result.get("timestamp")
+            st.caption(f"报文时间 {timestamp.isoformat()}（UTC）" if timestamp else "报文时间未成功解析")
+            metrics = st.columns(4)
+            for col, field, title, unit in zip(metrics, ["temperature", "pressure", "wind_speed", "visibility"],
+                                              ["气温", "气压", "风速", "能见度"], [" °C", " hPa", " m/s", " km"]):
+                display_value = format_value(result.get(field), unit, 1)
+                if field == "visibility" and "METAR" in snapshot.get("type", "") and provenance.get(field, {}).get("token") == "9999":
+                    display_value = "≥ 10 km"
+                col.metric(title, display_value)
+            labels = {"station_id": ("站点", ""), "timestamp": ("报文时间", "UTC"), "temperature": ("气温", "°C"),
+                      "dewpoint": ("露点", "°C"), "pressure": ("气压", "hPa"), "wind_speed": ("风速", "m/s"),
+                      "wind_direction": ("风向", "°"), "visibility": ("能见度", "km"), "cloud_cover": ("云量", "成"),
+                      "weather_code": ("天气码", ""), "precipitation": ("降水量", "mm")}
+            rows = []
+            for field, value in valid.items():
+                source = provenance.get(field)
+                label, unit = labels.get(field, (field, ""))
+                display_value = str(round(value, 3)) if isinstance(value, float) else str(value)
+                if field == "visibility" and "METAR" in snapshot.get("type", "") and source and source.get("token") == "9999":
+                    display_value = "≥ 10"
+                rows.append({"字段": label, "解码值": display_value,
+                             "单位": unit, "原文编码": source["token"] if source else "旧结果未记录",
+                             "词组序号": str(source["index"] + 1) if source else "—"})
+            st.dataframe(rows, hide_index=True, width="stretch")
+            if not valid or errors:
+                st.warning("报文仅部分解析或含错误，请核对原文。")
+            used = {item["index"] for item in provenance.values()}
+            unparsed = [f"{i + 1} · {token}" for i, token in enumerate(snapshot.get("raw", "").split())
+                        if i not in used and token not in {"METAR", "SPECI", "AAXX", "BBXX", "="}]
+            if unparsed:
+                st.caption("未解析词组 " + "；".join(unparsed))
+            st.caption("编码限值、代表值与缺省单位需结合原始词组核查；METAR 9999 按能见度至少 10 km 展示。下方原始 JSON 保留解析器的兼容数值。")
+        with st.expander("复制与核对原文", expanded=True):
+            st.caption("代码框右上角可复制完整文本；也可选中文字复制。")
+            st.code(snapshot.get("raw", "旧版结果未保存原文"), language=None, wrap_lines=True)
+            st.code(json.dumps(valid, ensure_ascii=False, indent=2, default=str), language="json", wrap_lines=True)
+        added = snapshot.get("id") in st.session_state.get("codec_added_ids", [])
+        if st.button("已加入手动录入区" if added else "加入手动录入区", icon=":material/playlist_add:",
+                     key="codec_add_manual", width="stretch", disabled=added or not valid or not snapshot or bool(errors)):
+            st.session_state.setdefault("manual_data", []).append(dict(result))
+            st.session_state["codec_added_ids"] = (st.session_state.get("codec_added_ids", []) + [snapshot["id"]])[-100:]
+            st.rerun()
+        if added:
+            st.caption("这份结果已加入，可在数据导入的手动录入区继续检查。")
