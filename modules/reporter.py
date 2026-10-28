@@ -100,7 +100,8 @@ def render_export_tab(df, warnings_list, score, source=""):
             st.info("报告包含观测分析范围与数据限制说明。")
         st.caption("本报告采用文本与表格；图表请在可视化页面导出。AI 读图报告在 AI 模块单独下载并包含原图。")
         fc_analysis = _analyze_forecast(fc_df) if has_fc else None
-        report_key = (analysis_key(df), df_fingerprint(fc_df), source, report_style,
+        # 内容模板更新后使已有会话中的预览和下载一并失效。
+        report_key = ("report-content-20261028-2", analysis_key(df), df_fingerprint(fc_df), source, report_style,
                       repr(st.session_state.get("life_indices")), repr(warnings_list), score, repr(assessment["notes"]))
         if st.session_state.get("_report_fp") != report_key:
             st.session_state.pop("report_data", None)

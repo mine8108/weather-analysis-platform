@@ -72,6 +72,57 @@ def test_report_without_data_still_returns_docx():
     assert blob and blob[:2] == b"PK"
 
 
+def test_professional_toc_matches_continuous_body_sections():
+    from docx import Document
+
+    cases = [
+        (None, _df(), [], None, ["报告说明", "数值预报概况", "技术说明"]),
+        (_df(), None, [], None, ["报告说明", "观测数据统计摘要", "技术说明"]),
+        (_df(), _df(), WARNINGS, {"clothing": {"level": "夏装"}},
+         ["报告说明", "观测数据统计摘要", "事件检测与预警", "数值预报概况",
+          "生活出行指南", "技术说明", "防御建议"]),
+        (None, None, [], None, ["报告说明", "技术说明"]),
+    ]
+    for obs, forecast, warnings, life, names in cases:
+        blob = export_report_word(obs, warnings, 0, forecast_df=forecast, life_indices=life)
+        doc = Document(io.BytesIO(blob))
+        expected = [f"{number}、{name}" for number, name in zip("一二三四五六七", names)]
+        first_body = next(i for i, p in enumerate(doc.paragraphs)
+                          if p.style.name == "Heading 1" and "、" in p.text)
+        toc = [p.text.strip().removeprefix("•").strip() for p in doc.paragraphs[:first_body]
+               if p.text.strip().startswith("•")]
+        headings = [p.text for p in doc.paragraphs
+                    if p.style.name == "Heading 1" and "、" in p.text]
+        assert toc == headings == expected
+
+
+def test_professional_forecast_tables_keep_rows_with_optional_fields_absent():
+    from docx import Document
+
+    forecast = _df().rename(columns={"temperature": "temperature_2m"})
+    forecast = forecast.drop(columns=["humidity"])
+    forecast.loc[0, "precipitation"] = 1.2
+    blob = export_report_word(None, [], 0, forecast_df=forecast)
+    doc = Document(io.BytesIO(blob))
+    tables = {tuple(c.text for c in table.rows[0].cells): table for table in doc.tables}
+    hourly = tables[("时间", "气温(℃)", "体感(℃)", "湿度")]
+    assert len(hourly.rows) == 7
+    assert [c.text for c in hourly.rows[1].cells] == ["08:00", "30.0", "—", "—"]
+    rain = tables[("时间", "降水量(mm)", "概率")]
+    assert [c.text for c in rain.rows[1].cells] == ["08:00", "1.2", "—"]
+    assert ("时间", "风速(m/s)", "风力等级") in tables
+
+
+def test_professional_observation_daily_table_is_present():
+    from docx import Document
+
+    doc = Document(io.BytesIO(export_report_word(_df(), [], 0)))
+    daily = next(table for table in doc.tables if table.cell(0, 0).text == "日期")
+    assert len(daily.rows) == 2
+    assert daily.cell(1, 0).text == "2026-07-01"
+    assert daily.cell(1, 1).text == "32.5/35.0/30.0"
+
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_") and callable(_fn):

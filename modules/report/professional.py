@@ -11,7 +11,8 @@ from config import LIFE_INDEX_META, WARN_LEVEL_ORDER
 from modules.report.base import (
     Cm, Pt, RGBColor, WD_ALIGN_PARAGRAPH,
     _add_table, _build_cover_meta, _build_cover_table, _build_toc,
-    _compute_report_title, _number, _render_defense_advice, _resolve_stats,
+    _compute_report_title, _number, _render_defense_advice, _resolve_field,
+    _resolve_stats,
 )
 
 
@@ -30,23 +31,27 @@ def _build_professional_report(doc, df, fc_df, fc_analysis, life_indices,
         df, fc_df, fc_analysis, warnings_list, score, source))
 
     # ---- 目录 ----
-    toc_sections = [("一、报告说明", "")]
+    sections = ["报告说明"]
     if has_obs:
-        toc_sections.append(("二、观测数据统计摘要", ""))
+        sections.append("观测数据统计摘要")
         if warnings_list:
-            toc_sections.append(("三、事件检测与预警", ""))
-            toc_sections.append(("七、防御建议", ""))
+            sections.append("事件检测与预警")
     if has_fc:
-        toc_sections.append(("四、数值预报概况", ""))
+        sections.append("数值预报概况")
     if life_indices:
-        toc_sections.append(("五、生活出行指南", ""))
-    toc_sections.append(("六、技术说明", ""))
-    _build_toc(doc, toc_sections)
+        sections.append("生活出行指南")
+    sections.append("技术说明")
+    if has_obs and has_warnings:
+        sections.append("防御建议")
+    section_titles = {
+        name: f"{_number(index)}、{name}"
+        for index, name in enumerate(sections, start=1)
+    }
+    _build_toc(doc, [(title, "") for title in section_titles.values()])
 
     # ---- 一、报告说明 ----
     # 紧凑排列：目录后不分页，后续章节也不分页（除非内容特别长）
-    section_num = 1
-    doc.add_heading(f"{_number(section_num)}、报告说明", level=1)
+    doc.add_heading(section_titles["报告说明"], level=1)
     doc.add_paragraph(
         "本报告基于观测数据和/或数值预报数据自动生成，结合统计、图表、事件检测、"
         "生活指南、防御建议等多个维度，为气象工作者和决策者提供专业的分析参考。"
@@ -62,9 +67,8 @@ def _build_professional_report(doc, df, fc_df, fc_analysis, life_indices,
     )
 
     # ---- 二、观测数据统计摘要 ----
-    section_num += 1
     if has_obs:
-        doc.add_heading(f"{_number(section_num)}、观测数据统计摘要", level=1)
+        doc.add_heading(section_titles["观测数据统计摘要"], level=1)
 
         stats_fields = ["temperature", "pressure", "humidity",
                         "wind_speed", "visibility", "precipitation"]
@@ -98,8 +102,7 @@ def _build_professional_report(doc, df, fc_df, fc_analysis, life_indices,
 
     # ---- 三、事件检测与预警 ----
     if has_obs and warnings_list:
-        section_num += 1
-        doc.add_heading(f"{_number(section_num)}、事件检测与预警", level=1)
+        doc.add_heading(section_titles["事件检测与预警"], level=1)
         doc.add_paragraph(
             "以下事件根据国家预警分级标准（《气象灾害预警信号发布与传播办法》）"
             "自动识别，按等级由高到低排列。")
@@ -107,8 +110,7 @@ def _build_professional_report(doc, df, fc_df, fc_analysis, life_indices,
 
     # ---- 四、数值预报概况 ----
     if has_fc:
-        section_num += 1
-        doc.add_heading(f"{_number(section_num)}、数值预报概况", level=1)
+        doc.add_heading(section_titles["数值预报概况"], level=1)
         if fc_analysis:
             _render_forecast_section(doc, fc_analysis)
         # 预报数据表格（替代图片嵌入）
@@ -117,16 +119,14 @@ def _build_professional_report(doc, df, fc_df, fc_analysis, life_indices,
 
     # ---- 五、生活出行指南 ----
     if life_indices:
-        section_num += 1
-        doc.add_heading(f"{_number(section_num)}、生活出行指南", level=1)
+        doc.add_heading(section_titles["生活出行指南"], level=1)
         doc.add_paragraph(
             "基于预报数据计算的 7 项生活指数，覆盖穿衣、带伞、体感、运动、"
             "紫外线、洗车、晾晒等日常决策场景。")
         _render_life_indices_table(doc, life_indices)
 
     # ---- 六、技术说明 ----
-    section_num += 1
-    doc.add_heading(f"{_number(section_num)}、技术说明", level=1)
+    doc.add_heading(section_titles["技术说明"], level=1)
     doc.add_heading("数据来源", level=2)
     doc.add_paragraph(
         "• 观测数据：用户上传的 CSV/Excel 气象观测记录\n"
@@ -154,8 +154,7 @@ def _build_professional_report(doc, df, fc_df, fc_analysis, life_indices,
 
     # ---- 七、防御建议 ----
     if has_obs and has_warnings:
-        section_num += 1
-        doc.add_heading(f"{_number(section_num)}、防御建议", level=1)
+        doc.add_heading(section_titles["防御建议"], level=1)
         _render_defense_advice(doc, warnings_list)
 
     # ---- 无数据友好提示 ----
@@ -331,9 +330,9 @@ def _render_fc_data_tables(doc, fc_df):
                     t_str = f"{t.hour:02d}:{t.minute:02d}"
                 except Exception:
                     t_str = str(r[ts_col])
-                temp_val = r.get(temp_col, "")
-                app_val = r.get(app_col, "") if app_col else ""
-                hum_val = r.get(hum_col, "") if hum_col else ""
+                temp_val = r.get(temp_col)
+                app_val = r.get(app_col) if app_col else None
+                hum_val = r.get(hum_col) if hum_col else None
                 rows.append([
                     t_str,
                     f"{temp_val:.1f}" if pd.notna(temp_val) else "—",
@@ -355,7 +354,7 @@ def _render_fc_data_tables(doc, fc_df):
                 p = row.get(prec_col, 0)
                 if pd.notna(p) and float(p) > 0.05:
                     t_str = str(row[ts_col])[-8:-3] if len(str(row[ts_col])) > 5 else str(row[ts_col])
-                    prob_val = row.get(prob_col, "") if prob_col else ""
+                    prob_val = row.get(prob_col) if prob_col else None
                     rain_rows.append([
                         t_str,
                         f"{float(p):.1f}",
