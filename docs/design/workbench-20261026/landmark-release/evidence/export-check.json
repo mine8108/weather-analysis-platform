@@ -1,0 +1,87 @@
+{
+  "date": "2026-10-28",
+  "method": "Actual in-app-browser generate and download buttons; DOCX ZIP/XML and CSV content checks",
+  "environment": "preview_workbench.py synthetic sample, 168 observations and 168 forecast rows",
+  "downloads": [
+    {
+      "file": "professional.docx",
+      "zip_valid": true,
+      "preview_matches": true,
+      "sha256": "8526be77cd73a23bcec56bac0f920fff3550dd417932a39372e848e0e4f558eb",
+      "tables": 5
+    },
+    {
+      "file": "plain.docx",
+      "zip_valid": true,
+      "preview_matches": true,
+      "sha256": "aca60d7a3fc8d9301c54e0786805b88a941f18dbc47bb25d0ac910a1eafa3a68",
+      "tables": 1
+    },
+    {
+      "file": "observations.csv",
+      "records": 168,
+      "columns": [
+        "timestamp",
+        "temperature",
+        "apparent_temperature",
+        "humidity",
+        "wind_speed",
+        "wind_direction",
+        "precipitation",
+        "precipitation_probability",
+        "weather_code",
+        "station_id",
+        "pressure",
+        "visibility",
+        "cloud_cover",
+        "pm25",
+        "pm10",
+        "so2",
+        "nox"
+      ],
+      "first_time": "2026-10-26 00:00:00",
+      "last_time": "2026-11-01 23:00:00",
+      "sha256": "0f281fb8f72b4787338e6dd0b7d024f444b6985a40b8f21efdaa0f043b1133c3"
+    },
+    {
+      "file": "forecast.csv",
+      "records": 168,
+      "columns": [
+        "timestamp",
+        "temperature",
+        "apparent_temperature",
+        "humidity",
+        "wind_speed",
+        "wind_direction",
+        "precipitation",
+        "precipitation_probability",
+        "weather_code",
+        "station_id",
+        "pressure",
+        "visibility",
+        "cloud_cover",
+        "pm25",
+        "pm10",
+        "so2",
+        "nox"
+      ],
+      "first_time": "2026-10-26 00:00:00",
+      "last_time": "2026-11-01 23:00:00",
+      "sha256": "ab087c18d54da3d26b7ef1d9e801a93fce1a06553f5b1e4b50b1e40daef1d3e2"
+    }
+  ],
+  "style_change_invalidated_old_download": true,
+  "plain_numbering_fix": {
+    "zip_integrity_error": null,
+    "preview_text_matches": true,
+    "section_headings": [
+      "一、这几天天气会怎么变？",
+      "二、出门穿什么？要不要带伞？",
+      "三、如果你想知道更多"
+    ],
+    "contiguous": true
+  },
+  "plain_fixed_sha256": "5f3d50649e2f263aff9a2069d48025815c3fae1d0ce416f4e6b660965b77e904",
+  "related_tests": "12 passed",
+  "word_pagination_and_layout": "unverified: bundled LibreOffice renderer unavailable; manual acceptance outstanding"
+}

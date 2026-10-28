@@ -77,14 +77,19 @@ def _build_plain_report(doc, df, fc_df, fc_analysis, life_indices,
         run.bold = True
         run.font.size = Pt(13)
 
-    # ---- 一、这几天天气会怎么变？ ----
+    section_numbers = iter("一二三四五")
+
+    def add_section(title):
+        doc.add_heading(f"{next(section_numbers)}、{title}", level=1)
+
+    # 仅对实际生成的章节连续编号。
     if has_fc:
-        doc.add_heading("一、这几天天气会怎么变？", level=1)
+        add_section("这几天天气会怎么变？")
         _render_plain_forecast(doc, fc_df, fc_analysis)
 
-    # ---- 二、要小心什么？ ----
+    # ---- 要小心什么？ ----
     if has_warnings or (has_fc and fc_analysis and fc_analysis.get("warnings")):
-        doc.add_heading("二、要小心什么？", level=1)
+        add_section("要小心什么？")
         # 优先用观测期检测到的预警，更贴近用户实际
         all_warnings = []
         if has_warnings:
@@ -94,18 +99,18 @@ def _build_plain_report(doc, df, fc_df, fc_analysis, life_indices,
                 all_warnings.append(w)
         _render_plain_warnings(doc, all_warnings)
 
-    # ---- 三、出门穿什么？要不要带伞？ ----
+    # ---- 出门穿什么？要不要带伞？ ----
     if life_indices:
-        doc.add_heading("三、出门穿什么？要不要带伞？", level=1)
+        add_section("出门穿什么？要不要带伞？")
         _render_plain_life_indices(doc, life_indices)
 
-    # ---- 四、给种地朋友的建议 ----
+    # ---- 给种地朋友的建议 ----
     if has_warnings:
-        doc.add_heading("四、给种地朋友的建议", level=1)
+        add_section("给种地朋友的建议")
         _render_plain_agri_advice(doc, warnings_list)
 
-    # ---- 五、如果你想知道更多 ----
-    doc.add_heading("五、如果你想知道更多", level=1)
+    # ---- 如果你想知道更多 ----
+    add_section("如果你想知道更多")
     doc.add_paragraph(
         "这份报告的「专业版」里有更详细的数据：每小时的温度、湿度、风速、"
         "降水等具体数字，以及气象专业的统计指标和判断标准。如果你是从事气象、"
