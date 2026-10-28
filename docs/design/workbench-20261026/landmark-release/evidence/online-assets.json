@@ -1,0 +1,293 @@
+{
+  "commit": "a65ce789cfee388d2b8a3af2dc0056b80e11d915",
+  "base": "https://weather-analysis-platform-zyappduswtwhs8pok7e7a9c.streamlit.app/~/+/app/static/weather/landmarks/",
+  "assets": [
+    {
+      "file": "beijing.webp",
+      "status": 200,
+      "bytes": 35388,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "changchun.webp",
+      "status": 200,
+      "bytes": 72562,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "changsha.webp",
+      "status": 200,
+      "bytes": 83128,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "chengdu.webp",
+      "status": 200,
+      "bytes": 59722,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "chongqing.webp",
+      "status": 200,
+      "bytes": 76014,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "dalian.webp",
+      "status": 200,
+      "bytes": 84720,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "fuzhou.webp",
+      "status": 200,
+      "bytes": 50382,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "guangzhou.webp",
+      "status": 200,
+      "bytes": 50322,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "guilin.webp",
+      "status": 200,
+      "bytes": 80494,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "guiyang.webp",
+      "status": 200,
+      "bytes": 79414,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "haikou.webp",
+      "status": 200,
+      "bytes": 81804,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "hangzhou.webp",
+      "status": 200,
+      "bytes": 40756,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "harbin.webp",
+      "status": 200,
+      "bytes": 57566,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "hefei.webp",
+      "status": 200,
+      "bytes": 88742,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "hohhot.webp",
+      "status": 200,
+      "bytes": 76510,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "hong-kong.webp",
+      "status": 200,
+      "bytes": 87382,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "jinan.webp",
+      "status": 200,
+      "bytes": 72128,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "kunming.webp",
+      "status": 200,
+      "bytes": 90674,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "lanzhou.webp",
+      "status": 200,
+      "bytes": 91158,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "lhasa.webp",
+      "status": 200,
+      "bytes": 73066,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "macao.webp",
+      "status": 200,
+      "bytes": 93598,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "nanchang.webp",
+      "status": 200,
+      "bytes": 76134,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "nanjing.webp",
+      "status": 200,
+      "bytes": 65230,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "nanning.webp",
+      "status": 200,
+      "bytes": 45618,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "qingdao.webp",
+      "status": 200,
+      "bytes": 57616,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "sanya.webp",
+      "status": 200,
+      "bytes": 77884,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "shanghai.webp",
+      "status": 200,
+      "bytes": 40996,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "shenyang.webp",
+      "status": 200,
+      "bytes": 85504,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "shenzhen.webp",
+      "status": 200,
+      "bytes": 57700,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "shijiazhuang.webp",
+      "status": 200,
+      "bytes": 42442,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "suzhou.webp",
+      "status": 200,
+      "bytes": 65284,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "taipei.webp",
+      "status": 200,
+      "bytes": 50116,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "taiyuan.webp",
+      "status": 200,
+      "bytes": 69228,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "tianjin.webp",
+      "status": 200,
+      "bytes": 111844,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "urumqi.webp",
+      "status": 200,
+      "bytes": 48576,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "wuhan.webp",
+      "status": 200,
+      "bytes": 70026,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "xiamen.webp",
+      "status": 200,
+      "bytes": 76250,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "xian.webp",
+      "status": 200,
+      "bytes": 69138,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "xining.webp",
+      "status": 200,
+      "bytes": 33262,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "yinchuan.webp",
+      "status": 200,
+      "bytes": 77834,
+      "hash_match": true,
+      "mime": "image/webp"
+    },
+    {
+      "file": "zhengzhou.webp",
+      "status": 200,
+      "bytes": 40224,
+      "hash_match": true,
+      "mime": "image/webp"
+    }
+  ]
+}
