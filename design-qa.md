@@ -1,6 +1,6 @@
 # 工作台视觉验收
 
-更新于 2026-10-28。此结论限定为本地界面、设计还原与已记录的桌面交互；线上 2.4.0 已完成发布、六模块入口和城市 GFS 联动冒烟检查，详见 `docs/design/workbench-20261026/landmark-release/README.md`。独立后端和真实设备的剩余范围继续单列。
+更新于 2026-10-28。此结论限定为本地界面、设计还原与已记录的桌面交互；线上 2.4.0 已完成发布、六模块入口和城市 GFS 联动冒烟检查，详见 `docs/design/workbench-20261026/landmark-release/README.md`。独立 Supabase 项目验收已按用户决定取消，不计为通过；真实设备与 Word 版面仍单列待验收。
 
 final result: passed
 
