@@ -102,6 +102,11 @@ def test_professional_forecast_tables_keep_rows_with_optional_fields_absent():
     forecast = _df().rename(columns={"temperature": "temperature_2m"})
     forecast = forecast.drop(columns=["humidity"])
     forecast.loc[0, "precipitation"] = 1.2
+    forecast.loc[0, "wind_speed"] = 6.1
+    next_day = forecast.iloc[[0]].copy()
+    next_day["timestamp"] += pd.Timedelta(days=1)
+    next_day["wind_speed"] = 8.1
+    forecast = pd.concat([forecast, next_day], ignore_index=True)
     blob = export_report_word(None, [], 0, forecast_df=forecast)
     doc = Document(io.BytesIO(blob))
     tables = {tuple(c.text for c in table.rows[0].cells): table for table in doc.tables}
@@ -109,8 +114,11 @@ def test_professional_forecast_tables_keep_rows_with_optional_fields_absent():
     assert len(hourly.rows) == 7
     assert [c.text for c in hourly.rows[1].cells] == ["08:00", "30.0", "—", "—"]
     rain = tables[("时间", "降水量(mm)", "概率")]
-    assert [c.text for c in rain.rows[1].cells] == ["08:00", "1.2", "—"]
-    assert ("时间", "风速(m/s)", "风力等级") in tables
+    assert [c.text for c in rain.rows[1].cells] == ["07-01 08:00", "1.2", "—"]
+    assert rain.cell(2, 0).text == "07-02 08:00"
+    wind = tables[("时间", "风速(m/s)", "风力等级")]
+    assert [c.text for c in wind.rows[1].cells] == ["07-02 08:00", "8.1", "清风"]
+    assert [c.text for c in wind.rows[2].cells] == ["07-01 08:00", "6.1", "和风"]
 
 
 def test_professional_observation_daily_table_is_present():

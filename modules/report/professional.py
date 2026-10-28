@@ -7,7 +7,7 @@ from datetime import datetime
 
 import pandas as pd
 
-from config import LIFE_INDEX_META, WARN_LEVEL_ORDER
+from config import LIFE_INDEX_META, WARN_LEVEL_ORDER, get_beaufort_level
 from modules.report.base import (
     Cm, Pt, RGBColor, WD_ALIGN_PARAGRAPH,
     _add_table, _build_cover_meta, _build_cover_table, _build_toc,
@@ -353,7 +353,7 @@ def _render_fc_data_tables(doc, fc_df):
             for _, row in fc_df.iterrows():
                 p = row.get(prec_col, 0)
                 if pd.notna(p) and float(p) > 0.05:
-                    t_str = str(row[ts_col])[-8:-3] if len(str(row[ts_col])) > 5 else str(row[ts_col])
+                    t_str = pd.to_datetime(row[ts_col]).strftime("%m-%d %H:%M")
                     prob_val = row.get(prob_col) if prob_col else None
                     rain_rows.append([
                         t_str,
@@ -376,12 +376,12 @@ def _render_fc_data_tables(doc, fc_df):
             for _, row in fc_df.iterrows():
                 w = row.get(wind_col, 0)
                 if pd.notna(w) and float(w) > 1.5:  # > 1.5m/s 才记录
-                    t_str = str(row[ts_col])[-8:-3] if len(str(row[ts_col])) > 5 else str(row[ts_col])
+                    t_str = pd.to_datetime(row[ts_col]).strftime("%m-%d %H:%M")
                     wind_list.append((t_str, float(w)))
             wind_list.sort(key=lambda x: x[1], reverse=True)
             if wind_list:
                 doc.add_heading("主要风力时段", level=2)
-                w_rows = [[t, f"{w:.1f}", f"{'微风' if w < 2 else '轻风' if w < 4 else '和风' if w < 6 else '清风' if w < 8 else '强风'}"]
+                w_rows = [[t, f"{w:.1f}", get_beaufort_level(round(w, 1))[1]]
                           for t, w in wind_list[:8]]
                 _add_table(doc,
                            headers=["时间", "风速(m/s)", "风力等级"],
