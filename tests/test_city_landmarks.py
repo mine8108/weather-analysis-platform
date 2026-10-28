@@ -86,8 +86,19 @@ def test_forecast_confirmation_uses_server_landmark_metadata():
 
 
 def test_asset_urls_preserve_hosted_iframe_and_explicit_base_paths():
+    import re
+    from modules.ui.shell import inject_workbench_style
+
     with patch("modules.ui.weather_component.st.get_option", return_value=""):
         assert urljoin("https://example.test/~/+/forecast", asset_base() + "/landmarks/beijing.webp") == "https://example.test/~/+/app/static/weather/landmarks/beijing.webp"
         assert urljoin("http://127.0.0.1:8502/forecast", asset_base()) == "http://127.0.0.1:8502/app/static/weather"
+        with patch("modules.ui.shell.st.html") as render:
+            inject_workbench_style()
+            font = re.search(r"src:url\('([^']+)'\)", render.call_args.args[0]).group(1)
+            assert urljoin("https://example.test/~/+/forecast", font).startswith("https://example.test/~/+/static/media/")
     with patch("modules.ui.weather_component.st.get_option", return_value="workbench"):
         assert asset_base() == "/workbench/app/static/weather"
+        with patch("modules.ui.shell.st.html") as render:
+            inject_workbench_style()
+            font = re.search(r"src:url\('([^']+)'\)", render.call_args.args[0]).group(1)
+            assert font.startswith("/workbench/static/media/")

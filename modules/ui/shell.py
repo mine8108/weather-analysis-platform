@@ -14,7 +14,9 @@ def inject_workbench_style():
     media = Path(st.__file__).parent / "static" / "static" / "media"
     font = next(media.glob("MaterialSymbols-Rounded*.woff2"), None)
     base = (st.get_option("server.baseUrlPath") or "").strip("/")
-    font_url = f"/{base + '/' if base else ''}static/media/{font.name}" if font else ""
+    # Cloud serves the app inside /~/+/; a root-absolute URL returns its HTML shell.
+    prefix = f"/{base}/" if base else ""
+    font_url = f"{prefix}static/media/{font.name}" if font else ""
     st.html("<style>" + _CSS.read_text(encoding="utf-8").replace("__MATERIAL_FONT_URL__", font_url) + "</style>")
 
 
