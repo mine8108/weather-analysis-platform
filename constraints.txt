@@ -37,7 +37,7 @@ MarkupSafe==3.0.4
 mdurl==0.1.2
 multidict==7.1.0
 narwhals==2.27.1
-numpy==2.5.1
+numpy==2.5.4
 openpyxl==3.1.5
 packaging==26.3
 pandas==3.0.3
