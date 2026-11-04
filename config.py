@@ -753,7 +753,8 @@ def safe_chart(fig, section_label, *, use_container_width=True, key=None):
         export_key = f"export_{key}" if key else None
         if export_key:
             html_bytes = fig.to_html(include_plotlyjs="cdn", full_html=False).encode("utf-8")
-            st.download_button(
+            from modules.ui.downloads import download_button
+            download_button(
                 label="📥 导出 HTML",
                 data=html_bytes,
                 file_name=safe_download_name(section_label),
