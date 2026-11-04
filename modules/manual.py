@@ -15,6 +15,7 @@ import re
 from datetime import datetime
 
 import streamlit as st
+from modules.ui.downloads import download_button
 
 from config import APP_VERSION
 
@@ -183,7 +184,7 @@ def render_manual_page():
             st.rerun()
     with top_right:
         if md_text.strip():
-            st.download_button(
+            download_button(
                 "[下载] 用户使用手册 (HTML)",
                 data=build_manual_html(md_text),
                 file_name="用户使用手册.html",

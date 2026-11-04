@@ -21,6 +21,7 @@ from utils import retry_with_backoff, safe_error_text, check_response_size
 from modules.era5_guide import render_era5_guide
 from modules.quota import take_outbound
 from modules.ui.table import render_table
+from modules.ui.downloads import download_button
 
 
 # 安全修复（P-07）：上传资源限制
@@ -932,7 +933,7 @@ def render_template_download():
             with open(template_path, "r", encoding="utf-8") as f:
                 st.session_state["_template_cache"] = f.read()
         template_content = st.session_state["_template_cache"]
-        st.download_button(
+        download_button(
             label="[下载] 下载标准数据模板 (CSV)",
             data=template_content,
             file_name="气象数据模板.csv",
