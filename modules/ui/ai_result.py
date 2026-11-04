@@ -4,6 +4,7 @@ from html import escape
 import streamlit as st
 
 from modules.ai_report_model import report_markdown, report_sections
+from modules.ui.downloads import download_button
 
 
 def _paragraph(text, kind="wb-ai-text"):
@@ -78,14 +79,14 @@ def render_ai_result(model, meta, images):
             st.markdown(_report_html([(s["title"], s["body"]) for s in model.get("sections", [])], meta), unsafe_allow_html=True)
         word, markdown = st.columns(2)
         try:
-            word.download_button("导出 Word", _build_docx(report_sections(model), meta, images), file_name="气象读图解析报告.docx",
+            download_button("导出 Word", _build_docx(report_sections(model), meta, images), file_name="气象读图解析报告.docx", target=word,
                                  mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                                  key="report_download_docx", width="stretch", icon=":material/description:")
         except Exception as exc:
             word.warning(f"Word 导出失败：{str(exc)[:160]}")
-        markdown.download_button("导出 Markdown", report_markdown(model, meta).encode("utf-8"), file_name="气象读图解析报告.md",
+        download_button("导出 Markdown", report_markdown(model, meta).encode("utf-8"), file_name="气象读图解析报告.md", target=markdown,
                                  mime="text/markdown", key="report_download_md", width="stretch")
         st.caption("Word 包含生成时原图、核心结论、依据、不确定性及完整正文。")
         with st.expander("模型原始输出"):
-            st.download_button("保存原始输出", model.get("raw_response", "").encode("utf-8"), file_name="读图模型原始输出.txt",
+            download_button("保存原始输出", model.get("raw_response", "").encode("utf-8"), file_name="读图模型原始输出.txt",
                                mime="text/plain", key="chart_reader_raw_download")

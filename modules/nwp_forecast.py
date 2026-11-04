@@ -42,6 +42,7 @@ from modules import gfs_cache
 from modules import warn_rules
 from modules.quota import take_outbound
 from modules.ui.table import render_table
+from modules.ui.downloads import download_button
 from modules.nwp.calc import (
     heat_index, _calc_ssd, _calc_life_indices, _analyze_forecast,
 )
@@ -1298,7 +1299,7 @@ def render_forecast_tab():
         incomplete = int((~windows["complete"]).sum())
         st.caption(f"降水表示前 {rain_hours} 小时累计，柱子位于区间中心。缺测与边界不完整窗口共 {incomplete} 个，留空显示。温度缺测以断线表示。")
         from modules.report.base import export_data_csv
-        st.download_button("下载逐时预报 CSV", export_data_csv(fdf),
+        download_button("下载逐时预报 CSV", export_data_csv(fdf),
                            file_name=f"forecast_{context['city_id']}_{days}d.csv", mime="text/csv", key="fc_download_csv")
         with st.expander("来源与时间口径"):
             metadata = context.get("provider_metadata") or {}

@@ -14,6 +14,7 @@ from config import (
 )
 from modules.design_tokens import color_value, css_var, token_value
 from modules.ui.table import render_table
+from modules.ui.downloads import download_button
 
 
 def _safe_xaxis(df):
@@ -805,7 +806,7 @@ def render_visualization_tab(df, source=""):
     active = active or subtab_labels[0]
     st.caption("时间与单位沿用当前数据集。缺测显示为空缺；大于 3,000 条的部分图表会抽稀，统计和 CSV 保留完整筛选数据。")
     with st.popover("导出当前范围数据", icon=":material/download:"):
-        st.download_button("下载观测 CSV", export_data_csv(df), file_name="观测分析当前范围.csv", mime="text/csv", key="viz_filtered_csv")
+        download_button("下载观测 CSV", export_data_csv(df), file_name="观测分析当前范围.csv", mime="text/csv", key="viz_filtered_csv")
     active_idx = subtab_labels.index(active) if active in subtab_labels else 0
 
     if active_idx == 0:

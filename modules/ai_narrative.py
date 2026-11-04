@@ -20,6 +20,7 @@ from datetime import datetime
 
 import requests
 import streamlit as st
+from modules.ui.downloads import download_button
 
 from utils import check_response_size
 
@@ -369,7 +370,7 @@ def display_report(text, meta, images=None,
 
     try:
         docx_bytes = _build_docx(sections, meta, images)
-        st.download_button(
+        download_button(
             label="[下载] 解读报告 (.docx)",
             data=docx_bytes,
             file_name=docx_name,
@@ -379,7 +380,7 @@ def display_report(text, meta, images=None,
     except Exception as exc:  # noqa: BLE001 - 导出失败不影响展示
         st.warning("报告生成成功，但 .docx 导出失败：%s" % exc)
 
-    st.download_button(
+    download_button(
         label="[下载] 解读原文 (.md)",
         data=(text or "").encode("utf-8"),
         file_name=md_name,

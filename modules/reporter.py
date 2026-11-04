@@ -9,6 +9,7 @@ from datetime import datetime
 import traceback
 
 import streamlit as st
+from modules.ui.downloads import download_button
 
 from config import get_debug_mode
 
@@ -123,17 +124,17 @@ def render_export_tab(df, warnings_list, score, source=""):
             st.session_state["report_data"] = prepared
             st.session_state["_report_fp"] = report_key
         if st.session_state.get("report_data"):
-            st.download_button("下载 Word 报告", st.session_state["report_data"], file_name="气象分析报告.docx",
+            download_button("下载 Word 报告", st.session_state["report_data"], file_name="气象分析报告.docx",
                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                                width="stretch", key="report_word_download")
             st.caption("文档已就绪，与右侧预览使用同一份内容。")
         st.divider()
         st.markdown("**数据文件**")
         if has_obs:
-            st.download_button("处理后观测 CSV", export_data_csv(df), file_name="气象观测数据.csv", mime="text/csv",
+            download_button("处理后观测 CSV", export_data_csv(df), file_name="气象观测数据.csv", mime="text/csv",
                                width="stretch", key="report_obs_csv")
         if has_fc:
-            st.download_button("逐时预报 CSV", export_data_csv(fc_df), file_name="气象预报数据.csv", mime="text/csv",
+            download_button("逐时预报 CSV", export_data_csv(fc_df), file_name="气象预报数据.csv", mime="text/csv",
                                width="stretch", key="report_fc_csv")
     with preview:
         st.markdown("#### 报告内容预览")

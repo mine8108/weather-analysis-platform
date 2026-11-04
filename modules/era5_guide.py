@@ -11,6 +11,7 @@ catalogue 是选择器与脚本生成的唯一真相源。所有变量标识符�
 from datetime import datetime
 
 import streamlit as st
+from modules.ui.downloads import download_button
 
 # 需要换算的量：key → 人类可读说明（同时用于生成的脚本与 UI 提示）
 SCALES = {
@@ -643,7 +644,7 @@ def render_era5_guide():
     if build_era5_zip is None:
         st.warning("脚本包模块不可用，请改用下方「在 CDS 官网手动填表」的参数清单。")
     elif not fields_over_limit(product, count):
-        st.download_button(
+        download_button(
             "[下载] ERA5 下载脚本包 (.zip)",
             data=build_era5_zip(payload, meta["dataset"], product),
             file_name="era5_download_pack.zip",

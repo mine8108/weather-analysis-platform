@@ -172,7 +172,7 @@ python -B tests/test_supabase_backend.py # Supabase 后端契约 26 条
 python -B tests/test_release_surface.py  # 版本/依赖/Secrets/CI 契约 18 条
 ```
 
-其余用例用 pytest 运行全部（当前共 **584** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
+其余用例用 pytest 运行全部（当前共 **591** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
 
 ```bash
 pip install -r requirements-dev.txt -c constraints.txt
@@ -242,6 +242,8 @@ Streamlit Cloud 已经重建容器：v2.3.0 发布时就遇到过推送十余分
 ## 🌐 部署到 Streamlit Community Cloud（免费）
 
 本仓库已按 Streamlit Cloud 规范准备好（`app.py` 在根目录、`requirements.txt`、`runtime.txt`、`.streamlit/config.toml` 齐全）。
+
+**代码更新后的发布步骤**：为避免多用户同时热重载时的模块导入竞争，生产配置关闭了文件监听。推送代码并确认 CI 通过后，在 Streamlit Cloud 的应用管理菜单选择 **Reboot app**，等待应用重新启动，再用真实页面核对版本与关键功能。重启会短暂中断访问并结束当前会话；仅推送代码不能确认新版本已生效。本地需要热重载时，可在启动前设置 `STREAMLIT_SERVER_FILE_WATCHER_TYPE=auto`。
 
 1. 将本仓库推送到你的 GitHub 账号（见下方「推送代码」）。
 2. 打开 [share.streamlit.io](https://share.streamlit.io)，使用 GitHub 登录。
