@@ -1,6 +1,9 @@
 [server]
 headless = true
 port = 8501
+# 更新由平台拉取后统一重启，避免多会话热重载并发清除 sys.modules。
+# 代码推送后必须在 Community Cloud 执行 Reboot app；本地开发可通过环境变量覆盖。
+fileWatcherType = "none"
 # 安全修复（R-24）：CORS 恢复 Streamlit 默认值 true，避免任意第三方站点
 # 借访客浏览器访问本应用接口；XSRF 保护保持开启。
 enableCORS = true
