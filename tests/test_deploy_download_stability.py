@@ -55,6 +55,7 @@ download_button("下载", b"hello", file_name="sample.txt", mime="text/plain", k
     assert "aGVsbG8=" in frame.srcdoc
     assert "/media/" not in frame.srcdoc
     assert "URL.createObjectURL" in frame.srcdoc
+    assert frame.alt == "文件下载：sample.txt"
     assert not at.get("download_button")
 
 
