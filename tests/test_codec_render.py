@@ -4,7 +4,9 @@
 同一分支内的「添加到手动录入区」按钮因此永远渲染不出来，点击事件无法命中。
 """
 import os
+import re
 import sys
+from html import unescape
 
 import pytest
 
@@ -65,7 +67,7 @@ def test_metar_visibility_limit_matches_metric_and_evidence_table():
     at.button(key="decode_btn").click().run()
     assert not at.exception
     assert next(m.value for m in at.metric if m.label == "能见度") == "≥ 10 km"
-    evidence = at.dataframe[0].value
-    row = evidence.loc[evidence["字段"] == "能见度"].iloc[0]
-    assert row["解码值"] == "≥ 10"
-    assert row["原文编码"] == "9999"
+    evidence = next(item.value for item in at.get("html") if 'class="dataframe wb-table"' in item.value)
+    rows = [unescape(re.sub(r"<[^>]+>", " ", row)) for row in re.findall(r"<tr>(.*?)</tr>", evidence, re.S)]
+    row = next(row for row in rows if "能见度" in row)
+    assert "≥ 10" in row and "9999" in row

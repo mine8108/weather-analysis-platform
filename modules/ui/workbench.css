@@ -71,3 +71,8 @@
 @media(max-width:1199px){.stApp .block-container{padding-left:1.5rem!important;padding-right:1.5rem!important}.st-key-workbench_nav button{padding:8px 12px!important;font-size:14px}}
 @media(max-width:767px){.stApp .block-container{padding:0 1rem 2rem!important}.wb-brand{gap:8px}.wb-brand-title{font-size:19px}.wb-brand-logo{width:34px;height:40px}.wb-preview{font-size:9px;max-width:90px;line-height:1.5}.wb-page-title{font-size:23px!important}.st-key-workbench_nav button{font-size:12px;padding:6px 9px!important}.wb-page-description{font-size:13px!important}}
 @media(prefers-reduced-motion:reduce){.stApp *{scroll-behavior:auto!important}.st-key-workbench_content button{transition:none!important;transform:none!important}}
+.wb-table-scroll{max-width:100%;max-height:440px;overflow:auto;border:1px solid var(--border-color);border-radius:8px}
+.wb-table{border-collapse:collapse;width:100%;font-size:14px;color:var(--text-primary);background:var(--bg-primary)}
+.wb-table th,.wb-table td{padding:8px 12px;border-bottom:1px solid var(--border-color);text-align:left;white-space:nowrap}
+.wb-table thead th{position:sticky;top:0;background:var(--bg-secondary);font-weight:650;z-index:1}
+.wb-table tbody th{font-weight:600}.wb-table tbody tr:last-child th,.wb-table tbody tr:last-child td{border-bottom:0}

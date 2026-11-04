@@ -31,10 +31,16 @@ def test_query_failure_and_control_edits_keep_all_panels_on_successful_city(monk
     monkeypatch.setattr(nwp, "fetch_air_quality", aq)
     monkeypatch.setattr(nwp, "_render_forecast_verification", lambda: None)
     at = AppTest.from_string("from modules.nwp_forecast import render_forecast_tab\nrender_forecast_tab()", default_timeout=60)
-    at.session_state["_forecast_intent"] = make_intent({"zh": "原城市", "lat": 30, "lon": 110}, 3)
+    intent = make_intent({"zh": "原城市", "lat": 30, "lon": 110}, 3)
+    intent["requested_at"] = "2026-10-26T10:15:00+08:00"
+    at.session_state["_forecast_intent"] = intent
     at.run()
     assert not at.exception
     assert len(calls) == 1
+    assert calls[0][2] == 4
+    assert len(at.session_state["fc_result_context"]["data"]) == 72
+    assert len(at.session_state["fc_result_context"]["future_data"]) == 96
+    assert any("72 / 72" in caption.value for caption in at.caption)
     # Popovers can mount their frontend inputs only after an unrelated rerun.
     # Their serialized defaults must already describe the requested city.
     assert at.number_input(key="_fc_lat_input").proto.default == 30.0

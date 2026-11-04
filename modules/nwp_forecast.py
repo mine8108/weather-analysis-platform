@@ -41,9 +41,11 @@ from modules.aqi import comprehensive_aqi
 from modules import gfs_cache
 from modules import warn_rules
 from modules.quota import take_outbound
+from modules.ui.table import render_table
 from modules.nwp.calc import (
     heat_index, _calc_ssd, _calc_life_indices, _analyze_forecast,
 )
+from modules.nwp.time_window import calendar_forecast, future_hourly_forecast, beijing_times
 
 _LOG = logging.getLogger(__name__)
 
@@ -114,6 +116,22 @@ def _gfs_forecast_cache_key(lat, lon, days, model, window=None):
     cache_lat, cache_lon = _gfs_cache_coords(lat, lon)
     return (f"gfs_fc_cache_{_GFS_FC_SCHEMA_VERSION}_{cache_lat:.4f}_"
             f"{cache_lon:.4f}_{wpart}_{model_part}")
+
+
+def _cache_covers_today(frame, days, *, as_of=None):
+    """A cache populated before Beijing midnight cannot cover today's last day."""
+    if frame is None or frame.empty or "timestamp" not in frame:
+        return False
+    try:
+        timestamps = beijing_times(frame["timestamp"])
+        now = pd.Timestamp(as_of) if as_of is not None else pd.Timestamp.now(tz="Asia/Shanghai")
+        if now.tzinfo is not None:
+            now = now.tz_convert("Asia/Shanghai").tz_localize(None)
+        today = now.normalize()
+        return bool(timestamps.min() <= today and
+                    timestamps.max() >= today + pd.Timedelta(days=days) - pd.Timedelta(hours=1))
+    except (TypeError, ValueError, AttributeError):
+        return False
 
 
 # 缓存 TTL 由数据库 get_gfs_cache / put_gfs_cache 统一控制（1 小时）。
@@ -217,11 +235,12 @@ def fetch_gfs_forecast(lat, lon, days=7, model="gfs_seamless",
     if (isinstance(cached, tuple) and len(cached) == 2
             and isinstance(cached[0], datetime)):
         cached_ts, cached_df = cached
-        if (datetime.now(timezone.utc) - cached_ts).total_seconds() < 3600:
+        if ((datetime.now(timezone.utc) - cached_ts).total_seconds() < 3600
+                and (window or _cache_covers_today(cached_df, days))):
             return cached_df, None
     # 第二层：Supabase 跨用户 / 跨重启共享缓存
     sb_df = _load_gfs_from_cache(cache_key)
-    if sb_df is not None:
+    if sb_df is not None and (window or _cache_covers_today(sb_df, days)):
         st.session_state[cache_key] = (datetime.now(timezone.utc), sb_df)
         return sb_df, None
 
@@ -605,13 +624,14 @@ def _forecast_time_series(fdf, apparent=True, precipitation_hours=12, probabilit
 
 def _high_temp_72h_panel(hh):
     """72 小时高温预报面板（含 35/37/40℃ 国家预警阈值参考线）"""
+    from modules.nwp.presentation import numeric_series
     fig = make_subplots(specs=[[{"secondary_y": False}]])
     fig.add_trace(go.Scatter(
-        x=hh["timestamp"], y=hh["temperature"], mode="lines+markers",
+        x=hh["timestamp"], y=numeric_series(hh, "temperature"), mode="lines+markers",
         name="气温", line=dict(color=color_value("temp_color"), width=2), marker=dict(size=4),
     ))
     fig.add_trace(go.Scatter(
-        x=hh["timestamp"], y=hh["apparent_temperature"], mode="lines",
+        x=hh["timestamp"], y=numeric_series(hh, "apparent_temperature"), mode="lines",
         name="体感温度", line=dict(color="#e67e22", width=2),
     ))
     for thr, name, color in [(35, "高温黄 35℃", "#d69e2e"),
@@ -1000,7 +1020,8 @@ def _render_life_indices(indices, inline=False):
         score = info["score"]
         advice = info["advice"]
         color = _sev(info["color"])
-        score_text = f"{score}" if isinstance(score, int) else f"{score:.1f}"
+        score_text = (f"{score}" if isinstance(score, int)
+                      else f"{score:.1f}" if isinstance(score, float) else "—")
         return f"""
         <div style="background:{bg};border:1px solid {border};border-radius:10px;
                     padding:14px 12px;position:relative;overflow:hidden;">
@@ -1136,7 +1157,7 @@ def _render_forecast_verification():
                     "相关系数 r": f"{m['r']:.3f}" if np.isfinite(m["r"]) else "—",
                     "样本数": m["n"],
                 })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        render_table(pd.DataFrame(rows), hide_index=True)
         st.caption("Bias 正=预报偏高，负=预报偏低；r 越接近 1 越好。hindcast 验证局限见页脚说明。")
 
         # 5) 变量选择器 + 三图
@@ -1216,12 +1237,15 @@ def render_forecast_tab():
             intent = consume_intent(st.session_state)
     if intent:
         with st.spinner(f"正在获取{intent['city']['name']}的预报…"):
-            fdf, err = fetch_gfs_forecast(intent["city"]["lat"], intent["city"]["lon"], days=intent["days"], model=intent["model"])
+            # One request supplies both the selected calendar days and 72 future hours.
+            full_forecast, err = fetch_gfs_forecast(intent["city"]["lat"], intent["city"]["lon"],
+                                                    days=max(intent["days"], 4), model=intent["model"])
         if err:
             fail_request(st.session_state, intent, err)
         else:
             try:
-                commit_success(st.session_state, intent, fdf)
+                fdf = calendar_forecast(full_forecast, intent["requested_at"], intent["days"])
+                commit_success(st.session_state, intent, fdf, future_frame=full_forecast)
                 st.session_state["fc_model"] = next(k for k, v in GFS_MODELS.items() if v == intent["model"])
                 st.rerun()
             except ValueError as exc:
@@ -1307,16 +1331,24 @@ def render_forecast_tab():
     )
 
     st.write("### 72 小时高温预报面板")
-    hh = fdf.head(72)
-    panel_fig = _high_temp_72h_panel(hh)
-    safe_chart(panel_fig, "72小时高温预报", key="fc_72h")
-
-    max_t = float(hh["temperature"].max())
-    max_app = float(hh["apparent_temperature"].max())
-    hi = heat_index(hh["temperature"].values, hh["humidity"].values)
+    full_forecast = context.get("future_data", fdf)
+    hh, horizon = future_hourly_forecast(full_forecast, context["requested_at"])
+    st.caption(f"以北京时间 {horizon['requested_at']:%Y-%m-%d %H:%M} 获取时刻为起点；"
+               f"逐小时有效时间 {horizon['first']:%Y-%m-%d %H:%M} 至 {horizon['last']:%Y-%m-%d %H:%M}，"
+               f"已获得 {horizon['present']} / 72 个时次。")
+    st.caption("逐时降水代表对应时次前一小时的累计；与获取时刻对齐时，两端有不足一小时的边界差异。")
+    if not horizon["complete"]:
+        st.warning("未来 72 小时逐时数据不完整，相关结论仅覆盖已有时次。")
+    if not hh.empty:
+        safe_chart(_high_temp_72h_panel(hh), "72小时高温预报", key="fc_72h")
+    max_t = numeric_series(hh, "temperature").max()
+    max_app = numeric_series(hh, "apparent_temperature").max()
+    hi = heat_index(numeric_series(hh, "temperature").values, numeric_series(hh, "humidity").values)
     max_hi = float(np.max(hi[np.isfinite(hi)])) if np.isfinite(hi).any() else float("nan")
     if max_t >= 35:
-        msg = f"未来 72 小时将出现高温：最高气温 {max_t:.1f}℃，最大体感温度 {max_app:.1f}℃"
+        msg = f"未来 72 小时有效时次出现高温：最高气温 {max_t:.1f}℃"
+        if np.isfinite(max_app):
+            msg += f"，最大体感温度 {max_app:.1f}℃"
         if np.isfinite(max_hi):
             msg += f"，Rothfusz 热指数峰值 {max_hi:.1f}℃"
         st.warning("[高温] " + msg)
@@ -1354,7 +1386,8 @@ def render_forecast_tab():
 
     # Every derived panel uses the same successful city/model, including after a failed query.
     _cur = _fetch_gfs_current(lat, lon, model)
-    life_indices = _calc_life_indices(fdf, current=_cur)
+    life_indices = _calc_life_indices(hh, current=_cur, as_of=context["requested_at"],
+                                     complete=horizon["complete"])
     st.session_state["life_indices"] = life_indices
 
     _render_forecast_advice(analysis, life_indices=life_indices)

@@ -66,7 +66,7 @@ def test_custom_thresholds_apply_to_forecast(monkeypatch):
 
 
 def test_life_indices_have_seven_entries():
-    indices = calc._calc_life_indices(_forecast())
+    indices = calc._calc_life_indices(_forecast(), as_of="2026-07-01 00:00")
     assert set(indices) == {"clothing", "umbrella", "comfort", "exercise",
                             "uv", "carwash", "drying"}
     for item in indices.values():
@@ -76,14 +76,14 @@ def test_life_indices_have_seven_entries():
 def test_life_indices_accept_injected_current():
     current = {"temperature": 25.0, "humidity": 60.0, "wind_speed": 3.0,
                "precipitation": 0.0, "weather_code": 0}
-    indices = calc._calc_life_indices(_forecast(), current=current)
+    indices = calc._calc_life_indices(_forecast(), current=current, as_of="2026-07-01 00:00")
     assert indices["umbrella"]["score"] >= 0
     assert indices["comfort"]["level"]
 
 
 def test_get_now_row_returns_future_row():
     df = _forecast(days=2)
-    row = calc._get_now_row(df)
+    row = calc._get_now_row(df, as_of="2026-07-01 00:30")
     assert row is not None
     assert "temperature" in row.index
 

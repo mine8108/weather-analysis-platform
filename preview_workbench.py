@@ -35,6 +35,7 @@ AQI = {city_id(c): {"aqi": aqi} for c, aqi in zip(CITIES, [45, 38, 42, 35, 39, 5
 st.session_state.setdefault("_weather_expanded", True)
 if not st.session_state.get("_preview_initialized"):
     intent = make_intent(CITIES[0], 7)
+    intent["requested_at"] = "2026-10-26T10:15:00+08:00"
     queue_intent(st.session_state, intent)
     consume_intent(st.session_state)
     commit_success(st.session_state, intent, forecast_frame()[0])
@@ -99,7 +100,10 @@ def forecast():
             time.sleep(3)
         if st.session_state.get("_preview_forecast_failure"):
             return None, "离线预览模拟失败，未请求天气接口。"
-        return forecast_frame(*args, **kwargs)
+        frame, error = forecast_frame(*args, **kwargs)
+        # Keep mock forecasts aligned with a live UI request; these remain synthetic.
+        frame["timestamp"] += pd.Timestamp.now(tz="Asia/Shanghai").tz_localize(None).normalize() - pd.Timestamp("2026-10-26")
+        return frame, error
     weather("forecast")
     with st.container(key="workbench_content"), patch.multiple(nwp,
             fetch_gfs_forecast=preview_fetch, fetch_air_quality=air_quality, _fetch_gfs_current=current_weather,

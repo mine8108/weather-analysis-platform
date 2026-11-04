@@ -10,6 +10,7 @@ import pandas as pd
 from config import level_label
 from modules import warn_rules
 from modules.observations import hourly_totals, station_frames, numeric_series
+from modules.nwp.time_window import beijing_time, beijing_times
 
 
 
@@ -362,61 +363,69 @@ def _calc_ssd(temp, humidity, wind_speed):
     return T - 0.55 * (1 - RH) * (T - 14) - (V ** (1/3)) * (T - 10) / 20
 
 
-def _get_now_row(fdf):
+def _get_now_row(fdf, as_of=None):
     """按当前真实时间在 fdf 中查找对应小时行，session 内跨小时会推进。
 
     缓存策略不变（仍是 fetch 时的预报），仅切换「当前小时」指针。
     """
     if fdf is None or fdf.empty:
         return None
-    now = pd.Timestamp.now(tz="Asia/Shanghai").tz_localize(None)
+    now = beijing_time(as_of if as_of is not None else pd.Timestamp.now(tz="Asia/Shanghai"))
     if "timestamp" in fdf.columns:
-        mask = fdf["timestamp"] >= now
+        mask = beijing_times(fdf["timestamp"]) >= now
         if mask.any():
             return fdf[mask].iloc[0]
-    return fdf.iloc[-1]
+    return None
 
 
-def _calc_life_indices(fdf, current=None):
+def _calc_life_indices(fdf, current=None, *, as_of=None, complete=None):
     """计算生活指标，返回 dict。
 
     纯计算：实时观测由调用方通过 ``current`` 传入（可为 None），本函数
-    不读 session_state、不发网络请求。7 项指标的语义见返回结构。
+    不读 session_state、不发网络请求。fdf 是调用方选好的未来逐小时窗口，
+    complete 表示时间轴是否包含完整 72 个预报时次。
     """
     if fdf is None or fdf.empty:
         return {}
 
-    cur = current
+    now_row = _get_now_row(fdf, as_of=as_of)
 
-    if cur and cur.get("temperature") is not None:
-        # 真实时实测路径
-        temp = float(cur["temperature"])
-        app_temp = float(cur.get("apparent_temperature") or temp)
-        humid = float(cur.get("humidity") or 50)
-        wind = float(cur.get("wind_speed") or 2)
-        precip = float(cur.get("precipitation") or 0)
-        precip_prob = float(cur.get("precipitation_probability") or 0)
-        wcode = float(cur.get("weather_code") or 0)
-    else:
-        # Fallback: fdf 当前小时行
-        now_row = _get_now_row(fdf)
-        if now_row is None:
-            return {}
-        temp = float(now_row.get("temperature", 20))
-        app_temp = float(now_row.get("apparent_temperature", temp))
-        humid = float(now_row.get("humidity", 50))
-        wind = float(now_row.get("wind_speed", 2))
-        precip = float(now_row.get("precipitation", 0))
-        precip_prob = float(now_row.get("precipitation_probability", 0))
-        wcode = float(now_row.get("weather_code", 0))
+    def finite(name, default=None):
+        for source in (current, now_row):
+            value = source.get(name) if source is not None else None
+            try:
+                number = float(value)
+                if np.isfinite(number):
+                    return number
+            except (TypeError, ValueError):
+                pass
+        return default
 
-    # 取未来 72h 数据用于部分指标(始终从 fdf 取,不受真实时接口影响)
-    h72 = fdf.head(72) if len(fdf) >= 72 else fdf
+    # Current values come from the provider, with the first eligible forecast as fallback.
+    temp, humid, wind = finite("temperature"), finite("humidity"), finite("wind_speed")
+    if temp is None or humid is None or wind is None or not 0 <= humid <= 100 or wind < 0:
+        return {}
+    app_temp = finite("apparent_temperature", temp)
+    precip = finite("precipitation", 0.0)
+    precip_prob = finite("precipitation_probability", 0.0)
+    wcode = finite("weather_code", float("nan"))
 
-    avg_temp_72 = float(h72["temperature"].mean())
-    total_precip_72 = float(h72["precipitation"].sum())
-    avg_humid_72 = float(h72["humidity"].mean())
-    avg_wind_72 = float(h72["wind_speed"].mean())
+    # 逐小时窗口由上层统一切分；保留缺测标志，避免将缺测当作无雨。
+    h72 = fdf
+    if complete is None:
+        complete = len(h72) == 72
+    fields = {}
+    for name in ("temperature", "precipitation", "humidity", "wind_speed"):
+        source = h72[name] if name in h72 else pd.Series(np.nan, index=h72.index)
+        fields[name] = pd.to_numeric(source, errors="coerce").replace([np.inf, -np.inf], np.nan)
+    fields["precipitation"] = fields["precipitation"].where(fields["precipitation"] >= 0)
+    fields["humidity"] = fields["humidity"].where(fields["humidity"].between(0, 100))
+    fields["wind_speed"] = fields["wind_speed"].where(fields["wind_speed"] >= 0)
+    field_complete = {name: bool(complete and values.notna().all()) for name, values in fields.items()}
+    avg_temp_72 = float(fields["temperature"].mean()) if fields["temperature"].notna().any() else 0.0
+    total_precip_72 = float(fields["precipitation"].sum()) if fields["precipitation"].notna().any() else 0.0
+    avg_humid_72 = float(fields["humidity"].mean()) if fields["humidity"].notna().any() else 0.0
+    avg_wind_72 = float(fields["wind_speed"].mean()) if fields["wind_speed"].notna().any() else 0.0
 
     ssd = _calc_ssd(temp, humid, wind)
 
@@ -515,4 +524,12 @@ def _calc_life_indices(fdf, current=None):
     else:
         indices["drying"] = {"level": "不适宜", "score": int(dry_score), "advice": "潮湿多雨，不宜室外晾晒", "color": "sev-bad"}
 
+    requirements = {"umbrella": ("precipitation",), "carwash": ("precipitation",),
+                    "exercise": ("precipitation", "wind_speed"),
+                    "drying": ("precipitation", "humidity", "wind_speed"),
+                    "uv": ("temperature",)}
+    for key, required in requirements.items():
+        if not all(field_complete[name] for name in required) or (key == "uv" and not np.isfinite(wcode)):
+            indices[key] = {"level": "数据不足", "score": "—",
+                            "advice": "未来 72 小时预报缺测，暂无法计算", "color": "text-secondary"}
     return indices

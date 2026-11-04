@@ -18,6 +18,7 @@ import time
 from collections import OrderedDict
 
 import streamlit as st
+from modules.ui.table import render_table
 
 from PIL import Image
 
@@ -580,10 +581,10 @@ def render_chart_reader_tab():
                 st.info("添加天气图、卫星云图、雷达回波或模式形势图。图例、单位和时间标注越清楚，越便于核查。")
             if images:
                 with st.expander("图片处理详情"):
-                    st.dataframe([{"文件名": i["name"], "状态": "已就绪" if i["ok"] else i.get("error", "失败"),
+                    render_table([{"文件名": i["name"], "状态": "已就绪" if i["ok"] else i.get("error", "失败"),
                                    "原始 (KB)": i["orig_kb"], "提交 (KB)": i["new_kb"],
                                    "尺寸": f"{i['width']} × {i['height']}" if i.get("width") else "—"} for i in images],
-                                 hide_index=True, width="stretch")
+                                 hide_index=True)
                 if st.button("清空待解析图片", key="chart_reader_clear"):
                     st.session_state["chart_reader_images"] = []
                     st.session_state["chart_reader_upload_version"] = version + 1

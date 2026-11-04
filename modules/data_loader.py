@@ -20,6 +20,7 @@ from config import FIELD_ALIASES, STANDARD_FIELDS
 from utils import retry_with_backoff, safe_error_text, check_response_size
 from modules.era5_guide import render_era5_guide
 from modules.quota import take_outbound
+from modules.ui.table import render_table
 
 
 # 安全修复（P-07）：上传资源限制
@@ -532,7 +533,7 @@ def render_file_upload_section():
         st.success(f"[OK] 成功导入: {source} | {len(df)} 条记录 | 识别字段: {len(recognized)} 个")
 
         with st.expander("[列表] 数据预览（前20行）"):
-            st.dataframe(df.head(20), use_container_width=True)
+            render_table(df.head(20))
 
         with st.expander("[搜索] 字段识别详情"):
             st.write("**已识别标准字段**:", recognized if recognized else "无")
@@ -601,7 +602,7 @@ def render_manual_input_section(existing_df=None):
     if "manual_data" in st.session_state and st.session_state["manual_data"]:
         st.write(f"已录入 {len(st.session_state['manual_data'])} 条记录")
         manual_df = pd.DataFrame(st.session_state["manual_data"])
-        st.dataframe(manual_df, use_container_width=True)
+        render_table(manual_df, key="manual_table_page")
 
         if st.button("[清空] 清空手动录入", use_container_width=True):
             st.session_state["manual_data"] = []
@@ -798,7 +799,7 @@ def render_api_section():
                 else:
                     st.success(f"[OK] 气象数据: {len(df)} 条记录")
                     with st.expander("[列表] 气象数据预览"):
-                        st.dataframe(df.head(20), use_container_width=True)
+                        render_table(df.head(20))
                     # 清除旧数据，避免混淆
                     st.session_state["api_fetched_weather"] = df
                     st.session_state["api_weather_source"] = f"Open-Meteo 气象 ({lat:.1f}N, {lon:.1f}E)"
@@ -849,7 +850,7 @@ def render_api_section():
                     if err:
                         st.info(f"部分字段无数据: {', '.join(err)}")
                     with st.expander("[列表] 空气质量数据预览"):
-                        st.dataframe(df.head(20), use_container_width=True)
+                        render_table(df.head(20))
                     # 清除旧数据，避免混淆
                     st.session_state["api_fetched_pollution"] = df
                     st.session_state["api_aq_source"] = f"Open-Meteo 空气质量 ({lat_aq:.1f}N, {lon_aq:.1f}E)"
@@ -895,7 +896,7 @@ def render_api_section():
                         source_parts.append(f"Open-Meteo 空气质量 ({lat_aq:.1f}N, {lon_aq:.1f}E)")
                     st.success(f"[OK] 合并完成: {len(merged)} 条记录 | {n_fields} 个字段 | {n_poll} 个污染物")
                     with st.expander("[列表] 合并数据预览"):
-                        st.dataframe(merged.head(20), use_container_width=True)
+                        render_table(merged.head(20))
                     st.session_state["api_df"] = merged
                     st.session_state["api_source"] = " + ".join(source_parts)
                     st.rerun()

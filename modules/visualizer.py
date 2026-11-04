@@ -13,6 +13,7 @@ from config import (
     safe_chart, FIELD_LABELS,
 )
 from modules.design_tokens import color_value, css_var, token_value
+from modules.ui.table import render_table
 
 
 def _safe_xaxis(df):
@@ -394,7 +395,7 @@ def multi_station_comparison(df):
             "记录数": len(sdf),
         })
     if stats_rows:
-        st.dataframe(pd.DataFrame(stats_rows), use_container_width=True, hide_index=True)
+        render_table(pd.DataFrame(stats_rows), hide_index=True, key="viz_station_table_page")
 
     return fig
 
@@ -687,7 +688,7 @@ def _render_pollution_panel(df):
             "达标状态": "⚠️ 超标" if exceed_count > 0 else "✓ 达标",
         })
 
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    render_table(pd.DataFrame(rows), hide_index=True, key="viz_pollution_table_page")
 
 
 def _get_corr_matrix(df):
@@ -918,7 +919,7 @@ def render_visualization_tab(df, source=""):
         if available_stats:
             stats = df[available_stats].describe()
             stats.index = ["总数", "均值", "标准差", "最小值", "25%分位", "50%分位", "75%分位", "最大值"]
-            st.dataframe(stats.round(2), use_container_width=True)
+            render_table(stats.round(2), float_precision=2)
 
         # 多站点对比
         multi_station_comparison(df)

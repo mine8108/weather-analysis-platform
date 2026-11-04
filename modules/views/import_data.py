@@ -5,6 +5,7 @@ from modules.data_loader import (merge_manual_rows, render_file_upload_section,
     render_manual_input_section, render_api_section, render_template_download)
 from modules.data_quality import (render_quality_report, range_check, temporal_consistency_check, completeness_check)
 from modules.ui.shell import page_heading
+from modules.ui.table import render_table
 from config import FIELD_LABELS
 
 
@@ -100,11 +101,7 @@ def render_import_page(safe_render, adopt_dataset, navigate_to, render_summary):
             cols[3].metric("缺失率", f"{df.isna().sum().sum() / max(df.size, 1) * 100:.2f}%")
             st.caption(f"来源 {st.session_state.get('source', '当前数据')} · 预览前 10 条，完整数据 {len(df):,} 条。")
             with st.container(border=True):
-                column_config = {name: st.column_config.NumberColumn(FIELD_LABELS.get(name, name), format="%.1f")
-                                 for name in df.select_dtypes(include="number").columns}
-                column_config.update({name: st.column_config.Column(label) for name, label in FIELD_LABELS.items()
-                                      if name in df and name not in column_config})
-                st.dataframe(df.head(10), height=260, use_container_width=True, hide_index=True, column_config=column_config)
+                render_table(df.head(10), hide_index=True, labels=FIELD_LABELS, float_precision=1)
 
             # 数据质量控制：导入后默认显示（R-09 接入）。
             # 返回的百分制评分写入 session_state，供报告导出与摘要卡复用；

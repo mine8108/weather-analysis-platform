@@ -3,6 +3,7 @@
 """
 
 import streamlit as st
+from modules.ui.table import render_table
 from datetime import datetime, timezone
 
 
@@ -422,7 +423,7 @@ def render_codec_tab():
                 rows.append({"字段": label, "解码值": display_value,
                              "单位": unit, "原文编码": source["token"] if source else "旧结果未记录",
                              "词组序号": str(source["index"] + 1) if source else "—"})
-            st.dataframe(rows, hide_index=True, width="stretch")
+            render_table(rows, hide_index=True)
             if not valid or errors:
                 st.warning("报文仅部分解析或含错误，请核对原文。")
             used = {item["index"] for item in provenance.values()}
