@@ -77,6 +77,9 @@ _register((
     "chart_reader_gen_count", "chart_reader_usage_last",
     "chart_reader_usage_total", "chart_reader_result", "chart_reader_input_fingerprint",
     "chart_reader_selected_evidence", "chart_reader_upload_version", "chart_reader_note_saved", "chart_reader_source_image",
+    "chart_reader_model_profile", "chart_reader_result_profile", "chart_reader_job_id",
+    "chart_reader_job_images", "chart_reader_job_notice",
+    "chart_reader_poll_job", "chart_reader_ack_unknown",
 ), "tab", tab=TAB_CHART)
 
 _register(("report_data", "_report_fp", "_report_preview_bytes", "_report_preview_fp", "report_style_saved"), "tab", tab=TAB_EXPORT)

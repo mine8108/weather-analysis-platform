@@ -38,7 +38,7 @@ if "chart_reader_result" not in st.session_state:
     st.session_state.update(chart_reader_images=images, chart_reader_report_images=originals,
         chart_reader_result=model, chart_reader_text=model["raw_response"],
         chart_reader_input_fingerprint=input_fingerprint(images), chart_reader_meta={"scope":"fixture", "generated":"2026-10-26 12:00 UTC+8"})
-with patch("modules.ai_narrative.resolve_vision_config", lambda: None):
+with patch("modules.ai_narrative.resolve_vision_config", lambda **_: None):
     render_chart_reader_tab()
 ''', default_timeout=60).run()
     assert not at.exception

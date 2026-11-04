@@ -53,11 +53,16 @@ def _secret(name, default=""):
     return default if value is None else value
 
 
-def resolve_vision_config():
-    """解析视觉模型配置。缺少模型名或密钥时返回 None（视为未配置）。
+def resolve_vision_config(profile=None):
+    """解析视觉模型配置。传profile时使用工作台的Qwen/Terra/Sol档位。
 
-    模型名必须显式配置 ``LLM_VISION_MODEL``；密钥与地址可回落文本模型的值。
+    不传profile时保留旧接口行为：模型名须显式配置LLM_VISION_MODEL。
     """
+    if profile is not None:
+        from modules.vision_service import resolve_config
+        return resolve_config(profile, secret_getter=_secret)
+    # Legacy integrations may still explicitly request their former provider.
+    # The workbench always passes the selected vision profile.
     model = str(_secret("LLM_VISION_MODEL") or "").strip()
     if not model:
         return None
@@ -153,7 +158,7 @@ def _normalize_usage(usage):
 
 
 def call_vision_llm(prompt, images_b64, api_key, base_url=None, model=None,
-                    max_tokens=None, usage_out=None):
+                    max_tokens=None, usage_out=None, stream=False, read_timeout=None):
     """调用多模态模型生成读图解读。失败抛异常，由调用方处理。
 
     images_b64 为 data URL 列表（``data:image/jpeg;base64,...``）。
@@ -181,6 +186,8 @@ def call_vision_llm(prompt, images_b64, api_key, base_url=None, model=None,
     }
     if max_tokens is not None:
         payload["max_tokens"] = int(max_tokens)
+    if stream:
+        payload.update(stream=True, stream_options={"include_usage": True})
 
     url = base_url + "/chat/completions"
     headers = {
@@ -189,6 +196,9 @@ def call_vision_llm(prompt, images_b64, api_key, base_url=None, model=None,
     }
 
     def _post():
+        if stream:
+            return requests.post(url, headers=headers, json=payload,
+                                 timeout=(10, read_timeout or 180), stream=True, allow_redirects=False)
         return requests.post(url, headers=headers, json=payload,
                              timeout=VISION_TIMEOUT_SECONDS)
 
@@ -200,8 +210,11 @@ def call_vision_llm(prompt, images_b64, api_key, base_url=None, model=None,
         raise ValueError("视觉服务拒绝 max_tokens 预算参数；本次已停止，"
                          "请配置支持输出限额的模型或调整预算后重试。")
     resp.raise_for_status()
-    check_response_size(resp)
-    data = resp.json()
+    if stream:
+        data = _consume_vision_stream(resp, usage_out)
+    else:
+        check_response_size(resp)
+        data = resp.json()
     # 记账先于解析：后面任何分支抛异常，用量都已经落账
     if usage_out is not None and isinstance(data.get("usage"), dict) and data["usage"]:
         usage_out.update(_normalize_usage(data.get("usage")))
@@ -213,9 +226,52 @@ def call_vision_llm(prompt, images_b64, api_key, base_url=None, model=None,
                          % _response_snippet(data))
 
     text = _extract_message_text(message)
+    if stream and choice.get("finish_reason") != "stop":
+        raise ValueError("视觉模型输出未正常完成（finish_reason=%s），未自动重新生成。" % choice.get("finish_reason"))
     if not text:
         raise ValueError(_empty_content_reason(choice, message, model, data))
     return text
+
+
+def _consume_vision_stream(response, usage_out):
+    """Qwen streaming keeps visible text and final usage; reasoning text is discarded."""
+    parts, usage, finish, done, size = [], None, None, False, 0
+    try:
+        for raw in response.iter_lines(chunk_size=1):
+            if not raw:
+                continue
+            size += len(raw)
+            if size > 2 * 1024 * 1024:
+                raise ValueError("视觉模型流式响应超过接收上限。")
+            line = raw.decode("utf-8") if isinstance(raw, bytes) else raw
+            if not line.startswith("data:"):
+                continue
+            value = line[5:].strip()
+            if value == "[DONE]":
+                done = True
+                break
+            chunk = json.loads(value)
+            if not isinstance(chunk, dict) or chunk.get("error"):
+                raise ValueError("视觉服务流式响应异常，未自动重发。")
+            if isinstance(chunk.get("usage"), dict):
+                usage = chunk["usage"]
+                if usage_out is not None:
+                    usage_out.update(_normalize_usage(usage))
+            for choice in chunk.get("choices") or []:
+                if choice.get("index", 0) != 0:
+                    continue
+                content = (choice.get("delta") or {}).get("content")
+                if isinstance(content, str):
+                    parts.append(content)
+                if choice.get("finish_reason"):
+                    finish = choice["finish_reason"]
+    except (requests.RequestException, UnicodeError, json.JSONDecodeError):
+        raise ValueError("读图结果传输中断，已保留已知用量或未知用量预算；未自动重发。") from None
+    finally:
+        response.close()
+    if not done:
+        raise ValueError("未收到读图结果的结束回执，已保留预算；未自动重发。")
+    return {"usage": usage, "choices": [{"message": {"content": "".join(parts)}, "finish_reason": finish}]}
 
 
 # ============================================================

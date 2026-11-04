@@ -411,22 +411,23 @@ def image_to_data_url(data, mime):
 # ============================================================
 
 _SETUP_HINT = (
-    "读图解析尚未配置。请在 Streamlit Secrets 中设置：\n\n"
-    "- `LLM_VISION_MODEL`（**必需**，须是具备图像输入能力的模型，例如 `qwen-vl-max`、"
-    "`glm-4v`、`gpt-4o`）\n"
-    "- `LLM_VISION_API_KEY`（留空则回落 `LLM_API_KEY`）\n"
-    "- `LLM_VISION_BASE_URL`（留空则回落 `LLM_BASE_URL`）\n\n"
-    "注意：**不会**回落到 `LLM_MODEL`。默认的 `deepseek-chat` 没有视觉能力，"
-    "回落只会造成「配置了却一直失败」的隐性故障。"
+    "读图解析使用服务端配置。本地可使用项目根目录下已被Git忽略的"
+    " `.env.local`，也支持进程环境变量或 Streamlit Secrets。\n\n"
+    "默认 Qwen3.8 Flash 使用 `QWEN_VISION_API_KEY`，可复用本机保存的 `BASELINE_VISION_API_KEY`"
+    "或现有 Qwen 的 `LLM_VISION_*` 配置。\n\n"
+    "可选 Terra xhigh 与 Sol high 使用 `OPENAI_API_KEY`，不会混用两家密钥。"
+    "`OPENAI_BASE_URL` 可选，默认 `https://api.openai.com/v1`。"
 )
 
 _FAILURE_TABLE = """
 | 现象 | 可能原因 | 处置 |
 |---|---|---|
-| 提示「读图解析尚未配置」 | 未设置 `LLM_VISION_MODEL` | 按上方说明在 Secrets 中配置后重启应用 |
+| 提示「读图解析尚未配置」 | 所选模型的服务端凭据未配置 | 按上方说明完成服务端配置 |
 | 某张图标记为失败 | 超过体积/像素上限、分辨率过低或文件不是有效图片 | 按该图给出的原因处理；伪装扩展名的文件会被拒绝 |
 | 整体拒绝上传 | 张数超过 5 张、单图超过 1.5 MiB，或提交合计超过 7.5 MiB | 减少张数或先自行压缩 |
-| 生成失败并给出可读错误 | 模型服务超时、密钥无效、当日额度不足，或输出被服务商截断 | 原图已保留，可直接重试；错误文本会带出 `finish_reason`、模型名与响应片段，据此处置；当日 token 不足可次日再试或请管理员调整每日配额 |
+| 正在后台解读或读取暂未成功 | 任务仍在运行，或读取环节遇到临时网络问题 | 查看原任务进度，取回同一任务结果，不重复生成 |
+| 未收到任务编号 | 提交未得到可靠回执，结果与用量待核对 | 保留预算，不自动重发；先核查用量与原任务 |
+| 结构、长度或输出结束状态未通过 | 模型输出未满足报告要求 | 保留原始内容与用量，核查提示信息；不会自动付费改写 |
 | 解读里出现「图中未标注」 | 图中确实没有该信息 | 这是刻意的反幻觉约束，不是故障 |
 | 解读与图不符 | 模型判读能力有限，尤其是等值线密集或非中文标注的图 | 在补充说明里指明图种、层次与关注点可显著改善 |
 """
@@ -463,6 +464,8 @@ def _record_usage(usage, call_id):
 
 def _generate(cfg, images, note):
     """执行一次读图解析。失败即报错并保留原图，不产出任何替代文本。"""
+    if cfg.get("api_format") == "responses_background":
+        return _start_background_generation(cfg, images, note)
     from db import begin_vision_call
     from modules.ai_narrative import build_report_meta, call_vision_llm
 
@@ -488,8 +491,11 @@ def _generate(cfg, images, note):
         return
     # 安全修复（SEC-24）：预算要预留本次图片 prompt 的开销，否则实际总量会超配额。
     # 不再叠加固定单次上限：本次预算就是当日剩余额度。
-    prompt = build_chart_prompt(images, note)
+    from modules.vision_service import build_prompt
+    prompt = build_prompt(images, note) if cfg.get("profile") == "qwen" else build_chart_prompt(images, note)
     budget = quota_budget(quota_state, estimate_image_tokens(images) + len(prompt.encode("utf-8")) + 800)
+    if cfg.get("output_cap"):
+        budget = min(budget, cfg["output_cap"])
     if budget <= 0:
         _record_usage({"total": 0}, quota_state["call_id"])
         st.warning("今日 token 剩余额度不足以再生成一次，"
@@ -500,20 +506,21 @@ def _generate(cfg, images, note):
                  for item in images]
 
     usage = {}
-    with st.spinner("正在读图解析，通常需要十几秒..."):
+    st.session_state["chart_reader_last_gen"] = time.time()
+    with st.spinner("正在读图解析，请等待完整结果…"):
         try:
             text = call_vision_llm(prompt, data_urls, cfg["api_key"],
                                    base_url=cfg["base_url"], model=cfg["model"],
-                                   max_tokens=budget, usage_out=usage)
+                                   max_tokens=budget, usage_out=usage,
+                                   stream=cfg.get("stream", False), read_timeout=cfg.get("read_timeout_seconds"))
         except Exception as exc:  # noqa: BLE001 - 任何失败都报错，不降级
             _record_usage(usage, quota_state["call_id"])
             st.session_state["chart_reader_gen_count"] = count + 1
             detail = str(exc).strip() or exc.__class__.__name__
             st.error("读图解析失败：%s" % detail[:200])
             spent = int(usage.get("completion") or 0)
-            st.caption("本次尝试仍会被服务商计费%s。原图已保留，可直接重试。"
-                       "本功能**不提供文本模型降级**——文本模型读不了图，"
-                       "编造的摘要会误导判断。"
+            st.caption("本次尝试可能消耗服务商用量%s，实际费用以账单为准。"
+                       "原图已保留，未自动重发。"
                        % ("（消耗 %s）" % format_usage(usage) if spent else ""))
             return
 
@@ -526,10 +533,171 @@ def _generate(cfg, images, note):
     # 固化当次图片：报告与图片的对应关系在此刻固定，导出不再依赖上传区现状
     st.session_state["chart_reader_report_images"] = frozen
     st.session_state["chart_reader_result"] = decode_report(text, frozen)
+    if cfg.get("profile"):
+        st.session_state["chart_reader_result_profile"] = cfg["profile"]
+        result = st.session_state["chart_reader_result"]
+        chars = len("".join("".join(s["body"].split()) for s in result["sections"])) if result["structured"] else None
+        st.session_state["chart_reader_job_notice"] = ("本次结构校验未通过，保留原始解读与用量供核查。" if not result["structured"] else
+            "本次正文超出800—2000字范围，保留原始解读与用量；未自动改写。" if not 800 <= chars <= 2000 else "")
     st.session_state["chart_reader_input_fingerprint"] = input_fingerprint(images, note)
     st.session_state.pop("chart_reader_selected_evidence", None)
     st.session_state["chart_reader_last_gen"] = time.time()
     st.session_state["chart_reader_gen_count"] = count + 1
+
+
+def _vision_owner():
+    return str((st.session_state.get("auth_user") or {}).get("id") or "")
+
+
+def _settle_background_job(store, job):
+    """Record usage once in this report; server settlement remains idempotent."""
+    from db import record_vision_usage
+    owner = _vision_owner()
+    if job.get("settled"):
+        return job
+    if not job.get("usage_recorded"):
+        _record_usage(job.get("usage") or {}, job["call_id"])
+        job["usage_recorded"] = True
+        job["settled"] = job["call_id"] not in st.session_state.get("_pending_vision_usage", {})
+    else:
+        job["settled"] = bool(record_vision_usage(job.get("usage") or {}, job["call_id"]))
+        if job["settled"]:
+            pending = st.session_state.get("_pending_vision_usage", {})
+            pending.pop(job["call_id"], None)
+            st.session_state["_pending_vision_usage"] = pending
+    store.save(owner, job)
+    return job
+
+
+def _accept_background_result(store, job):
+    from modules.ai_narrative import build_report_meta
+    from modules.ai_report_model import decode_report, freeze_images
+    job = _settle_background_job(store, job)
+    text = job.get("text", "")
+    if text:
+        sources = job["sources"]
+        frozen = st.session_state.get("chart_reader_job_images") or []
+        if [i.get("sha256") for i in frozen] != [i["sha256"] for i in sources]:
+            candidates = freeze_images([i for i in st.session_state.get("chart_reader_images", []) if i.get("ok")])
+            frozen = candidates if [i["sha256"] for i in candidates] == [i["sha256"] for i in sources] else []
+        st.session_state["chart_reader_text"] = text
+        st.session_state["chart_reader_meta"] = build_report_meta(
+            "上传气象图 %d 张（模型：%s · %s）" % (len(sources), job["model"], job["reasoning_effort"]))
+        st.session_state["chart_reader_report_images"] = frozen
+        st.session_state["chart_reader_result"] = decode_report(text, frozen or sources)
+        st.session_state["chart_reader_input_fingerprint"] = job["fingerprint"]
+        st.session_state["chart_reader_result_profile"] = job["profile"]
+        st.session_state.pop("chart_reader_selected_evidence", None)
+        notices = {"truncated": "本次输出被截断，已保留实际用量及原始内容；未自动重新生成。",
+                   "response_failed": "后台任务未正常完成，保留已有内容与用量供核查；未自动重新生成。",
+                   "invalid_structure": "本次结构校验未通过，保留原始解读供核查；未自动重新生成。",
+                   "body_length_failed": "本次正文超出800—2000字范围，保留原始解读与用量；未自动改写。"}
+        st.session_state["chart_reader_job_notice"] = notices.get(job.get("output_contract"), "")
+        if not frozen:
+            st.session_state["chart_reader_job_notice"] += " 原图仅保存在原会话内存中，请重新上传相同原图恢复图面核对。"
+    else:
+        st.session_state["chart_reader_job_notice"] = "本次任务未返回可用正文，已保留用量或未知用量预留；原图仍可用于后续核查。"
+    job["acknowledged"] = True
+    store.save(_vision_owner(), job)
+    st.session_state.pop("chart_reader_job_id", None)
+    st.session_state.pop("chart_reader_job_images", None)
+
+
+def _start_background_generation(cfg, images, note):
+    from db import begin_vision_call
+    from modules.ai_report_model import freeze_images, input_fingerprint
+    from modules.vision_service import JobStore, build_prompt, OUTPUT_CAP
+    owner = _vision_owner()
+    if not owner:
+        st.error("请登录后再生成读图解析。")
+        return
+    store = JobStore()
+    try:
+        waiting = store.waiting(owner)
+    except (OSError, ValueError):
+        st.error("本地任务记录暂不可用，本次未发起模型请求。")
+        return
+    if waiting:
+        if not waiting[0].get("acknowledged"):
+            st.session_state["chart_reader_job_id"] = waiting[0]["call_id"]
+        st.warning("已有待完成或待结算任务，请先取回原任务结果。")
+        return
+    now = time.time()
+    last = float(st.session_state.get("chart_reader_last_gen", 0) or 0)
+    count = int(st.session_state.get("chart_reader_gen_count", 0) or 0)
+    if now - last < MIN_INTERVAL_SECONDS:
+        st.warning("生成过于频繁，请稍后再试。")
+        return
+    if count >= MAX_GENERATIONS_PER_SESSION:
+        st.warning("本会话尝试次数已达上限。")
+        return
+    quota = begin_vision_call()
+    allowed, notice = quota_allows(quota, owner)
+    if not allowed:
+        st.error(notice)
+        return
+    prompt = build_prompt(images, note)
+    cap = min(OUTPUT_CAP, quota_budget(quota, estimate_image_tokens(images) + len(prompt.encode("utf-8")) + 800))
+    if cap <= 0:
+        _record_usage({"total": 0}, quota["call_id"])
+        st.warning("今日剩余token额度不足以完成本次解读。")
+        return
+    st.session_state["chart_reader_gen_count"] = count + 1
+    st.session_state["chart_reader_last_gen"] = now
+    st.session_state["chart_reader_job_notice"] = ""
+    st.session_state["chart_reader_job_images"] = freeze_images(images)
+    with st.spinner("正在提交读图任务…"):
+        try:
+            job = store.submit(owner, quota["call_id"], cfg, prompt, images, cap, input_fingerprint(images, note))
+        except Exception:
+            # A connection or checkpoint error may occur after acceptance. Never release blindly.
+            _record_usage({}, quota["call_id"])
+            st.error("任务提交未能确认，本次未自动重发；请先核查原任务及用量。")
+            return
+    st.session_state["chart_reader_job_id"] = job["call_id"]
+    st.rerun()
+
+
+@st.fragment(run_every="4s")
+def _render_background_progress():
+    from modules.ai_narrative import resolve_vision_config
+    from modules.vision_service import JobStore, ACTIVE_STATES, WAIT_SECONDS, PROFILES
+    call_id = st.session_state.get("chart_reader_job_id")
+    if not call_id or not _vision_owner():
+        return
+    store = JobStore()
+    try:
+        job = store.load(_vision_owner(), call_id)
+    except (OSError, ValueError):
+        st.error("原任务记录暂不可读取，请稍后再查看；未重新生成。")
+        return
+    with st.container(border=True):
+        st.markdown("#### 解读进度")
+        st.caption(PROFILES[job["profile"]]["label"])
+        manual = st.button("查看最新进度", key="chart_reader_poll_job", disabled=not job.get("response_id"))
+        age = max(0, time.time() - job["created_at"])
+        if job["status"] in ACTIVE_STATES and job.get("response_id") and (age < WAIT_SECONDS or manual):
+            cfg = resolve_vision_config(profile=job["profile"])
+            if cfg:
+                job = store.poll(_vision_owner(), call_id, cfg)
+        if job["status"] not in ACTIVE_STATES:
+            _accept_background_result(store, job)
+            st.rerun()
+        if job.get("response_id"):
+            if age < WAIT_SECONDS:
+                st.info("模型正在解读，完成后自动显示结果。专业图和多图通常需要更长等待。")
+            else:
+                st.info("任务仍可在后台继续处理。点击“查看最新进度”取回结果，无需重新生成。")
+            if job.get("last_error"):
+                st.caption("读取暂未成功，原任务仍保留；后续只查看同一任务。")
+        else:
+            st.warning("尚未收到任务编号，是否完成和用量均待确认。原预算保留，不会自动重发。")
+            if st.button("结束本次追踪并保留预算", key="chart_reader_ack_unknown"):
+                job = _settle_background_job(store, job)
+                job["acknowledged"] = True
+                store.save(_vision_owner(), job)
+                st.session_state.pop("chart_reader_job_id", None)
+                st.rerun()
 
 
 def render_chart_reader_tab():
@@ -545,7 +713,23 @@ def render_chart_reader_tab():
         if record_vision_usage(usage, call_id):
             pending.pop(call_id, None)
     st.session_state["_pending_vision_usage"] = pending
-    cfg = resolve_vision_config()
+    from modules.vision_service import PROFILES, JobStore, DEFAULT_PROFILE
+    selected_profile = st.session_state.get("chart_reader_model_profile", DEFAULT_PROFILE)
+    if selected_profile not in PROFILES:
+        selected_profile = DEFAULT_PROFILE
+        st.session_state["chart_reader_model_profile"] = selected_profile
+    cfg = resolve_vision_config(profile=selected_profile)
+    if _vision_owner() and not st.session_state.get("chart_reader_job_id"):
+        try:
+            waiting = JobStore().waiting(_vision_owner())
+            for job in waiting:
+                if job.get("acknowledged") and not job.get("settled"):
+                    _settle_background_job(JobStore(), job)
+            unread = [j for j in waiting if not j.get("acknowledged")]
+            if unread:
+                st.session_state["chart_reader_job_id"] = unread[0]["call_id"]
+        except (OSError, ValueError):
+            st.warning("任务记录暂不可读取；请检查本地任务目录后再生成。")
     has_result = bool(st.session_state.get("chart_reader_text"))
     if has_result:
         title, settings = st.columns([3, 1], vertical_alignment="center")
@@ -590,6 +774,9 @@ def render_chart_reader_tab():
                     st.session_state["chart_reader_upload_version"] = version + 1
                     st.rerun()
         with right:
+            st.selectbox("解读模型", list(PROFILES), format_func=lambda key: PROFILES[key]["label"],
+                         key="chart_reader_model_profile")
+            st.caption("Qwen 为默认解读；可选 Terra xhigh，专业形势图和多图综合可选 Sol high。")
             st.markdown("#### 解读关注点")
             if "chart_reader_note" not in st.session_state:
                 st.session_state["chart_reader_note"] = st.session_state.get("chart_reader_note_saved", "")
@@ -612,8 +799,8 @@ def render_chart_reader_tab():
                     st.markdown(_SETUP_HINT)
             if daily_blocked:
                 st.warning("今日额度暂不可用；若存在待结算请求，请等待结算完成。")
-            disabled = not cfg or not ok_images or bool(total_error) or daily_blocked or remaining <= 0
-            st.caption("点击生成后，图片及补充说明会发送至已配置的 AI 服务商。")
+            disabled = not cfg or not ok_images or bool(total_error) or daily_blocked or remaining <= 0 or bool(st.session_state.get("chart_reader_job_id"))
+            st.caption("点击生成后，图片及补充说明将发送至所选模型的服务商。")
             if st.button("生成读图解析", key="chart_reader_generate", type="primary", icon=":material/auto_awesome:",
                          disabled=disabled, width="stretch"):
                 _generate(cfg, ok_images, note)
@@ -628,6 +815,10 @@ def render_chart_reader_tab():
                     st.caption("有待结算请求，预算仍保留；重新进入本页时会重试结算。")
             st.markdown("**完整解读结构**")
             st.caption("图像信息 · 图面要素 · 分布特征 · 数值与极值 · 趋势演变 · 风险与结论")
+    if st.session_state.get("chart_reader_job_id"):
+        _render_background_progress()
+    if st.session_state.get("chart_reader_job_notice"):
+        st.warning(st.session_state["chart_reader_job_notice"])
     text = st.session_state.get("chart_reader_text")
     meta = st.session_state.get("chart_reader_meta")
     if text and meta:
@@ -639,5 +830,8 @@ def render_chart_reader_tab():
         generated_fp = st.session_state.get("chart_reader_input_fingerprint")
         if generated_fp and generated_fp != input_fingerprint(ok_images, note):
             st.info("待解析图片或关注点已改变；下方保留上次生成结果及其原图，重新生成后更新。")
+        result_profile = st.session_state.get("chart_reader_result_profile")
+        if result_profile and result_profile != selected_profile:
+            st.info("当前模型选择已改变；下方保留上次模型的结果，点击生成后才会更新。")
         render_ai_result(model, meta, frozen)
     _render_failure_table()

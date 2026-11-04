@@ -13,7 +13,7 @@
 | **数据导入** | 支持 CSV / Excel 上传、网页手动逐条录入、Open-Meteo API 按经纬度+时间自动拉取；智能列名识别；标准模板下载；API 区含 **ERA5（CDS）变量 catalogue 与脚本包下载**（4 个产品 / 8 个变量分组 / 5 组常用预设 / 提交前字段数预警） |
 | **数据质控** | 内置于「数据导入」向导第 2 步，导入后默认展示质量报告：物理量范围校验（温度/气压/湿度/风速等）、相邻时次突跳检测、缺失率统计、百分制数据质量评分 |
 | **可视化分析** | 温/压/湿/风多要素综合看板、风向风速玫瑰图、要素关系散点矩阵、统计摘要；**要素分布直方图（默认含降水量，可叠加多要素对比）** |
-| **AI 读图解析** | 上传气象图（天气图 / 卫星云图 / 雷达回波 / 模式形势图），由多模态模型输出**六段式结构化解读**（图面要素 → 分布特征 → 关键数值 → 趋势演变 → 风险结论）；图片四重上限（5 张 / 原始 1.5MB / 提交 1.5MB / 合计 7.5MB）；**用量记账与配额**（服务端每用户每日配额，次数与 token 双维度，刷新页面不可绕过；默认每日 10 次 / 8 万 token，单次调用不另设 token 上限，管理员可在面板按用户调配额；失败同样计费故按尝试计数，并显示本会话累计真实消耗）；**不依赖已导入数据**；可导出 Word（含原图）与 Markdown。调用失败不做文本降级 |
+| **AI 读图解析** | 上传气象图（天气图 / 卫星云图 / 雷达回波 / 模式形势图），由多模态模型输出**六段式结构化解读**（图面要素 → 分布特征 → 关键数值 → 趋势演变 → 风险结论）；图片四重上限（5 张 / 原始 1.5MB / 提交 1.5MB / 合计 7.5MB）；**用量记账与配额**（服务端每用户每日配额，次数与 token 双维度，刷新页面不可绕过；默认每日 10 次 / 8 万 token，Qwen默认、Terra xhigh与Sol high可选，单次生成上限32768且受本次预留预算约束，管理员可在面板按用户调配额；失败同样计费故按尝试计数，并显示本会话累计真实消耗）；**不依赖已导入数据**；可导出 Word（含原图）与 Markdown。调用失败不做文本降级 |
 | **报文解码** | 粘贴 METAR / SYNOP 标准报文，自动解析为结构化数据 |
 | **报告导出** | 处理后数据与 GFS 预报数据导出 CSV；一键生成 Word 分析报告（专业版为表格化排版、通俗版为叙述式），报告内不含图片 |
 | **数值预报 (GFS)** | 接入 Open-Meteo **GFS 数值预报（免注册，最长 16 天）**：气温/体感温度/降水时间序列、空气质量预报（AQI 六级分档，口径见 `AQI_STANDARD_LABEL`）、未来 72 小时高温预报面板（含 35/37/40℃ 国家阈值线）、风玫瑰预报、预报验证（GFS vs 实况） |
@@ -172,7 +172,7 @@ python -B tests/test_supabase_backend.py # Supabase 后端契约 26 条
 python -B tests/test_release_surface.py  # 版本/依赖/Secrets/CI 契约 18 条
 ```
 
-其余用例用 pytest 运行全部（当前共 **591** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
+其余用例用 pytest 运行全部（当前共 **657** 项；`tests/test_weather_wall.py` 依赖 pytest，且其中的 AppTest 用例单跑需要登录态）：
 
 ```bash
 pip install -r requirements-dev.txt -c constraints.txt
@@ -252,7 +252,7 @@ Streamlit Cloud 已经重建容器：v2.3.0 发布时就遇到过推送十余分
 
 所有依赖联网的功能（Open-Meteo 气象 / 空气质量 / GFS 预报拉取）在云端均可正常使用。**但登录已是进入主程序的前置条件**：未配置 Supabase 密钥时，`app.py` 会停在登录页并提示如何写入 `.streamlit/secrets.toml`（不会崩溃），因此线上部署必须配置 4 项密钥——`SUPABASE_URL`、`SUPABASE_ANON_KEY`、`SUPABASE_SERVICE_ROLE_KEY`、`ADMIN_PASSWORD`（见下方章节）。
 
-可选的 AI 配置分两组：**读图解析**需要 `LLM_VISION_MODEL`（必需，须为具备图像输入能力的模型）与可选的 `LLM_VISION_API_KEY` / `LLM_VISION_BASE_URL`，缺失时读图页给出配置指引且不显示生成按钮；`LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` 为保留的文本模型配置，当前没有生产调用者，缺失不影响任何功能。
+**读图解析默认使用 Qwen3.8 Flash**，可选 GPT-6.1 Terra xhigh 与 Sol high 专业增强。Qwen使用 `QWEN_VISION_API_KEY`，也可复用本机的 `BASELINE_VISION_API_KEY` 或原Qwen的 `LLM_VISION_*` 配置；两个OpenAI选项使用独立的 `OPENAI_API_KEY`，不会混用密钥。支持进程环境变量、Streamlit Secrets与被Git忽略的 `.env.local`。Qwen流式接收，OpenAI后台任务只创建一次，自动查看进度180秒后可手动取回。切换模型与报告导出不会重新生成。三种模型的生成上限均为32768，并受本次预留预算约束；正文800至2000字。
 
 ---
 
@@ -320,7 +320,7 @@ npm test --prefix tests/sql
   SUPABASE_SERVICE_ROLE_KEY = "eyJ..."     # service_role 密钥（仅服务端，严禁泄露）
   ADMIN_PASSWORD = "你的管理员密码"          # 管理员面板解锁密码
   ```
-  可选项见 `.streamlit/secrets.toml.example`。AI 相关分两组：读图解析用 `LLM_VISION_MODEL`（必需）/ `LLM_VISION_API_KEY` / `LLM_VISION_BASE_URL`；文本模型 `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` 为保留项，当前无生产调用者。**读图解析的模型名不会回落到 `LLM_MODEL`**——默认文本模型没有视觉能力，回落只会造成「配置了却一直失败」。
+  可选项见 `.streamlit/secrets.toml.example`。读图保留Qwen默认，Terra xhigh和Sol high为可选项，两家服务商凭据独立。API密钥不进入页面或任务日志。验证记录与上线操作见 `docs/vision-workbench-integration-20261105.md`；云端需单独配置OpenAI密钥，推送并通过CI后重启应用，核对三模型入口。
 
 ### 4. 部署
 - `requirements.txt` 已加入 `supabase`，推送至 GitHub 后 Streamlit Cloud 自动安装。

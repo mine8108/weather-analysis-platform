@@ -150,7 +150,7 @@ def reader_preview():
                 chart_reader_meta=build_report_meta("人工示例解读 · 未调用 AI 服务"),
                 chart_reader_input_fingerprint=input_fingerprint(inputs), _preview_ai_loaded=True)
     weather("chart-reader")
-    with st.container(key="workbench_content"), patch("modules.ai_narrative.resolve_vision_config", lambda: None):
+    with st.container(key="workbench_content"), patch("modules.ai_narrative.resolve_vision_config", lambda **_: None):
         render_chart_reader_tab()
         if st.button("切换到生成前布局" if st.session_state.get("chart_reader_text") else "恢复示例结果", key="_preview_ai_toggle"):
             if st.session_state.get("chart_reader_text"):

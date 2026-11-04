@@ -47,6 +47,8 @@ venv.bak/
 .DS_Store
 Thumbs.db
 .streamlit/feedback/
+.vision-poc/
+.vision-jobs/
 
 # ===== 编辑器 / 系统 =====
 .idea/
@@ -56,6 +58,7 @@ Thumbs.db
 
 # ===== 测试 / 覆盖率 =====
 .pytest_cache/
+pytest-of-*/
 .coverage
 htmlcov/
 .tox/

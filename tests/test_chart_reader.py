@@ -402,7 +402,7 @@ def test_app_renders_chart_tab_without_data():
     at.session_state["_auto_load_done"] = True
     with patch("auth.ensure_session", lambda: None), patch("db.get_storage_usage_bytes", lambda *a: 0), \
          patch("db.get_storage_quota_bytes", lambda *a: 1), patch("db.list_datasets", lambda *a: []), \
-         patch("modules.ai_narrative.resolve_vision_config", lambda: None):
+         patch("modules.ai_narrative.resolve_vision_config", lambda **_: None):
         at.run()
     assert not at.exception
     assert at.button(key="chart_reader_generate").disabled
