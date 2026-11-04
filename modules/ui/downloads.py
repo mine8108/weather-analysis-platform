@@ -6,7 +6,6 @@ from contextlib import nullcontext
 from html import escape
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 from modules.design_tokens import token_value
 
@@ -68,7 +67,7 @@ def download_button(label, data, *, file_name=None, mime=None, key=None, width="
             markup = _inline_html(label, content, file_name, mime,
                                   dark=bool(st.session_state.get("dark_mode", False)),
                                   stretch=stretch, help_text=help)
-            components.html(markup, height=42, scrolling=False)
+            st.iframe(markup, height=42, alt=f"文件下载：{file_name or label}")
         else:
             # No eager frontend probe and no rerun on the click. The immutable
             # snapshot ensures concurrent session changes cannot alter the file.
